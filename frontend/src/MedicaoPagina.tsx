@@ -303,8 +303,10 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
               <Espelho contratoId={contratoId} podeEditar={podeEditar} aoMudar={recarregar} medicao={{ id: m.id, tipo: m.tipo }} />
             </Etapa>
 
-            {/* consorcio com a FRC ainda por fazer: a etapa 3 fica aberta mesmo depois da nota da Lotufo */}
-            <Etapa n={3} situacao={sit(3)} aberta={frcPendente} resumo={m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
+            {/* consorcio com a FRC ainda por fazer: a etapa 3 fica aberta mesmo depois da nota da Lotufo, e (issue #148)
+                depois de gerada, ate' a assinada estar anexada: e' dali que se baixa a FRC para assinar. Medicao
+                encerrada (recebida, cancelada, desistida) nao tem mais o que fazer ali */}
+            <Etapa n={3} situacao={sit(3)} aberta={frcPendente && !FINAIS.includes(m.estado)} resumo={m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
               {sit(3) === "atual" && <p className="campo__nota">O sistema lê o RM a cada 1 hora e liga a nota sozinho. Se ela não aparecer, anexe o PDF aqui.</p>}
               <div id="notas">
                 <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
@@ -312,11 +314,12 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
               </div>
               <FrcConsorcio medicaoId={m.id} podeEditar={podeEditar && !FINAIS.includes(m.estado)} versao={versaoFrc}
                 aoMudar={() => { recarregar(); setVersaoNotas(v => v + 1); }}
-                aoLer={f => setFrcPendente(f.disponivel && (!f.frc || f.frc.desatualizada))} />
+                aoLer={f => setFrcPendente(f.disponivel && (!f.frc || f.frc.desatualizada || !f.assinada))} />
             </Etapa>
 
             <Etapa n={4} situacao={sit(4)} resumo={m.protocolos.length > 0 ? `enviada em ${fmtDataPura(m.protocolos[m.protocolos.length - 1].data)}` : undefined}>
               {sit(4) === "atual" && <EnvioDaMedicao medicaoId={m.id} podeEditar={podeEditar} versaoDocs={versaoNotas + versaoFrc}
+                aoAnexarItem={() => setVersaoFrc(v => v + 1)}
                 aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }} />}
               {/* o historico dos envios so' depois de enviada: na etapa da vez, o envio acima ja' e' o caminho */}
               {sit(4) === "feita" && <ProtocolosDaMedicao contratoId={contratoId} medicaoId={m.id} dados={protocolos.dados} erro={protocolos.erro}

@@ -15,6 +15,7 @@ import "./notas.css";
 export type ItemEnvio = {
   chave: string; rotulo: string; detalhe?: string | null; estado: "ok" | "aviso" | "falta" | "vencida";
   acao?: string | null; entidade_id?: number | null; competencia?: string | null; medicao_id?: number | null;
+  frc_gerada?: number | null;   // issue #148: numero da FRC gerada (sem assinatura) vigente, no item da FRC
 };
 export type NotaEnvio = { numero: string; natureza: string; municipio?: string | null; arquivo?: string | null; valor_centavos: number };
 export type Envio = {
@@ -110,6 +111,13 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
     try { await apiForm(`/api/medicoes/${it.medicao_id}/notas`, fd); aoMudar(); } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
+  // issue #148: falta a assinada mas a FRC ja' foi gerada: o link para baixa-la fica no proprio item
+  const baixarFrc = (it: ItemEnvio) => it.frc_gerada && it.estado !== "ok" && it.medicao_id ? (
+    <span className="nota-item__detalhe">
+      <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}>Baixar a FRC gerada (nº {it.frc_gerada})</a>
+    </span>
+  ) : null;
+
   return (
     <>
       <ul className="nota-itens">
@@ -122,6 +130,7 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
                   <span className="nota-item__texto">
                     <span>{it.rotulo}</span>
                     {it.detalhe && <span className={`nota-item__detalhe nota-item__detalhe--${it.estado}`}>{it.detalhe}</span>}
+                    {baixarFrc(it)}
                   </span>
                   <span className={`nota-complementares__soltar${sobre === it.chave ? " nota-complementares__soltar--sobre" : ""}`}
                     onDragOver={ev => { ev.preventDefault(); if (sobre !== it.chave) setSobre(it.chave); }}
@@ -145,6 +154,7 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
                 <span className="nota-item__texto">
                   <span>{it.rotulo}</span>
                   {it.detalhe && <span className={`nota-item__detalhe nota-item__detalhe--${it.estado}`}>{it.detalhe}</span>}
+                  {baixarFrc(it)}
                 </span>
                 {podeEditar && it.acao === "anexar_regularidade" && (it.entidade_id && it.competencia ? (
                   <label className="btn espelho__anexar nota-anexar">

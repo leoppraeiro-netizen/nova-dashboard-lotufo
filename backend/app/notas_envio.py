@@ -9,7 +9,7 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
-from app import arquivos, auditoria, certidoes, db, documentos, medicoes, oficios, protocolo, tempo
+from app import arquivos, auditoria, certidoes, db, documentos, frc, medicoes, oficios, protocolo, tempo
 
 SUB_SINFRA = {"sinfra-sagpm": "SAGPM", "sinfra-suef1": "SUEF I", "sinfra-suef2": "SUEF II", "sinfra-supu": "SUPU",
               "sinfra-sacid": "SACID"}
@@ -86,10 +86,17 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
             frcs = {d["medicao_id"]: d for d in docs if d["tipo_doc"] == "fatura"}
             for m in ms:
                 d = frcs.get(m["id"])
+                # issue #148: a FRC gerada (sem assinatura) vigente, para a etapa 4 oferecer baixa-la; desatualizada
+                # (as notas mudaram depois dela) nao se oferece: assinaria valores velhos
+                g = None if d else frc.situacao(conn, m["id"]).get("frc")
+                detalhe = (f"Assinada anexada · {d['nome']}" if d
+                           else "Falta a assinada: as notas mudaram depois da FRC gerada; gere de novo na etapa 3 "
+                                "(Nota fiscal), assine no DocuSign e anexe aqui" if g and g["desatualizada"]
+                           else "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui" if g
+                           else "Falta a FRC assinada: gere na etapa 3 (Nota fiscal), assine no DocuSign e anexe aqui")
                 itens.append({"chave": f"frc:{m['id']}", "medicao_id": m["id"],
                               "rotulo": "FRC assinada" + (f" · {medicoes.titulo(m)}" if len(ms) > 1 else ""),
-                              "detalhe": d["nome"] if d else "Falta a FRC assinada: gere na etapa 3 (Nota fiscal), "
-                                                              "assine no DocuSign e anexe aqui",
+                              "detalhe": detalhe, "frc_gerada": g["numero"] if g and not g["desatualizada"] else None,
                               "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc"})
             notas_faltam = [f for f in faltas if not f.endswith("FRC assinada não anexada")]
             itens.append({"chave": "consorcio", "rotulo": "Notas das consorciadas",

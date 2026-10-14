@@ -191,6 +191,43 @@ describe("Enviar a nota", () => {
     });
   });
 
+  // issue #148: a FRC aparece em "O que vai no e-mail" com a situação certa
+  describe("FRC em O que vai no e-mail", () => {
+    const itemFrc = (extra: object) => ({ ...det, envio: { ...det.envio, itens: [
+      { chave: "frc:631", rotulo: "FRC assinada", medicao_id: 631, ...extra }] } });
+    const secao = () => screen.getByRole("region", { name: "O que vai no e-mail" });
+
+    it("gerada e sem a assinada: diz que falta a assinada e oferece baixar a gerada", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? itemFrc({
+        estado: "falta", acao: "anexar_frc", frc_gerada: 77,
+        detalhe: "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui" }) : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      await screen.findByText("O que vai no e-mail");
+      expect(within(secao()).getByText(/Falta a assinada/)).toBeTruthy();
+      const link = within(secao()).getByRole("link", { name: "Baixar a FRC gerada (nº 77)" });
+      expect(link.getAttribute("href")).toBe("/api/medicoes/631/frc/pdf");
+      expect(within(secao()).getByLabelText("Anexar FRC assinada")).toBeTruthy();
+    });
+
+    it("quem só consulta também vê o link da FRC gerada", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? itemFrc({
+        estado: "falta", acao: "anexar_frc", frc_gerada: 77, detalhe: "Falta a assinada" }) : {}));
+      render(<EnviarNota protocoloId={3} podeEditar={false} embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      await screen.findByText("O que vai no e-mail");
+      expect(within(secao()).getByRole("link", { name: "Baixar a FRC gerada (nº 77)" })).toBeTruthy();
+    });
+
+    it("assinada anexada: mostra pronta, sem o link da gerada", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? itemFrc({
+        estado: "ok", acao: null, frc_gerada: 77, detalhe: "Assinada anexada · FRC 77 assinada.pdf" }) : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      await screen.findByText("O que vai no e-mail");
+      expect(within(secao()).getByText("Assinada anexada · FRC 77 assinada.pdf")).toBeTruthy();
+      expect(within(secao()).getByTitle("Pronto")).toBeTruthy();
+      expect(within(secao()).queryByRole("link", { name: /Baixar a FRC gerada/ })).toBeNull();
+    });
+  });
+
   it("remover documento complementar ou link pede confirmação antes do pedido (issue #28)", async () => {
     const comExtras = { ...det, extras: [{ id: 41, nome: "justificativa.pdf", tamanho: 4096 }],
       previa: { ...det.previa, links: [{ id: 5, nome: "relatorios.zip", url: "https://lotufoengmt.sharepoint.com/x" }] } };

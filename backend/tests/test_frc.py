@@ -250,21 +250,37 @@ def test_numero_sugerido_e_ultima_registrada(conn, usuario, consorcio14, _texto)
 def test_frc_gerada_nao_satisfaz_o_envio_e_a_assinada_sim(conn, usuario, consorcio14, _texto):  # noqa: F811
     cid, mid = consorcio14
     n = ULTIMA + 1
-    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
     c = protocolo._contrato(conn, cid)
     m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    # issue #148: sem FRC gerada, a etapa 4 manda gerar na etapa 3 e nao oferece baixar nada
+    itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
+    item = next(i for i in itens if i["chave"] == f"frc:{mid}")
+    assert item["frc_gerada"] is None and item["detalhe"].startswith("Falta a FRC assinada: gere na etapa 3")
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
     assert frc.situacao(conn, mid)["frc"] is not None
     assert protocolo.faltas_consorcio(conn, c, [m]) == ["14ª Medição: FRC assinada não anexada"]
     itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
     item = next(i for i in itens if i["chave"] == f"frc:{mid}")
     assert (item["estado"], item["acao"]) == ("falta", "anexar_frc")
+    # issue #148: a etapa 4 diz que falta a assinada e oferece baixar a gerada
+    assert item["frc_gerada"] == n
+    assert item["detalhe"] == "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui"
     assert next(i for i in itens if i["chave"] == "consorcio")["estado"] == "ok"
+    # FRC desatualizada (as notas mudaram depois dela): nao se oferece para assinar, manda gerar de novo
+    linhas = conn.execute("SELECT notas FROM frcs WHERE medicao_id=? AND substituida_em IS NULL", (mid,)).fetchone()[0]
+    conn.execute("UPDATE frcs SET notas='[]' WHERE medicao_id=? AND substituida_em IS NULL", (mid,))
+    conn.commit()
+    itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
+    item = next(i for i in itens if i["chave"] == f"frc:{mid}")
+    assert item["frc_gerada"] is None and "gere de novo na etapa 3" in item["detalhe"]
+    conn.execute("UPDATE frcs SET notas=? WHERE medicao_id=? AND substituida_em IS NULL", (linhas, mid))
+    conn.commit()
     _texto("qualquer coisa")
     notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), f"FRC {n} assinada.pdf", tipo_doc="fatura")
     assert protocolo.faltas_consorcio(conn, c, [m]) == []
     itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
     item = next(i for i in itens if i["chave"] == f"frc:{mid}")
-    assert (item["estado"], item["detalhe"]) == ("ok", f"FRC {n} assinada.pdf")
+    assert (item["estado"], item["detalhe"]) == ("ok", f"Assinada anexada · FRC {n} assinada.pdf")
     assert frc.situacao(conn, mid)["assinada"] is True
 
 

@@ -1,13 +1,23 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SituacaoFrc } from "./Frc";
 import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
+const { api, frcLida } = vi.hoisted(() => ({ api: vi.fn(), frcLida: { atual: null as unknown, lida: false } }));
 vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 // Cada cartao tem fluxo proprio; aqui so' importa que, ao avisar a pagina, ela releia o que os outros mostram.
 vi.mock("./Espelho", () => ({ default: () => null }));
-vi.mock("./Frc", () => ({ FrcConsorcio: () => null }));
+// a FRC so' conta o que leu (aoLer), como o cartao de verdade depois de GET /frc
+vi.mock("./Frc", () => ({
+  // le de novo quando a pagina muda a versao, como o cartao de verdade
+  FrcConsorcio: ({ aoLer, versao }: { aoLer?: (s: SituacaoFrc) => void; versao: number }) => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { if (frcLida.atual) { aoLer?.(frcLida.atual as SituacaoFrc); frcLida.lida = true; } }, [versao]);
+    return null;
+  },
+}));
 vi.mock("./Notas", () => ({
   Notas: ({ aoMudar }: { aoMudar: () => void }) => <button type="button" onClick={aoMudar}>Anexar nota (teste)</button>,
 }));
@@ -72,5 +82,81 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Enviar protocolo (teste)" }));
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes")).toHaveLength(2));
+  });
+});
+
+// issue #148: com a ultima nota a FRC e' gerada e a medicao passa para o envio; a etapa 3 continua aberta ate' a
+// FRC assinada estar anexada, porque e' dali que se baixa a FRC para assinar
+describe("Página da medição: etapa 3 da obra de consórcio", () => {
+  afterEach(() => { cleanup(); api.mockReset(); frcLida.atual = null; frcLida.lida = false; });
+
+  const FRC = { numero: 77, data_geracao: "2026-10-14", gerada_em: "2026-10-14T10:00:00", gerada_por: null,
+    bruto_centavos: 100, liquido_centavos: 90, desatualizada: false };
+  const consorcio = (extra: Partial<SituacaoFrc>): SituacaoFrc =>
+    ({ disponivel: true, consorcio: "Consórcio X", motivo: null, itens: [], frc: FRC, assinada: false, ...extra });
+
+  // devolve a etapa 3 depois que a pagina recebeu a leitura da FRC (aoLer) e renderizou de novo
+  async function etapa3(frc: SituacaoFrc, estado = "nota_emitida") {
+    responder();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => {
+      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado }];
+      if (url === "/api/notas/a-enviar") return { envios: [], contadores: {} };
+      return base(url, opcoes);
+    });
+    frcLida.atual = frc;
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    await screen.findByRole("button", { name: "Anexar nota (teste)" });
+    await waitFor(() => expect(frcLida.lida).toBe(true));
+    await act(async () => {});
+    return container.querySelector("#etapa-3") as HTMLDetailsElement;
+  }
+
+  it("FRC gerada e ainda não assinada: a etapa 3 fica aberta", async () => {
+    const etapa = await etapa3(consorcio({}));
+    expect(etapa.open).toBe(true);
+  });
+
+  it("com a FRC assinada anexada, a etapa 3 fecha", async () => {
+    const etapa = await etapa3(consorcio({ assinada: true }));
+    expect(etapa.tagName).toBe("DETAILS");
+    expect(etapa.open).toBe(false);
+  });
+
+  it("anexar a FRC assinada na etapa 4 relê a FRC e a etapa 3 fecha, sem recarregar a página", async () => {
+    const ITEM = { chave: "frc:5", rotulo: "FRC assinada", medicao_id: 5, frc_gerada: 77, estado: "falta",
+      acao: "anexar_frc", detalhe: "Falta a assinada" };
+    const ENVIO = { chave: "m5", contrato_id: 1, obra: "Hospital", orgao: "SINFRA", orgao_sub: null, familia: "sinfra",
+      grupo: "SINFRA", a_pedido: false, medicao_ids: [5], descricao: "23ª medição", notas: [], valor_centavos: 100,
+      emitida_em: "2026-10-13", dias: 1, situacao: "pendente", aviso: null, protocolo_id: 3, itens: [ITEM] };
+    responder();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => {
+      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }];
+      if (url === "/api/notas/a-enviar") return { envios: [ENVIO], contadores: {} };
+      if (url === "/api/notas/envio/3") return { envio: ENVIO, familia: "sinfra", etapa: "nota", situacao_protocolo: "rascunho",
+        carta: null, previa: { para: [], copia: [], assunto: "Notas", corpo: "Bom dia.", anexos: [], links: [] },
+        bloqueio: null, pendencias: [], justificativa_obrigatoria: false, extras: [] };
+      if (url.startsWith("/api/correio/contatos")) return [];
+      return base(url, opcoes);
+    });
+    frcLida.atual = consorcio({});
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    const etapa = () => container.querySelector("#etapa-3") as HTMLDetailsElement;
+    await waitFor(() => expect(etapa().open).toBe(true));
+    frcLida.atual = consorcio({ assinada: true });
+    const pdf = new File(["%PDF-1.4"], "FRC 77 assinada.pdf", { type: "application/pdf" });
+    fireEvent.change(await screen.findByLabelText("Anexar FRC assinada"), { target: { files: [pdf] } });
+    await waitFor(() => expect(etapa().open).toBe(false));
+  });
+
+  it("medição encerrada sem a FRC assinada: a etapa 3 não abre sozinha", async () => {
+    const etapa = await etapa3(consorcio({}), "recebida");
+    expect(etapa.open).toBe(false);
+  });
+
+  it("obra que não é de consórcio: a etapa 3 feita fica recolhida, como antes", async () => {
+    const etapa = await etapa3({ disponivel: false, consorcio: null, motivo: null });
+    expect(etapa.open).toBe(false);
   });
 });
