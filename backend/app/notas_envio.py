@@ -282,9 +282,12 @@ def detalhe_envio(conn, protocolo_id: int, remetente: str | None = None, hoje: d
 
 
 def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[str], assunto: str, corpo: str,
-           justificativa: str | None, cco: list[str] | None = None, anexos_previa: list[dict] | None = None) -> int:
+           justificativa: str | None, cco: list[str] | None = None, *, anexos_previa: list[dict]) -> int:
     """Envia pelo Outlook de quem esta' logado e marca `protocolada` (protocolo.enviar). Bloqueio -> protocolo.Bloqueio.
-    `anexos_previa` (issue #100): os anexos que a tela mostrou; se o servidor montar outros, recusa antes de reservar."""
+    `anexos_previa` (issue #100): os anexos que a tela mostrou; se o servidor montar outros, recusa antes de reservar
+    (protocolo.AnexosMudaram). Obrigatorio (gate Sol S1, PR #141): None nao vira envio sem conferencia."""
+    if anexos_previa is None:
+        raise ValueError("Faltam os anexos da prévia: abra a prévia de novo para conferir o que vai no e-mail")
     p = protocolo._linha(conn, protocolo_id)
     if p["etapa"] not in ("nota", "unico"):
         raise ValueError("Este protocolo não é de envio de nota")

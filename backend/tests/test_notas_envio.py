@@ -658,8 +658,9 @@ def test_nf_anexada_depois_da_previa_recusa_o_envio_da_nota_sem_reservar(api, tm
     assert len(cl.get(f"/api/notas/envio/{pid}").json()["previa"]["anexos"]) == len(vistos) + 1
     r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, anexos=vistos))
     assert r.status_code == 422, r.text
-    assert r.json()["detail"] == ("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
-                                  "o que vai no e-mail")
+    # gate Sol S2 (PR #141): a recusa traz `codigo`, para a tela recarregar so' nela e nao em qualquer erro
+    assert r.json()["detail"] == {"codigo": "ANEXOS_MUDARAM", "mensagem": (
+        "Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir o que vai no e-mail")}
     p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
@@ -679,4 +680,19 @@ def test_envio_da_nota_sem_os_anexos_da_previa_e_recusado(api):
     del corpo["anexos"]
     r = cl.post(f"/api/notas/envio/{pid}/enviar", json=corpo)
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "anexos"]
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
+    """Gate Sol S1 (PR #141): chamador interno sem a lista (ou com None) nao envia sem conferir nem reserva."""
+    c, ids = svc
+    pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"], ids["sinfra_reaj"]])
+    pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
+    args = (c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"], None)
+    with pytest.raises(TypeError):
+        notas_envio.enviar(*args)                                   # anexos_previa e' obrigatorio, so' por nome
+    with pytest.raises(ValueError, match="anexos da prévia"):
+        notas_envio.enviar(*args, anexos_previa=None)
+    p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0

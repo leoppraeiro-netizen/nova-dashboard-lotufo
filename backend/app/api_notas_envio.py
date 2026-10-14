@@ -80,6 +80,9 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None
+    except protocolo.AnexosMudaram as e:
+        conn.rollback()
+        raise HTTPException(422, detail={"codigo": e.codigo, "mensagem": str(e)}) from None
     except protocolo.Bloqueio as e:
         conn.rollback()
         raise HTTPException(409, str(e)) from None

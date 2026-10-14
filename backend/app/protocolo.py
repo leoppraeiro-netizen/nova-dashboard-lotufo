@@ -101,6 +101,12 @@ class Bloqueio(ValueError):
     """D8: o que impede o envio sem justificativa possivel (certidao vencida)."""
 
 
+class AnexosMudaram(ValueError):
+    """Issue #100 (gate Sol S2, PR #141): a lista de anexos de agora nao e' a da previa. Subclasse de ValueError, entao a
+    rota do protocolo responde como antes; a do envio da nota manda `codigo` para a tela recarregar so' nesse caso."""
+    codigo = "ANEXOS_MUDARAM"
+
+
 titulo = medicoes.titulo          # bloco 6: o titulo mora em `medicoes` (lista de medicoes em andamento)
 
 
@@ -833,8 +839,8 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     # Issue #10: o e-mail leva os anexos que a pessoa conferiu na previa; documento anexado ou trocado depois dela
     # (na medicao ou no protocolo) recusa o envio em vez de sair sem ser visto.
     if anexos_previa is not None and sorted((a["nome"], a["tamanho"]) for a in anexos_previa) !=             sorted((a["nome"], a["tamanho"]) for a in pv["anexos"]):
-        raise ValueError("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
-                         "o que vai no e-mail")
+        raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
+                            "o que vai no e-mail")
     justificativa = (justificativa or "").strip() or None
     if pv["pendencias"] and len(justificativa or "") < MIN_JUSTIFICATIVA:
         raise ValueError(f"{len(pv['pendencias'])} pendência(s) na prévia: informe a justificativa "
