@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { NovoProtocolo, ProtocolosDaMedicao } from "./Protocolo";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const MEDICAO = { id: 5, numero: 23, tipo: "execucao", titulo: "23ª Medição", estado: "nota_emitida",
   competencia: "2026-09", valor_protocolado_centavos: 1000000 };

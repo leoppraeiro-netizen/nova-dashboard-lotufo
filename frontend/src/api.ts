@@ -97,5 +97,6 @@ export async function apiForm<T = unknown>(caminho: string, dados: FormData): Pr
  * qualquer outra coisa lancada (bug de codigo, erro nativo) nao pode vazar "TypeError: ..." em ingles. */
 export function mensagemDeErro(e: unknown): string {
   if (e instanceof ApiErro) return e.message;
+  console.error(e);
   return "Algo deu errado. Tente de novo.";
 }
