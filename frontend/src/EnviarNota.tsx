@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm } from "./api";
+import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { EnvioPorFora, IconeCheck, iniciarEnvio, ItensEnvio, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
@@ -28,6 +28,14 @@ type Det = {
 };
 type Extra = { id: number; nome: string; tamanho: number };
 type Link = { id: number; nome: string; url: string };
+
+// issue #100 (gate Sol S3, PR #141): a lista de anexos sem depender da ordem, como a conferencia do servidor; repetidos
+// contam. A mesma lista em outra ordem nao refaz a previa.
+function assinaturaAnexos(anexos: { nome: string; tamanho: number }[]): string {
+  const pares = anexos.map(a => [a.nome, a.tamanho] as const)
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1]));
+  return JSON.stringify(pares);
+}
 
 // Documentos complementares (09/10/2026): PDF a mais no envio (ex.: justificativa tecnica). Vai SEMPRE separado no
 // e-mail, fora do PDF da carta; por isso anexar ou remover nao desfaz o montado/assinado. Botao ou arrastar e soltar.
@@ -183,7 +191,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   const carregar = useCallback(async () => {
     try {
       const novo = await api<Det>(`/api/notas/envio/${protocoloId}`);
-      const assinatura = JSON.stringify(novo.previa.anexos.map(a => [a.nome, a.tamanho]));
+      const assinatura = assinaturaAnexos(novo.previa.anexos);
       if (anexosLidos.current !== null && anexosLidos.current !== assinatura) setRefeita(true);
       anexosLidos.current = assinatura;
       setDet(novo); setErro("");
@@ -245,8 +253,10 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
           para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
           anexos: anexosVistos }) });
       } catch (erro) {
-        // recusado (anexos mudaram em outra aba, p. ex.): recarrega, e a previa com os anexos de agora toma o lugar
-        await carregar();
+        // so' a recusa por anexos mudados (em outra aba, p. ex.) recarrega: a previa com os anexos de agora toma o
+        // lugar. Outro erro (409 de envio em andamento, falha do Outlook) mantem o e-mail como esta' (gate Sol S2).
+        // `carregar` guarda o proprio erro, entao o que sobe e' sempre o do envio.
+        if (erro instanceof ApiErro && erro.status === 422 && erro.corpo?.codigo === "ANEXOS_MUDARAM") await carregar();
         throw erro;
       }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
@@ -306,7 +316,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
     <>
       {/* a chave inclui os complementares: anexar ou remover refaz o texto ("... e documento complementar.") */}
       {/* issue #100: e os anexos da previa: NF ou FRC anexada, juntar ou separar fecham a previa e abrem a nova */}
-      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${JSON.stringify(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
+      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${assinaturaAnexos(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
         aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />

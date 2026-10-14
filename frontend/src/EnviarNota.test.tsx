@@ -128,7 +128,7 @@ describe("Enviar a nota", () => {
       const RECUSA = "Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir o que vai no e-mail";
       api.mockImplementation((caminho: string) => {
         if (caminho === "/api/notas/envio/3") return Promise.resolve(atual);
-        if (caminho === "/api/notas/envio/3/enviar") { atual = comFrc([NF, FRC]); return Promise.reject(new ApiErro(422, RECUSA)); }
+        if (caminho === "/api/notas/envio/3/enviar") { atual = comFrc([NF, FRC]); return Promise.reject(new ApiErro(422, RECUSA, { codigo: "ANEXOS_MUDARAM", mensagem: RECUSA })); }
         return Promise.resolve({});
       });
       render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
@@ -153,6 +153,39 @@ describe("Enviar a nota", () => {
       rerender(<EnviarNota {...props} versao={1} />);
       await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
       expect(screen.getByText(AVISO)).toBeTruthy();
+    });
+
+    // gate Sol S2 (PR #141): 409 de envio em andamento (a outra aba enviou) nao relê o envio nem apaga o texto editado
+    it("outro erro de envio mantém o e-mail editado e não relê o envio", async () => {
+      api.mockImplementation((caminho: string) => {
+        if (caminho === "/api/notas/envio/3") return Promise.resolve(comFrc([NF]));
+        if (caminho === "/api/notas/envio/3/enviar") return Promise.reject(new ApiErro(409, "Envio em andamento por Admin.",
+          { codigo: "ENVIO_RESERVADO", mensagem: "Envio em andamento por Admin.", reservado_em: null, reservado_por_nome: "Admin", liberavel_a_partir_de: null }));
+        return Promise.resolve({});
+      });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
+      fireEvent.change(corpo, { target: { value: "Bom dia. Com a observação do fiscal." } });
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
+      expect(await screen.findByText("Envio em andamento por Admin.")).toBeTruthy();
+      expect(api.mock.calls.filter(c => c[0] === "/api/notas/envio/3")).toHaveLength(1);
+      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia. Com a observação do fiscal.");
+    });
+
+    // gate Sol S3 (PR #141): a conferência do servidor não depende da ordem; a tela também não
+    it("os mesmos anexos em outra ordem não refazem a prévia nem mostram o aviso", async () => {
+      let atual = comFrc([NF, FRC]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      const props = { protocoloId: 3, podeEditar: true, embutido: { aoConcluir: () => {}, aoTrocar: () => {} } };
+      const { rerender } = render(<EnviarNota {...props} versao={0} />);
+      const assunto = await screen.findByLabelText("Assunto") as HTMLInputElement;
+      fireEvent.change(assunto, { target: { value: "Assunto editado" } });
+      atual = comFrc([FRC, NF]);
+      rerender(<EnviarNota {...props} versao={1} />);
+      await waitFor(() => expect(api.mock.calls.filter(c => c[0] === "/api/notas/envio/3")).toHaveLength(2));
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).getAllByRole("listitem")[0].textContent).toContain("FRC 77.pdf"));
+      expect((screen.getByLabelText("Assunto") as HTMLInputElement).value).toBe("Assunto editado");
+      expect(screen.queryByText(AVISO)).toBeNull();
     });
   });
 
