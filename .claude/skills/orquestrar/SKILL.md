@@ -26,6 +26,8 @@ Modelos: trabalhadora em `sonnet` (padrão do agente) ou `opus` quando a issue t
 2. **Escolher** as 10 primeiras da tabela. Antes de abrir, ler cada issue (`gh issue view <N>`); se o texto não
    diz o que o Leo quer ver na tela nem dá para deduzir dos documentos (`docs/`, `docs/backlog.md`,
    `cadastro/`), não abrir trabalhadora: comentar a pergunta na issue, pôr `decisao` e pegar a próxima.
+   Se a leitura mostrar label `decisao`, `parar`, `precisa-do-leo` ou `sessao-manual` posto depois da
+   listagem, pular a issue.
    Issue cujo trabalho é todo em caminho protegido (`.github/`, `scripts/deploy.ps1`, `.claude/`,
    `backend/migrations/`, pelo `## Arquivos prováveis` ou pelo título): pular sem label, só anotar no resumo
    que é do Leo; não vale gastar trabalhadora numa PR que a trava do passo 8 vai segurar.
@@ -71,6 +73,9 @@ Modelos: trabalhadora em `sonnet` (padrão do agente) ou `opus` quando a issue t
      issue (`gh issue comment`);
    - a PR **não toca** `.github/`, `scripts/deploy.ps1`, `.claude/` nem `backend/migrations/`
      (`gh pr view <M> --json files -q '.files[].path'`): se tocar, fica para o Leo mergear;
+   - a issue **não tem** label `redesenho`, consultado na hora (`gh issue view <N> --json labels -q
+     '.labels[].name'`): tela refeita pelo Higgsfield é mergeada e posta no ar só com a aprovação do Leo; se
+     tiver, não ligar o auto-merge, pôr `precisa-do-leo` na issue e dizer no resumo que a PR espera o Leo;
    - a CI existe e está rodando ou verde (`gh pr checks <M>`): CI ausente é recusa, não aprovação.
    Passou em tudo: `gh pr merge <M> --auto --merge` e comentar na issue "PR #M com auto-merge ligado".
    Falhou em alguma: comentar na **issue** qual trava segurou, pôr `precisa-do-leo` na issue e seguir.
