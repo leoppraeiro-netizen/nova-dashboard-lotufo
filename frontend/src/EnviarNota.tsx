@@ -21,7 +21,7 @@ const MIN_JUSTIFICATIVA = 10;
 type Det = {
   envio: Envio; familia: string; etapa: string; situacao_protocolo: string;
   carta: { oficio: string | null; paginas: string[] } | null;
-  previa: { para: string[]; copia: string[]; assunto: string; corpo: string; anexos: { nome: string; origem?: string; tamanho?: number }[];
+  previa: { para: string[]; copia: string[]; assunto: string; corpo: string; anexos: { nome: string; origem?: string; tamanho: number }[];
     links?: Link[] };
   bloqueio: string | null; pendencias: (string | { mensagem: string })[]; justificativa_obrigatoria: boolean;
   extras: Extra[];
@@ -218,10 +218,15 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const passoAssinar: Passo = assinado ? "feito" : montado ? "atual" : "futuro";
   const passoEnviar: Passo = assinado ? "atual" : "futuro";
 
+  // issue #100 (como o protocolo na PR #92): os anexos que a previa mostrou; documento anexado depois dela (na
+  // medicao, em outra aba) faz o servidor recusar o envio em vez de mandar o que ninguem conferiu
+  const anexosVistos = det.previa.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho }));
+
   async function enviar(m: Mensagem) {
     await agir(async () => {
       await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
-        para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null }) });
+        para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
+        anexos: anexosVistos }) });
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
       if (embutido) embutido.aoConcluir(`Nota enviada às ${fmtHora(new Date().toISOString())}.`);
       else ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { enviada: `${e.obra} · ${e.descricao}` } });
@@ -278,7 +283,8 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const email = (
     <>
       {/* a chave inclui os complementares: anexar ou remover refaz o texto ("... e documento complementar.") */}
-      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
+      {/* issue #100: e os anexos da previa: NF ou FRC anexada, juntar ou separar fecham a previa e abrem a nova */}
+      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${JSON.stringify(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
         aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />

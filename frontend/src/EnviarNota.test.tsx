@@ -1,9 +1,9 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EnviarNota from "./EnviarNota";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
+vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
 
 const det = {
   envio: { chave: "c20:m631-m632", contrato_id: 20, obra: "MT-401", orgao: "SINFRA", orgao_sub: "SUEF II", familia: "sinfra",
@@ -15,7 +15,7 @@ const det = {
 };
 
 describe("Enviar a nota", () => {
-  afterEach(() => { cleanup(); api.mockReset(); });
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
 
   it("o Cco escrito no e-mail vai no envio (testes de quebra 10/10, A-17)", async () => {
     api.mockImplementation((caminho: string) => {
@@ -85,5 +85,40 @@ describe("Enviar a nota", () => {
     render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
     expect(await screen.findByText(/Cole um link do OneDrive ou SharePoint da Lotufo \(lotufoengmt-my\.sharepoint\.com ou lotufoengmt\.sharepoint\.com\)/))
       .toBeTruthy();
+  });
+
+  // issue #100: como no protocolo (PR #92), o Enviar leva os anexos que a prévia mostrou, para o servidor recusar se mudaram
+  describe("anexos da prévia", () => {
+    const NF = { nome: "NFS 2301.pdf", origem: "nota", tamanho: 10 };
+    const FRC = { nome: "FRC 77.pdf", origem: "nota", tamanho: 20 };
+    const comFrc = (anexos: object[]) => ({ ...det,
+      envio: { ...det.envio, itens: [{ chave: "frc", rotulo: "FRC assinada", estado: "falta", acao: "anexar_frc", medicao_id: 631 }] },
+      previa: { ...det.previa, anexos } });
+
+    it("o envio leva nome e tamanho dos anexos mostrados na prévia", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comFrc([NF]) : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar a nota" }));
+      await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
+      const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/notas/envio/3/enviar")!;
+      expect(JSON.parse(opcoes.body).anexos).toEqual([{ nome: "NFS 2301.pdf", tamanho: 10 }]);
+    });
+
+    it("anexar a FRC com a prévia aberta fecha a prévia: o e-mail editado é refeito com os anexos novos", async () => {
+      let atual = comFrc([NF]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      apiForm.mockImplementation(async () => { atual = comFrc([NF, FRC]); return {}; });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const assunto = await screen.findByLabelText("Assunto") as HTMLInputElement;
+      fireEvent.change(assunto, { target: { value: "Assunto editado antes do anexo" } });
+      const pdf = new File(["%PDF-1.4"], "FRC 77.pdf", { type: "application/pdf" });
+      fireEvent.change(screen.getByLabelText("Anexar FRC assinada"), { target: { files: [pdf] } });
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      expect((screen.getByLabelText("Assunto") as HTMLInputElement).value).toBe("Notas");
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
+      await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
+      const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/notas/envio/3/enviar")!;
+      expect(JSON.parse(opcoes.body).anexos).toEqual([{ nome: "NFS 2301.pdf", tamanho: 10 }, { nome: "FRC 77.pdf", tamanho: 20 }]);
+    });
   });
 });
