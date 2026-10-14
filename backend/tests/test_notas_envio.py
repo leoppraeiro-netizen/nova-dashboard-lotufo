@@ -7,8 +7,10 @@ import zipfile
 
 import pytest
 
-from app import (arquivos, auth, cadastro_aplicar, certidoes, cobranca_certidoes, correio, db, documentos,
+from app import (arquivos, auth, cadastro_aplicar, certidoes, cobranca_certidoes, correio, db, documentos, frc,
                  notas_envio, protocolo, tempo)
+from tests import test_frc
+from tests.test_frc import _texto, consorcio14, conn, usuario  # noqa: F401  (fixtures do consorcio com FRC)
 from tests.test_protocolo import CARTAS, CINCO, _contrato, _pdf, _textos
 
 D = datetime.date
@@ -698,3 +700,38 @@ def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
     p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+# --- issue #169: a FRC assinada do envio e' a da FRC vigente ----------------------------------------
+
+def test_assinada_de_frc_anterior_recusa_o_envio(conn, usuario, consorcio14, _texto, tmp_path, monkeypatch):  # noqa: F811
+    """Gate Sol na PR #168: as notas mudam, a FRC e' gerada de novo e a assinada anexada e' a da versao anterior. O
+    item nao fica pronto e o servidor recusa o envio (bloqueio, sem justificativa possivel) antes de reservar."""
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    cid, mid = consorcio14
+    n = test_frc.ULTIMA + 1
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (mid,))
+    conn.commit()
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} assinada.pdf")
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid])
+    assert notas_envio.detalhe_envio(conn, pid)["bloqueio"] is None
+    frc.gerar(conn, usuario, mid, n)                       # FRC gerada de novo: a assinada anexada e' da anterior
+    d = notas_envio.detalhe_envio(conn, pid)
+    item = next(i for i in d["envio"]["itens"] if i["chave"] == f"frc:{mid}")
+    assert item["estado"] == "falta" and d["envio"]["situacao"] != "pronto"
+    assert d["bloqueio"] == (f"14ª Medição: A FRC assinada anexada não é a da FRC nº {n} vigente: baixe a FRC "
+                             "gerada, assine no DocuSign e anexe aqui")
+    assert not [a for a in d["previa"]["anexos"] if a["origem"] == "frc"]          # a velha nao vai
+    pv = protocolo.previa_envio(conn, [pid])
+    with pytest.raises(protocolo.Bloqueio, match="não é a da FRC nº"):
+        notas_envio.enviar(conn, usuario, pid, pv["para"] or ["orgao@exemplo.com.br"], pv["copia"], pv["assunto"],
+                           pv["corpo"], "justificativa longa o bastante para passar", anexos_previa=pv["anexos"])
+    p = conn.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    # a assinada da FRC vigente destrava, e so' ela vai no e-mail
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} assinada de novo.pdf")
+    d = notas_envio.detalhe_envio(conn, pid)
+    assert d["bloqueio"] is None
+    assert [a["nome"] for a in d["previa"]["anexos"] if a["origem"] == "frc"] == [f"FRC {n} assinada de novo.pdf"]

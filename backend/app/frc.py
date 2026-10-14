@@ -227,12 +227,68 @@ def situacao(conn, medicao_id: int) -> dict:
                "desatualizada": atuais != antes}
     itens = [{k: v for k, v in i.items() if not k.startswith("_")} for i in ck["itens"]]
     bloqueio = _bloqueio(ck)
+    doc, recusa = _escolher_assinada(_faturas(conn, medicao_id), vig, bool(frc and frc["desatualizada"]))
     return {"disponivel": True, "consorcio": ent["nome"], "motivo": None, "itens": itens,
             "nao_lidas": ck["nao_lidas"], "sobras": ck["sobras"],
             "completa": bool(itens) and all(i["situacao"] == "anexada" for i in itens),
             "bloqueio": bloqueio, "ultima": ult, "sugerido": vig["numero"] if vig else ult + 1, "frc": frc,
-            "assinada": conn.execute("SELECT nome FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura' "
-                                     "AND arquivo IS NOT NULL ORDER BY id DESC", (medicao_id,)).fetchone() is not None}
+            "assinada": doc is not None, "assinada_documento": doc, "assinada_recusa": recusa}
+
+
+# --- FRC assinada (issue #169) --------------------------------------------------------------------------------
+# A assinada (documento `fatura`) guarda a linha de `frcs` vigente quando foi anexada (migracao 038) e so' vale para
+# o envio enquanto essa linha for a vigente e nao estiver desatualizada: a assinada de uma FRC substituida (notas
+# trocadas, FRC gerada de novo) nao sai ao orgao com os valores velhos.
+
+DESATUALIZADA = "As notas mudaram depois desta FRC: gere de novo na etapa 3 (Nota fiscal) antes de baixar"
+
+
+def _faturas(conn, medicao_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT id, nome, frc_id FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura' "
+        "AND arquivo IS NOT NULL ORDER BY id", (medicao_id,))]
+
+
+def _escolher_assinada(docs: list[dict], vig: dict | None, desatualizada: bool) -> tuple[dict | None, str | None]:
+    """(a assinada que vale, ou None; por que a anexada nao vale, ou None quando nenhuma foi anexada)."""
+    validas = [d for d in docs if vig and d["frc_id"] == vig["id"]]
+    if validas and not desatualizada:
+        return {"id": validas[-1]["id"], "nome": validas[-1]["nome"]}, None
+    if not docs:
+        return None, None
+    if vig is None:
+        return None, ("A FRC assinada anexada não corresponde a nenhuma FRC gerada: gere na etapa 3 (Nota fiscal), "
+                      "assine no DocuSign e anexe aqui")
+    if desatualizada:
+        return None, (f"As notas mudaram depois da FRC nº {vig['numero']}: gere de novo na etapa 3 (Nota fiscal), "
+                      "assine no DocuSign e anexe aqui")
+    return None, (f"A FRC assinada anexada não é a da FRC nº {vig['numero']} vigente: baixe a FRC gerada, assine no "
+                  "DocuSign e anexe aqui")
+
+
+def assinada(conn, medicao_id: int) -> dict:
+    """A FRC assinada que vai no envio. `controla`: o consorcio tem FRC gerada pela dashboard e so' vale a assinada
+    da FRC vigente (`recusa` diz por que a anexada nao vale). Consorcio sem FRC pela dashboard: a ultima anexada."""
+    s = situacao(conn, medicao_id)
+    if s["disponivel"]:
+        return {"controla": True, "documento": s["assinada_documento"], "recusa": s["assinada_recusa"]}
+    docs = _faturas(conn, medicao_id)
+    return {"controla": False, "documento": {"id": docs[-1]["id"], "nome": docs[-1]["nome"]} if docs else None,
+            "recusa": None}
+
+
+def para_assinar(conn, medicao_id: int) -> int | None:
+    """A FRC (frcs.id) a que a assinada sendo anexada fica ligada. Sem FRC gerada, ou desatualizada, recusa: nao ha'
+    o que assinar. Consorcio sem FRC pela dashboard: None (a assinada entra sem vinculo, como antes)."""
+    s = situacao(conn, medicao_id)
+    if not s["disponivel"]:
+        return None
+    if s["frc"] is None:
+        raise ValueError("Gere a FRC na etapa 3 (Nota fiscal) antes de anexar a assinada")
+    if s["frc"]["desatualizada"]:
+        raise ValueError(f"As notas mudaram depois da FRC nº {s['frc']['numero']}: gere de novo na etapa 3 "
+                         "(Nota fiscal), assine no DocuSign e anexe a nova")
+    return _vigente(conn, medicao_id)["id"]
 
 
 # --- geracao ------------------------------------------------------------------------------------------------

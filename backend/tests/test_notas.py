@@ -176,6 +176,10 @@ def test_nota_de_consorciada_e_so_documento(conn, usuario, integra, _texto):
 def test_frc_e_documento_sem_leitura(conn, usuario, integra, _texto):
     _, mid, _ = integra
     _texto("qualquer coisa")
+    # issue #169: com a FRC pela dashboard, a assinada so' entra sobre a FRC gerada (test_frc); aqui, sem ela
+    with pytest.raises(ValueError, match="Gere a FRC na etapa 3"):
+        notas.anexar_pdf(conn, usuario, mid, PDF, "FRC 19.pdf", tipo_doc="fatura")
+    conn.execute("DELETE FROM frc_consorcios"); conn.commit()
     r = notas.anexar_pdf(conn, usuario, mid, PDF, "FRC 19 - CONSÓRCIO INTEGRA BRT (12° MEDIÇÃO).pdf", tipo_doc="fatura")
     assert r["nota_id"] is None and r["leitura"]["ok"] is False
     assert conn.execute("SELECT tipo_doc FROM medicao_documentos WHERE id=?", (r["documento_id"],)).fetchone()[0] == "fatura"

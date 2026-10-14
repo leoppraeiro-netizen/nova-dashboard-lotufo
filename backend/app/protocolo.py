@@ -141,10 +141,14 @@ def _docs_nota(conn, medicao_ids: list[int]) -> list[dict]:
     if not medicao_ids:
         return []
     marcas = ",".join("?" * len(medicao_ids))
-    return [dict(r) for r in conn.execute(
+    docs = [dict(r) for r in conn.execute(
         f"SELECT id, medicao_id, tipo_doc, nome, numero_nf, arquivo FROM medicao_documentos "
         f"WHERE medicao_id IN ({marcas}) AND tipo_doc IN ('nfs','nf','fatura') AND arquivo IS NOT NULL "
         f"ORDER BY tipo_doc='fatura', id", medicao_ids)]
+    # Issue #169: com a FRC gerada pela dashboard, so' a assinada da FRC vigente vai; a de FRC substituida fica.
+    assinadas = {mid: frc.assinada(conn, mid) for mid in {d["medicao_id"] for d in docs if d["tipo_doc"] == "fatura"}}
+    return [d for d in docs if d["tipo_doc"] != "fatura" or not assinadas[d["medicao_id"]]["controla"]
+            or (assinadas[d["medicao_id"]]["documento"] or {}).get("id") == d["id"]]
 
 
 def _pecas(conn, protocolo_id: int) -> list[dict]:
@@ -582,8 +586,8 @@ def faltas_consorcio(conn, c: dict, ms: list[dict]) -> list[str]:
         return []
     out = []
     for m in ms:
-        docs = _docs_nota(conn, [m["id"]])
-        if not any(d["tipo_doc"] == "fatura" for d in docs):
+        a = frc.assinada(conn, m["id"])
+        if a["documento"] is None and not a["recusa"]:      # anexada que nao vale e' bloqueio (frc_recusadas)
             out.append(f"{titulo(m)}: FRC assinada não anexada")
         ck = frc.checklist(conn, m)
         if ck["itens"]:
@@ -613,9 +617,20 @@ def certidoes_vencidas(conn, p: dict, hoje: datetime.date) -> list[str]:
     return out
 
 
+def frc_recusadas(conn, p: dict) -> list[str]:
+    """Issue #169: obra de consorcio cuja FRC assinada anexada nao e' a da FRC vigente (ou a vigente ficou
+    desatualizada). Nao se justifica: sairia ao orgao a FRC com os valores velhos."""
+    _, _, e, c = _contexto(conn, p)
+    if not c.get("entidade_id") or not ("notas" in e.partes or "notas" in e.soltos):
+        return []
+    return [f"{titulo(m)}: {r}" for m in _medicoes(conn, p["id"]) if (r := frc.assinada(conn, m["id"])["recusa"])]
+
+
 def bloqueio(conn, p: dict, hoje: datetime.date) -> str | None:
     vencidas = certidoes_vencidas(conn, p, hoje)
-    return ("Certidão vencida — renove antes de enviar: " + "; ".join(vencidas)) if vencidas else None
+    motivos = (["Certidão vencida — renove antes de enviar: " + "; ".join(vencidas)] if vencidas else []) + \
+        frc_recusadas(conn, p)
+    return " · ".join(motivos) or None
 
 
 def detalhe(conn, protocolo_id: int, hoje: datetime.date | None = None) -> dict:

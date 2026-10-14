@@ -155,7 +155,7 @@ def _entidade_por_cnpj(conn, cnpj) -> dict | None:
 # ------------------------------------------------------------------ gravacao
 
 def _gravar_documento(conn, usuario, medicao_id, caminho: str, sha: str, tamanho: int, nome: str, tipo_doc: str,
-                      lida: dict | None) -> tuple[int, bool]:
+                      lida: dict | None, frc_id: int | None = None) -> tuple[int, bool]:
     """Linha em medicao_documentos para um PDF JA' gravado em disco (o arquivo e' escrito ANTES do envelope,
     como api_espelhos.anexar_documento: falha de negocio desfaz o banco e deixa em disco so' um arquivo
     nomeado pelo hash, inofensivo)."""
@@ -181,12 +181,13 @@ def _gravar_documento(conn, usuario, medicao_id, caminho: str, sha: str, tamanho
         return ja["id"], True
     cur = conn.execute(
         "INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, numero_nf, consorciada, municipio, "
-        "item_id, arquivo, sha256, tamanho, leitura) VALUES (?,'operacao',?,?,?,?,?,?,?,?,?,?)",
+        "item_id, arquivo, sha256, tamanho, leitura, frc_id) VALUES (?,'operacao',?,?,?,?,?,?,?,?,?,?,?)",
         (medicao_id, tipo_doc, nome[-200:], str(lida["numero"]) if ok else None, consorciada,
-         lida.get("municipio") if ok else None, sha, caminho, sha, tamanho, leitura))
+         lida.get("municipio") if ok else None, sha, caminho, sha, tamanho, leitura, frc_id))
     auditoria.registrar(conn, usuario["id"], "medicao.documento", "medicao", medicao_id, None,
                         {"documento_id": cur.lastrowid, "tipo_doc": tipo_doc, "nome": nome[-200:], "sha256": sha,
-                         "tamanho": tamanho, "leitura": (lida or {}).get("leiaute"), "ok": ok})
+                         "tamanho": tamanho, "leitura": (lida or {}).get("leiaute"), "ok": ok,
+                         **({"frc_id": frc_id} if frc_id else {})})
     return cur.lastrowid, False
 
 
@@ -276,6 +277,8 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
         raise ValueError("tipo_doc: use nfs (nota) ou fatura (FRC)")
     lida = (leitura_nfse.ler(leitura_pdf.texto_de_pdf_com_limite(pdf)) if tipo_doc == "nfs"
             else {"ok": False, "motivo": "fatura", "leiaute": None})
+    # issue #169: a assinada fica ligada a' FRC vigente que ela assina; sem FRC gerada, ou desatualizada, recusa
+    frc_id = frc.para_assinar(conn, medicao_id) if tipo_doc == "fatura" else None
     caminho, sha = arquivos.gravar_bytes("notas", pdf, "pdf")      # disco ANTES do envelope (ver _gravar_documento)
     with db.mutacao(conn):
         m = medicoes.detalhe(conn, medicao_id)
@@ -283,7 +286,8 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
             raise ValueError("Medição não encontrada")
         if m["estado"] in ("cancelada", "desistida"):
             raise ValueError(f"Medição {m['estado']} não recebe nota")
-        documento_id, repetido = _gravar_documento(conn, usuario, medicao_id, caminho, sha, len(pdf), nome, tipo_doc, lida)
+        documento_id, repetido = _gravar_documento(conn, usuario, medicao_id, caminho, sha, len(pdf), nome, tipo_doc, lida,
+                                                   frc_id)
         nota_id, difs = None, []
         ent = _entidade_por_cnpj(conn, lida.get("prestador_cnpj")) if lida.get("ok") else None
         if ent and ent["coligada_rm"] is not None:

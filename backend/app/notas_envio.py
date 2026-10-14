@@ -83,13 +83,14 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
         if consorciadas:
             # FRC (2026-10-09): a dashboard gera a FRC sem assinatura na etapa 3; o que vai ao orgao e' a ASSINADA,
             # anexada aqui como documento `fatura` (uma por medicao). Arrastar e soltar no proprio item.
-            frcs = {d["medicao_id"]: d for d in docs if d["tipo_doc"] == "fatura"}
             for m in ms:
-                d = frcs.get(m["id"])
+                # issue #169: so' conta a assinada ligada a' FRC vigente e nao desatualizada (frc.assinada)
+                a = frc.assinada(conn, m["id"])
+                d = a["documento"]
                 # issue #148: a FRC gerada (sem assinatura) vigente, para a etapa 4 oferecer baixa-la; desatualizada
                 # (as notas mudaram depois dela) nao se oferece: assinaria valores velhos
                 g = None if d else frc.situacao(conn, m["id"]).get("frc")
-                detalhe = (f"Assinada anexada · {d['nome']}" if d
+                detalhe = (f"Assinada anexada · {d['nome']}" if d else a["recusa"] if a["recusa"]
                            else "Falta a assinada: as notas mudaram depois da FRC gerada; gere de novo na etapa 3 "
                                 "(Nota fiscal), assine no DocuSign e anexe aqui" if g and g["desatualizada"]
                            else "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui" if g

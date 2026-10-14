@@ -284,6 +284,84 @@ def test_frc_gerada_nao_satisfaz_o_envio_e_a_assinada_sim(conn, usuario, consorc
     assert frc.situacao(conn, mid)["assinada"] is True
 
 
+def _item_frc(conn, cid, mid):
+    c = protocolo._contrato(conn, cid)
+    m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
+    return next(i for i in itens if i["chave"] == f"frc:{mid}"), protocolo.faltas_consorcio(conn, c, [m])
+
+
+def _assinar(conn, usuario, mid, _texto, nome):  # noqa: F811
+    _texto("qualquer coisa")
+    return notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto(nome), nome, tipo_doc="fatura")
+
+
+def test_assinada_de_frc_substituida_nao_deixa_o_item_pronto(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Issue #169: a assinada fica ligada a' FRC que ela assina; gerada de novo (mesmo numero), a anexada nao vale."""
+    cid, mid = consorcio14
+    n = ULTIMA + 1
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    primeira = conn.execute("SELECT id FROM frcs WHERE medicao_id=? AND substituida_em IS NULL", (mid,)).fetchone()[0]
+    velha = _assinar(conn, usuario, mid, _texto, f"FRC {n} assinada.pdf")["documento_id"]
+    assert conn.execute("SELECT frc_id FROM medicao_documentos WHERE id=?", (velha,)).fetchone()[0] == primeira
+    assert _item_frc(conn, cid, mid)[0]["estado"] == "ok"
+    frc.gerar(conn, usuario, mid, n)                       # notas trocadas, FRC gerada de novo: a assinada e' da velha
+    item, faltas = _item_frc(conn, cid, mid)
+    recusa = f"A FRC assinada anexada não é a da FRC nº {n} vigente: baixe a FRC gerada, assine no DocuSign e anexe aqui"
+    assert (item["estado"], item["acao"], item["detalhe"], item["frc_gerada"]) == ("falta", "anexar_frc", recusa, n)
+    assert faltas == []                                    # nao e' "nao anexada": e' bloqueio (protocolo.frc_recusadas)
+    s = frc.situacao(conn, mid)
+    assert (s["assinada"], s["assinada_recusa"]) == (False, recusa)
+    assert frc.assinada(conn, mid) == {"controla": True, "documento": None, "recusa": recusa}
+    assert protocolo._docs_nota(conn, [mid])[-1]["tipo_doc"] == "nfs"      # a velha nao vai no envio
+    nova = _assinar(conn, usuario, mid, _texto, f"FRC {n} assinada de novo.pdf")["documento_id"]
+    item, faltas = _item_frc(conn, cid, mid)
+    assert (item["estado"], item["detalhe"], faltas) == ("ok", f"Assinada anexada · FRC {n} assinada de novo.pdf", [])
+    assert [d["id"] for d in protocolo._docs_nota(conn, [mid]) if d["tipo_doc"] == "fatura"] == [nova]
+
+
+def test_assinada_so_se_anexa_sobre_a_frc_vigente_atualizada(conn, usuario, consorcio14, _texto):  # noqa: F811
+    cid, mid = consorcio14
+    n = ULTIMA + 1
+    with pytest.raises(ValueError, match="Gere a FRC na etapa 3"):
+        _assinar(conn, usuario, mid, _texto, "FRC sem gerar.pdf")
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    _assinar(conn, usuario, mid, _texto, f"FRC {n} assinada.pdf")
+    # as notas mudaram depois da FRC: a assinada dela deixa de valer e outra nao se anexa ate' gerar de novo
+    conn.execute("UPDATE frcs SET notas='[]' WHERE medicao_id=? AND substituida_em IS NULL", (mid,))
+    conn.commit()
+    item, faltas = _item_frc(conn, cid, mid)
+    assert (item["estado"], item["frc_gerada"], faltas) == ("falta", None, [])
+    assert item["detalhe"] == (f"As notas mudaram depois da FRC nº {n}: gere de novo na etapa 3 (Nota fiscal), "
+                               "assine no DocuSign e anexe aqui")
+    with pytest.raises(ValueError, match=f"As notas mudaram depois da FRC nº {n}"):
+        _assinar(conn, usuario, mid, _texto, "FRC outra.pdf")
+    assert conn.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura'",
+                        (mid,)).fetchone()[0] == 1
+
+
+def test_baixar_frc_desatualizada_e_recusado(client_admin, _texto):  # noqa: F811
+    """Issue #169: o download (botao da etapa 3 e link da etapa 4) nao entrega a FRC que ja' nao bate com as notas."""
+    from app import db
+    c = db.get_conn()
+    try:
+        cadastro_aplicar.aplicar(c, 1, cadastro_arquivos.preparar(CADASTRO_EXEMPLO), ensaio=False)
+        _semear_frc(c)
+        u = {"id": 1, "email": "admin@lotufo.com"}
+        _, mid = _medicao14(c, u)
+        _anexar(c, u, mid, _texto, NOTAS_FRC)
+        for formato in ("pdf", "xlsx"):
+            assert client_admin.get(f"/api/medicoes/{mid}/frc/{formato}").status_code == 200
+        c.execute("UPDATE frcs SET notas='[]' WHERE medicao_id=? AND substituida_em IS NULL", (mid,))
+        c.commit()
+        for formato in ("pdf", "xlsx"):
+            r = client_admin.get(f"/api/medicoes/{mid}/frc/{formato}")
+            assert r.status_code == 409 and r.json()["detail"] == (
+                "As notas mudaram depois desta FRC: gere de novo na etapa 3 (Nota fiscal) antes de baixar")
+    finally:
+        c.close()
+
+
 def test_consorcio_sem_formulario_e_obra_propria(conn, usuario):  # noqa: F811
     cad = cadastro_arquivos.preparar(CADASTRO_EXEMPLO)
     cadastro_aplicar.aplicar(conn, 1, {**cad, "frc": []}, ensaio=False)          # consorcio sem FRC no cadastro
@@ -292,6 +370,9 @@ def test_consorcio_sem_formulario_e_obra_propria(conn, usuario):  # noqa: F811
     assert frc.situacao(conn, mid) == {"disponivel": False, "consorcio": "Consórcio Exemplo", "motivo": frc.INDISPONIVEL}
     with pytest.raises(ValueError, match="ainda não disponível"):
         frc.gerar(conn, usuario, mid, 1)
+    # issue #169: sem FRC pela dashboard nao ha' versao a conferir: a assinada entra sem vinculo e vale, como antes
+    doc = notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), "FRC 9.pdf", tipo_doc="fatura")["documento_id"]
+    assert frc.assinada(conn, mid) == {"controla": False, "documento": {"id": doc, "nome": "FRC 9.pdf"}, "recusa": None}
     propria = conn.execute("SELECT id FROM contratos WHERE nome_curto='Obra Própria'").fetchone()[0]
     mid = medicoes.criar(conn, 1, {"contrato_id": propria, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
     assert frc.situacao(conn, mid)["disponivel"] is False and frc.situacao(conn, mid)["motivo"] is None
