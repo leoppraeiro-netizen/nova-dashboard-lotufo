@@ -18,28 +18,80 @@ export type MedSemNf = { medicao_id: number; contrato_id: number; numero_instrum
 export type Divergencia = { medicao_id: number; contrato_id: number; numero_instrumento: string; numero: number; tipo: string;
                             competencia: string | null; valor_centavos: number; alocado_centavos: number };
 // A API nao manda o id da obra na alocacao desfeita, so' o instrumento.
-export type Desfeita = { medicao_id: number; desfeita_em: string; motivo_desfazer: string; numero: string; serie: string | null;
+// `id` e' o da alocacao (o cursor da pagina seguinte).
+export type Desfeita = { id: number; medicao_id: number; desfeita_em: string; motivo_desfazer: string; numero: string; serie: string | null;
                          numero_instrumento: string; numero_medicao: number; estado: string };
+// #22: as NFs sem medicao e as alocacoes desfeitas chegam em paginas; `totais` e' o numero exato de cada uma e
+// `ha_mais` diz se existe pagina seguinte
+type PorPaginado<T> = { nfs_sem_medicao: T; alocacoes_desfeitas: T };
 export type Reconciliacao = { nfs_sem_medicao: NfSolta[]; medicoes_sem_nf: MedSemNf[]; divergencias: Divergencia[];
-                              alocacoes_desfeitas: Desfeita[] };
+                              alocacoes_desfeitas: Desfeita[]; totais: PorPaginado<number>; ha_mais: PorPaginado<boolean> };
+type CampoPaginado = keyof PorPaginado<unknown>;
 
 export type CategoriaRec = "nfs" | "medicoes" | "divergencias" | "desfeitas";
 /** Os quatro grupos, na ordem da tela (`?categoria=` na URL). */
-export const CATEGORIAS_REC: { id: CategoriaRec; campo: keyof Reconciliacao; titulo: string }[] = [
+export const CATEGORIAS_REC: { id: CategoriaRec; campo: Exclude<keyof Reconciliacao, "totais" | "ha_mais">; titulo: string }[] = [
   { id: "nfs", campo: "nfs_sem_medicao", titulo: "NFs sem medição" },
   { id: "medicoes", campo: "medicoes_sem_nf", titulo: "Medições sem NF do RM" },
   { id: "divergencias", campo: "divergencias", titulo: "Divergências de valor" },
   { id: "desfeitas", campo: "alocacoes_desfeitas", titulo: "Alocações desfeitas" },
 ];
 
-// A API corta duas listas (`sincronizacao_rm.reconciliacao`): as 200 NFs sem medicao e as 50 alocacoes desfeitas
-// mais recentes. Quando a lista chega no teto pode haver mais, e a quantidade diz isso.
-export const TETO_REC: Partial<Record<CategoriaRec, number>> = { nfs: 200, desfeitas: 50 };
+// #22: a API (`sincronizacao_rm.reconciliacao`) manda duas listas em paginas (200 NFs sem medicao, 50 alocacoes
+// desfeitas, das mais recentes), depois da linha de id `?<parametro>=` (a ultima que a tela ja' tem: o cursor nao
+// repete nem pula linha se a sincronizacao mudar a lista no meio), com o total exato em `totais`.
+const PAGINADOS: Partial<Record<CategoriaRec, { campo: CampoPaginado; parametro: string }>> = {
+  nfs: { campo: "nfs_sem_medicao", parametro: "nfs_apos" },
+  desfeitas: { campo: "alocacoes_desfeitas", parametro: "desfeitas_apos" },
+};
 
-/** A quantidade de um grupo: "37", ou "200 ou mais" quando a lista chega no teto da API. */
-export function quantidadeRec(c: CategoriaRec, n: number): string {
-  const teto = TETO_REC[c];
-  return teto !== undefined && n >= teto ? `${n} ou mais` : String(n);
+/** A contagem de um grupo: `n` linhas (exato, ou piso quando `piso`) e se ha' pagina seguinte na API.
+ *  `rec` e' o que chegou; `d`, o recorte da obra (ou o proprio `rec`). Com a obra escolhida, as desfeitas da obra
+ *  so' se contam no que ja' chegou: enquanto houver pagina, o numero e' piso. */
+export function contaRec(rec: Reconciliacao, d: Reconciliacao, c: CategoriaRec, daObra: boolean): { n: number; piso: boolean; haMais: boolean } {
+  const pag = PAGINADOS[c];
+  const campo = CATEGORIAS_REC.find(x => x.id === c)!.campo;
+  if (!pag) return { n: d[campo].length, piso: false, haMais: false };
+  const haMais = rec.ha_mais[pag.campo];
+  if (!daObra) return { n: rec.totais[pag.campo], piso: false, haMais };
+  // as NFs sem medicao nao tem obra: com o filtro, o grupo fica vazio e nao ha' o que carregar
+  if (c === "nfs") return { n: 0, piso: false, haMais: false };
+  return { n: d[pag.campo].length, piso: haMais, haMais };
+}
+
+/** O endereco da pagina seguinte de um grupo paginado: depois do id da ultima linha que ja' chegou (as NFs vem da
+ *  API pelo id, que nao muda; a tela as reordena pela emissao com `nfsPorEmissao`). */
+export function urlPaginaRec(rec: Reconciliacao, c: CategoriaRec): string {
+  const pag = PAGINADOS[c]!;
+  const lista = rec[pag.campo];
+  return `/api/rm/reconciliacao?${pag.parametro}=${lista[lista.length - 1].id}`;
+}
+
+/** Junta a pagina seguinte de um grupo ao que ja' chegou, descartando o id que ja' esta' na tela; o total e o
+ *  `ha_mais` passam a ser os da pagina nova. As outras listas ficam como estavam. */
+export function juntarPaginaRec(rec: Reconciliacao, c: CategoriaRec, pagina: Reconciliacao): Reconciliacao {
+  const pag = PAGINADOS[c]!;
+  const totais = { ...rec.totais, [pag.campo]: pagina.totais[pag.campo] };
+  const ha_mais = { ...rec.ha_mais, [pag.campo]: pagina.ha_mais[pag.campo] };
+  const novas = <T extends { id: number }>(ja: T[], vindas: T[]) => {
+    const ids = new Set(ja.map(x => x.id));
+    return [...ja, ...vindas.filter(x => !ids.has(x.id))];
+  };
+  return pag.campo === "nfs_sem_medicao"
+    ? { ...rec, totais, ha_mais, nfs_sem_medicao: novas(rec.nfs_sem_medicao, pagina.nfs_sem_medicao) }
+    : { ...rec, totais, ha_mais, alocacoes_desfeitas: novas(rec.alocacoes_desfeitas, pagina.alocacoes_desfeitas) };
+}
+
+/** As NFs sem medicao na ordem da tela: da emissao mais recente a mais antiga, as sem data por ultimo (empate: a que
+ *  chegou depois primeiro). */
+export function nfsPorEmissao(nfs: NfSolta[]): NfSolta[] {
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  return [...nfs].sort((a, b) => cmp(b.emissao ?? "", a.emissao ?? "") || b.id - a.id);
+}
+
+/** A quantidade de um grupo: "37", ou "3 ou mais" quando o numero e' piso. */
+export function quantidadeRec(n: number, piso = false): string {
+  return piso ? `${n} ou mais` : String(n);
 }
 
 /** O rotulo de um grupo sem o numero ("divergências de valor"), no singular quando n vale 1. */
@@ -52,9 +104,9 @@ export function rotuloRec(c: CategoriaRec, n: number): string {
   }
 }
 
-/** A contagem de um grupo, em palavras ("37 divergências de valor"; "200 ou mais NFs sem medição" no teto). */
-export function contagemRec(c: CategoriaRec, n: number): string {
-  return `${quantidadeRec(c, n)} ${rotuloRec(c, n)}`;
+/** A contagem de um grupo, em palavras ("37 divergências de valor"; "3 ou mais alocações desfeitas" quando piso). */
+export function contagemRec(c: CategoriaRec, n: number, piso = false): string {
+  return `${quantidadeRec(n, piso)} ${rotuloRec(c, n)}`;
 }
 
 /** A reconciliacao de uma obra: as medicoes sem NF e as divergencias pelo id da obra; as alocacoes desfeitas pelo
@@ -66,6 +118,8 @@ export function reconciliacaoDaObra(rec: Reconciliacao, obra: { id: number; nume
     medicoes_sem_nf: rec.medicoes_sem_nf.filter(m => m.contrato_id === obra.id),
     divergencias: rec.divergencias.filter(d => d.contrato_id === obra.id),
     alocacoes_desfeitas: obra.numero_instrumento === null ? [] : rec.alocacoes_desfeitas.filter(d => d.numero_instrumento === obra.numero_instrumento),
+    // os totais sao os da API, sem obra; a contagem da obra sai de `contaRec`
+    totais: rec.totais, ha_mais: rec.ha_mais,
   };
 }
 

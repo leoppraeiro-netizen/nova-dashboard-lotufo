@@ -5,13 +5,15 @@ importado, spec §6); disparar e reconciliar sao `administrar`.
 """
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import rm, sincronizacao_rm
 from app.api_auth import conexao
 from app.permissoes import exigir
 
 router = APIRouter(prefix="/api/rm")
+# id acima de int64 e' recusado na entrada (422): o sqlite3 levantaria OverflowError (500)
+MAX_INT64 = 9223372036854775807
 
 
 @router.get("/status")
@@ -39,6 +41,13 @@ def sincronizar(usuario: dict = Depends(exigir("administrar")),
 
 
 @router.get("/reconciliacao")
-def reconciliacao(usuario: dict = Depends(exigir("administrar", com_csrf=False)),
+def reconciliacao(nfs_apos: int | None = Query(None, ge=1, le=MAX_INT64),
+                  desfeitas_apos: int | None = Query(None, ge=1, le=MAX_INT64),
+                  usuario: dict = Depends(exigir("administrar", com_csrf=False)),
                   conn: sqlite3.Connection = Depends(conexao)):
-    return sincronizacao_rm.reconciliacao(conn)
+    # #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas, depois do id da ultima linha que a tela ja'
+    # tem; `totais` traz o numero exato e `ha_mais` diz se ha' mais
+    try:
+        return sincronizacao_rm.reconciliacao(conn, nfs_apos, desfeitas_apos)
+    except ValueError as e:
+        raise HTTPException(422, str(e))

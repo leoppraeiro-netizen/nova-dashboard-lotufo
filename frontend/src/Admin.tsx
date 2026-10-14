@@ -3,8 +3,8 @@ import { contar, fmtTamanho } from "./formato";
 import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
-  ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, filtrarEventos, pessoaDoEvento, quantidadeRec, reconciliacaoDaObra,
-  rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
+  ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, contaRec, filtrarEventos, juntarPaginaRec, nfsPorEmissao, pessoaDoEvento, quantidadeRec,
+  reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, urlPaginaRec,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
 import { api, mensagemDeErro } from "./api";
@@ -252,10 +252,10 @@ function ReconciliacaoResumo({ versao }: { versao: number }) {
       {rec && (
         <ul className="contagens cartao__corpo">
           {CATEGORIAS_REC.map(c => {
-            const n = rec[c.campo].length;
+            const { n } = contaRec(rec, rec, c.id, false);
             const dado = (
               <>
-                <span className="dado__valor num">{quantidadeRec(c.id, n)}</span>{" "}
+                <span className="dado__valor num">{quantidadeRec(n)}</span>{" "}
                 <span className="campo__nota">{rotuloRec(c.id, n)}</span>
               </>
             );
@@ -346,22 +346,28 @@ function Saude() {
 
 /* ------------------------------------------------------------ reconciliacao */
 
-function Grupo({ id, titulo, n, mostrando, verTodas, children }: {
-  id: CategoriaRec; titulo: string; n: number; mostrando: number; verTodas: React.ReactNode; children: React.ReactNode;
+// `conta`: o total do grupo (contaRec); `carregadas`: as linhas que ja' chegaram da API (no recorte da obra);
+// `mostrando`: as que a tabela mostra. "Ver as N linhas" abre o grupo; "Carregar mais" (`mais`) traz a pagina seguinte.
+function Grupo({ id, titulo, conta, carregadas, mostrando, verTodas, mais, children }: {
+  id: CategoriaRec; titulo: string; conta: { n: number; piso: boolean; haMais: boolean }; carregadas: number; mostrando: number;
+  verTodas: React.ReactNode; mais: React.ReactNode; children: React.ReactNode;
 }) {
-  const qtd = quantidadeRec(id, n);
-  const teto = TETO_REC[id];
+  const { n, piso, haMais } = conta;
+  const qtd = quantidadeRec(n, piso);
   return (
     <section className="cartao" aria-labelledby={`titulo-rec-${id}`}>
       <div className="cartao__cabeca">
         <h2 className="cartao__titulo" id={`titulo-rec-${id}`}>{titulo}</h2>
-        <span className="cartao__dica num">{n === 0 ? "nenhuma linha" : mostrando < n ? `${mostrando} de ${qtd}` : n === 1 ? "1 linha" : `${qtd} linhas`}</span>
+        <span className="cartao__dica num">
+          {n === 0 ? (piso ? "nenhuma entre as já carregadas" : "nenhuma linha")
+            : mostrando < n ? `${mostrando} de ${qtd}` : n === 1 && !piso ? "1 linha" : `${qtd} linhas`}
+        </span>
       </div>
-      {n === 0 ? <div className="vazio vazio--curto"><p>Nada de um lado só neste grupo.</p></div> : children}
-      {teto !== undefined && n >= teto && mostrando === n && (
-        <div className="cartao__corpo"><p className="campo__nota">A lista traz só as {teto} mais recentes; pode haver mais.</p></div>
-      )}
-      {mostrando < n && <div className="cartao__corpo">{verTodas}</div>}
+      {carregadas === 0
+        ? <div className="vazio vazio--curto"><p>{piso ? "Nada desta obra entre as já carregadas." : "Nada de um lado só neste grupo."}</p></div>
+        : children}
+      {mostrando < carregadas && <div className="cartao__corpo">{verTodas}</div>}
+      {mostrando === carregadas && haMais && <div className="cartao__corpo">{mais}</div>}
     </section>
   );
 }
@@ -371,10 +377,22 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
   const [erro, setErro] = useState("");
   // as obras dao o nome e o filtro; a alocacao desfeita acha a obra pelo instrumento (a API nao manda o id nela)
   const [obras, setObras] = useState<ObraLista[] | null | undefined>(undefined);
+  // #22: o grupo cuja pagina seguinte esta' chegando, e o erro dela (fica junto do botao do grupo)
+  const [carregando, setCarregando] = useState<CategoriaRec | null>(null);
+  const [erroMais, setErroMais] = useState<{ c: CategoriaRec; texto: string } | null>(null);
   useEffect(() => {
     api<Reconciliacao>("/api/rm/reconciliacao").then(setRec).catch(e => setErro(falhaDeCarga(e)));
     api<ObraLista[]>("/api/contratos").then(setObras).catch(() => setObras(null));
   }, []);
+
+  function carregarMais(c: CategoriaRec) {
+    if (!rec || carregando) return;
+    setCarregando(c); setErroMais(null);
+    api<Reconciliacao>(urlPaginaRec(rec, c))
+      .then(p => setRec(r => r && juntarPaginaRec(r, c, p)))
+      .catch(e => setErroMais({ c, texto: mensagem(e) }))
+      .finally(() => setCarregando(null));
+  }
 
   const categoria = CATEGORIAS_REC.find(c => c.id === busca.categoria)?.id ?? null;
   const obraId = busca.obra && /^\d+$/.test(busca.obra) ? Number(busca.obra) : null;
@@ -396,7 +414,19 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
   const d = reconciliacaoDaObra(rec, filtro);
   const mostra = (c: CategoriaRec) => categoria === null || categoria === c;
   const quantas = (n: number) => (categoria === null ? Math.min(n, PRIMEIRAS) : n);
-  const verTodas = (c: CategoriaRec, n: number) => <Link para={aqui} busca={com({ categoria: c })}>Ver as {n} linhas</Link>;
+  const conta = (c: CategoriaRec) => contaRec(rec, d, c, filtro !== null);
+  const verTodas = (c: CategoriaRec) => {
+    const { n, piso } = conta(c);
+    return <Link para={aqui} busca={com({ categoria: c })}>Ver as {quantidadeRec(n, piso)} linhas</Link>;
+  };
+  const mais = (c: CategoriaRec) => (
+    <>
+      {erroMais?.c === c && <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erroMais.texto}</p>}
+      <button type="button" className="btn btn--pequeno" onClick={() => carregarMais(c)} disabled={carregando !== null}>
+        {carregando === c ? "Carregando…" : "Carregar mais"}
+      </button>
+    </>
+  );
   const nomeObra = (id: number, instrumento: string) => {
     const o = porId.get(id);
     return <Link className="nome-link" para={{ tela: "obra", id, aba: "medicoes" }}>{o ? nomeDaObra(o) : instrumento}</Link>;
@@ -417,7 +447,7 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
             <Link para={aqui} busca={com({ categoria: null })} aria-current={categoria === null ? "true" : undefined}>todos</Link>
             {CATEGORIAS_REC.map(c => (
               <Link key={c.id} para={aqui} busca={com({ categoria: c.id })} aria-current={categoria === c.id ? "true" : undefined}>
-                {c.titulo} <span className="num">({quantidadeRec(c.id, d[c.campo].length)})</span>
+                {c.titulo} <span className="num">({quantidadeRec(conta(c.id).n, conta(c.id).piso)})</span>
               </Link>
             ))}
           </p>
@@ -439,15 +469,15 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
       </section>
 
       {mostra("nfs") && (
-        <Grupo id="nfs" titulo="NFs sem medição" n={d.nfs_sem_medicao.length} mostrando={quantas(d.nfs_sem_medicao.length)}
-          verTodas={verTodas("nfs", d.nfs_sem_medicao.length)}>
+        <Grupo id="nfs" titulo="NFs sem medição" conta={conta("nfs")} carregadas={d.nfs_sem_medicao.length}
+          mostrando={quantas(d.nfs_sem_medicao.length)} verTodas={verTodas("nfs")} mais={mais("nfs")}>
           <Rolagem rotulo="NFs sem medição">
             <table className="tabela">
               <caption className="sr-only">NFs do RM sem medição na dashboard</caption>
               <thead><tr><th scope="col">NF</th><th scope="col" className="col-num">Coligada</th><th scope="col">Emissão</th>
                 <th scope="col" className="col-num">Valor</th><th scope="col">Campo livre 1 (RM)</th></tr></thead>
               <tbody>
-                {d.nfs_sem_medicao.slice(0, quantas(d.nfs_sem_medicao.length)).map((n, i) => (
+                {nfsPorEmissao(d.nfs_sem_medicao).slice(0, quantas(d.nfs_sem_medicao.length)).map((n, i) => (
                   <tr key={n.id} className={`linha${i % 2 === 1 ? " par" : ""}`}>
                     <td className="num">{n.numero}{n.serie ? `/${n.serie}` : ""}</td><td className="col-num num">{n.coligada}</td>
                     <td className="num">{n.emissao ? fmtDataPura(n.emissao) : "sem data"}</td>
@@ -461,8 +491,8 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
       )}
 
       {mostra("medicoes") && (
-        <Grupo id="medicoes" titulo="Medições sem NF do RM" n={d.medicoes_sem_nf.length} mostrando={quantas(d.medicoes_sem_nf.length)}
-          verTodas={verTodas("medicoes", d.medicoes_sem_nf.length)}>
+        <Grupo id="medicoes" titulo="Medições sem NF do RM" conta={conta("medicoes")} carregadas={d.medicoes_sem_nf.length}
+          mostrando={quantas(d.medicoes_sem_nf.length)} verTodas={verTodas("medicoes")} mais={null}>
           <Rolagem rotulo="Medições sem NF do RM">
             <table className="tabela">
               <caption className="sr-only">Medições com NF ou recebimento na dashboard e sem nota do RM alocada</caption>
@@ -485,8 +515,8 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
       )}
 
       {mostra("divergencias") && (
-        <Grupo id="divergencias" titulo="Divergências de valor" n={d.divergencias.length} mostrando={quantas(d.divergencias.length)}
-          verTodas={verTodas("divergencias", d.divergencias.length)}>
+        <Grupo id="divergencias" titulo="Divergências de valor" conta={conta("divergencias")} carregadas={d.divergencias.length}
+          mostrando={quantas(d.divergencias.length)} verTodas={verTodas("divergencias")} mais={null}>
           <Rolagem rotulo="Divergências de valor">
             <table className="tabela">
               <caption className="sr-only">Medições cujo valor difere da soma das NFs alocadas a elas</caption>
@@ -508,8 +538,8 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
       )}
 
       {mostra("desfeitas") && (
-        <Grupo id="desfeitas" titulo="Alocações desfeitas" n={d.alocacoes_desfeitas.length} mostrando={quantas(d.alocacoes_desfeitas.length)}
-          verTodas={verTodas("desfeitas", d.alocacoes_desfeitas.length)}>
+        <Grupo id="desfeitas" titulo="Alocações desfeitas" conta={conta("desfeitas")} carregadas={d.alocacoes_desfeitas.length}
+          mostrando={quantas(d.alocacoes_desfeitas.length)} verTodas={verTodas("desfeitas")} mais={mais("desfeitas")}>
           <Rolagem rotulo="Alocações desfeitas">
             <table className="tabela">
               <caption className="sr-only">NFs cuja alocação a uma medição foi desfeita, da mais recente à mais antiga</caption>
@@ -519,7 +549,7 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
                 {d.alocacoes_desfeitas.slice(0, quantas(d.alocacoes_desfeitas.length)).map((x, i) => {
                   const o = porInstrumento.get(x.numero_instrumento);
                   return (
-                    <tr key={`${x.medicao_id}-${x.numero}-${x.desfeita_em}`} className={`linha${i % 2 === 1 ? " par" : ""}`}>
+                    <tr key={x.id} className={`linha${i % 2 === 1 ? " par" : ""}`}>
                       <td>{o ? <Link className="nome-link" para={{ tela: "obra", id: o.id, aba: "medicoes" }}>{nomeDaObra(o)}</Link> : x.numero_instrumento}</td>
                       <td>{o ? <Link para={{ tela: "medicao", obra: o.id, id: x.medicao_id }} secao="notas">{x.numero_medicao}ª Medição</Link> : `${x.numero_medicao}ª Medição`}</td>
                       <td className="num">{x.numero}{x.serie ? `/${x.serie}` : ""}</td>
