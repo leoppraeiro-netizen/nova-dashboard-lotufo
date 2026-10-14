@@ -1,9 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiErro } from "./api";
 import EnviarNota from "./EnviarNota";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
+const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const det = {
   envio: { chave: "c20:m631-m632", contrato_id: 20, obra: "MT-401", orgao: "SINFRA", orgao_sub: "SUEF II", familia: "sinfra",
@@ -15,7 +16,7 @@ const det = {
 };
 
 describe("Enviar a nota", () => {
-  afterEach(() => { cleanup(); api.mockReset(); });
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
 
   it("o Cco escrito no e-mail vai no envio (testes de quebra 10/10, A-17)", async () => {
     api.mockImplementation((caminho: string) => {
@@ -87,6 +88,107 @@ describe("Enviar a nota", () => {
       .toBeTruthy();
     // issue #118: o endereço permitido é do servidor (DASH_SHAREPOINT_HOSTS); a tela não traz o tenant da empresa
     expect(document.body.innerHTML).not.toMatch(/[a-z0-9-]+(-my)?\.sharepoint\.com/i);
+  });
+
+  // issue #100: como no protocolo (PR #92), o Enviar leva os anexos que a prévia mostrou, para o servidor recusar se mudaram
+  describe("anexos da prévia", () => {
+    const NF = { nome: "NFS 2301.pdf", origem: "nota", tamanho: 10 };
+    const FRC = { nome: "FRC 77.pdf", origem: "nota", tamanho: 20 };
+    const AVISO = "A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.";
+    const comFrc = (anexos: object[]) => ({ ...det,
+      envio: { ...det.envio, itens: [{ chave: "frc", rotulo: "FRC assinada", estado: "falta", acao: "anexar_frc", medicao_id: 631 }] },
+      previa: { ...det.previa, anexos } });
+
+    it("o envio leva nome e tamanho dos anexos mostrados na prévia", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comFrc([NF]) : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar a nota" }));
+      await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
+      const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/notas/envio/3/enviar")!;
+      expect(JSON.parse(opcoes.body).anexos).toEqual([{ nome: "NFS 2301.pdf", tamanho: 10 }]);
+    });
+
+    it("anexar a FRC com a prévia aberta fecha a prévia: o e-mail editado é refeito com os anexos novos", async () => {
+      let atual = comFrc([NF]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      apiForm.mockImplementation(async () => { atual = comFrc([NF, FRC]); return {}; });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const assunto = await screen.findByLabelText("Assunto") as HTMLInputElement;
+      fireEvent.change(assunto, { target: { value: "Assunto editado antes do anexo" } });
+      const pdf = new File(["%PDF-1.4"], "FRC 77.pdf", { type: "application/pdf" });
+      fireEvent.change(screen.getByLabelText("Anexar FRC assinada"), { target: { files: [pdf] } });
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      expect((screen.getByLabelText("Assunto") as HTMLInputElement).value).toBe("Notas");
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
+      await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
+      const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/notas/envio/3/enviar")!;
+      expect(JSON.parse(opcoes.body).anexos).toEqual([{ nome: "NFS 2301.pdf", tamanho: 10 }, { nome: "FRC 77.pdf", tamanho: 20 }]);
+    });
+
+    it("envio recusado porque a FRC entrou em outra aba recarrega e mostra a prévia nova, com o aviso", async () => {
+      let atual = comFrc([NF]);
+      const RECUSA = "Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir o que vai no e-mail";
+      api.mockImplementation((caminho: string) => {
+        if (caminho === "/api/notas/envio/3") return Promise.resolve(atual);
+        if (caminho === "/api/notas/envio/3/enviar") { atual = comFrc([NF, FRC]); return Promise.reject(new ApiErro(422, RECUSA, { codigo: "ANEXOS_MUDARAM", mensagem: RECUSA })); }
+        return Promise.resolve({});
+      });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
+      fireEvent.change(corpo, { target: { value: "Bom dia. Segue com a observação do fiscal." } });
+      expect(screen.queryByText(AVISO)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
+      expect(await screen.findByText(RECUSA)).toBeTruthy();
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      // revisor na PR #141: o texto editado se perdeu na prévia nova; a tela diz isso antes do próximo Enviar
+      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia.");
+      expect(screen.getAllByRole("status").some(x => x.textContent?.endsWith(AVISO))).toBe(true);
+    });
+
+    it("documento novo da medição avisado pela página (versao) relê o envio e refaz a prévia com o aviso", async () => {
+      let atual = comFrc([NF]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      const props = { protocoloId: 3, podeEditar: true, embutido: { aoConcluir: () => {}, aoTrocar: () => {} } };
+      const { rerender } = render(<EnviarNota {...props} versao={0} />);
+      await screen.findByRole("button", { name: "Enviar a nota" });
+      atual = comFrc([NF, FRC]);
+      rerender(<EnviarNota {...props} versao={1} />);
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      expect(screen.getByText(AVISO)).toBeTruthy();
+    });
+
+    // gate Sol S2 (PR #141): 409 de envio em andamento (a outra aba enviou) nao relê o envio nem apaga o texto editado
+    it("outro erro de envio mantém o e-mail editado e não relê o envio", async () => {
+      api.mockImplementation((caminho: string) => {
+        if (caminho === "/api/notas/envio/3") return Promise.resolve(comFrc([NF]));
+        if (caminho === "/api/notas/envio/3/enviar") return Promise.reject(new ApiErro(409, "Envio em andamento por Admin.",
+          { codigo: "ENVIO_RESERVADO", mensagem: "Envio em andamento por Admin.", reservado_em: null, reservado_por_nome: "Admin", liberavel_a_partir_de: null }));
+        return Promise.resolve({});
+      });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
+      fireEvent.change(corpo, { target: { value: "Bom dia. Com a observação do fiscal." } });
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
+      expect(await screen.findByText("Envio em andamento por Admin.")).toBeTruthy();
+      expect(api.mock.calls.filter(c => c[0] === "/api/notas/envio/3")).toHaveLength(1);
+      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia. Com a observação do fiscal.");
+    });
+
+    // gate Sol S3 (PR #141): a conferência do servidor não depende da ordem; a tela também não
+    it("os mesmos anexos em outra ordem não refazem a prévia nem mostram o aviso", async () => {
+      let atual = comFrc([NF, FRC]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      const props = { protocoloId: 3, podeEditar: true, embutido: { aoConcluir: () => {}, aoTrocar: () => {} } };
+      const { rerender } = render(<EnviarNota {...props} versao={0} />);
+      const assunto = await screen.findByLabelText("Assunto") as HTMLInputElement;
+      fireEvent.change(assunto, { target: { value: "Assunto editado" } });
+      atual = comFrc([FRC, NF]);
+      rerender(<EnviarNota {...props} versao={1} />);
+      await waitFor(() => expect(api.mock.calls.filter(c => c[0] === "/api/notas/envio/3")).toHaveLength(2));
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).getAllByRole("listitem")[0].textContent).toContain("FRC 77.pdf"));
+      expect((screen.getByLabelText("Assunto") as HTMLInputElement).value).toBe("Assunto editado");
+      expect(screen.queryByText(AVISO)).toBeNull();
+    });
   });
 
   it("a lixeira do e-mail editado pergunta antes de sair da tela (issue #27)", async () => {

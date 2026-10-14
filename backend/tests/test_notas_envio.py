@@ -282,9 +282,7 @@ def test_certidao_vencida_bloqueia_com_409(api):
                                                     "medicao_ids": sinfra["medicao_ids"]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert d["bloqueio"] == "Certidão vencida — renove antes de enviar: Lotufo: federal vencida em 10/09/2026"
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={**{k: d["previa"][k] for k in ("para", "copia", "assunto",
-                                                                                       "corpo")},
-                                                       "justificativa": "mandar assim mesmo, urgente"})
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="mandar assim mesmo, urgente"))
     assert r.status_code == 409, r.text
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
 
@@ -297,7 +295,7 @@ def test_envio_pelo_simulador_vira_aguardando_pagamento(api, tmp_path):
     assert _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])[0]["protocolo_id"] == pid
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert d["etapa"] == "nota" and d["justificativa_obrigatoria"] is False
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")})
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
     assert r.status_code == 200, r.text
     enviado = json.loads(sorted((tmp_path / "sim" / "enviados").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert "Regularidade mensal - Lotufo - 07-2026.pdf" in [a["nome"] for a in enviado["anexos"]]
@@ -377,7 +375,9 @@ def test_cobranca_sem_destinatario_no_cadastro_nao_envia(svc):
 # --- testes de quebra 10/10/2026: A-17 (Cco descartado) e A-18 (reajuste irmao fora do e-mail) ------
 
 def _corpo(d, **extra):
-    return {**{k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}, **extra}
+    # issue #100: o envio da nota leva sempre os anexos que a previa mostrou
+    vistos = [{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]
+    return {**{k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}, "anexos": vistos, **extra}
 
 
 def test_cco_do_envio_da_nota_chega_ao_email_e_ao_registro(api, tmp_path):
@@ -541,7 +541,7 @@ def test_numero_do_orgao_vazio_nao_apaga_no_envio_pelo_sistema(api):
         ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert cl.post(f"/api/notas/envio/{pid}/enviar",
-                   json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}).status_code == 200
+                   json=_corpo(d)).status_code == 200
     mid = ids["sinfra_exec"]
     assert cl.post(f"/api/notas/{mid}/numero-orgao", json={"numero": "X-1"}).status_code == 200
     for vazio in ("", "   "):
@@ -568,7 +568,7 @@ def _enviar_sinfra(cl, ids):
         ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert cl.post(f"/api/notas/envio/{pid}/enviar",
-                   json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}).status_code == 200
+                   json=_corpo(d)).status_code == 200
     return pid
 
 
@@ -639,3 +639,62 @@ def test_comprovante_que_nao_e_pdf_ou_passa_do_limite_e_recusado_em_portugues(ap
     assert r.status_code == 413 and r.json()["detail"] == "Arquivo acima do limite de 10 MB"
     p = c.execute("SELECT numero_orgao, comprovante_arquivo FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert p["numero_orgao"] is None and p["comprovante_arquivo"] is None
+
+
+# --- issue #100: os anexos da previa conferidos tambem no Enviar a nota ------------------------------
+
+def test_nf_anexada_depois_da_previa_recusa_o_envio_da_nota_sem_reservar(api, tmp_path):
+    """Revisor adversarial na PR #92: a tela Enviar a nota manda os anexos que a pessoa viu; NF anexada a' medicao
+    com a previa aberta faz o servidor recusar antes de reservar, com a mesma mensagem do protocolo."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    vistos = [{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]
+    assert vistos
+    rel, sha = arquivos.gravar_bytes("notas", _pdf("FRC ASSINADA"), "pdf")
+    c.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, numero_nf, item_id, arquivo, sha256, "
+              "tamanho) VALUES (?,?,?,?,?,?,?,?,?)",
+              (ids["sinfra_exec"], "operacao", "fatura", "FRC 77.pdf", "77", f"pdf:{sha}", rel, sha, 10))
+    c.commit()
+    assert len(cl.get(f"/api/notas/envio/{pid}").json()["previa"]["anexos"]) == len(vistos) + 1
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, anexos=vistos))
+    assert r.status_code == 422, r.text
+    # gate Sol S2 (PR #141): a recusa traz `codigo`, para a tela recarregar so' nela e nao em qualquer erro
+    assert r.json()["detail"] == {"codigo": "ANEXOS_MUDARAM", "mensagem": (
+        "Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir o que vai no e-mail")}
+    p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    assert not list((tmp_path / "sim").glob("enviados/*.json"))
+    # a previa nova (com a FRC) envia
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
+    assert r.status_code == 200, r.text
+
+
+def test_envio_da_nota_sem_os_anexos_da_previa_e_recusado(api):
+    """Revisor adversarial na PR #141: sem a lista (aba aberta antes do deploy, chamada direta) nao envia sem conferir."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    corpo = _corpo(cl.get(f"/api/notas/envio/{pid}").json())
+    del corpo["anexos"]
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=corpo)
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "anexos"]
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
+    """Gate Sol S1 (PR #141): chamador interno sem a lista (ou com None) nao envia sem conferir nem reserva."""
+    c, ids = svc
+    pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"], ids["sinfra_reaj"]])
+    pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
+    args = (c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"], None)
+    with pytest.raises(TypeError):
+        notas_envio.enviar(*args)                                   # anexos_previa e' obrigatorio, so' por nome
+    with pytest.raises(ValueError, match="anexos da prévia"):
+        notas_envio.enviar(*args, anexos_previa=None)
+    p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
