@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, apiForm } from "./api";
+import { api, apiForm, baixarArquivo } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { IconeCheck, mensagem } from "./NotasAEnviar";
@@ -84,7 +84,19 @@ export function FrcConsorcio({ medicaoId, podeEditar, versao, aoMudar, aoLer }: 
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
-  const numeroOk = /^\d{1,5}$/.test(numero) && Number(numero) > 0;
+  // issue #169: a FRC que ficou desatualizada depois de a tela carregar e' recusada pelo servidor; a tela recarrega
+  async function baixar(formato: "pdf" | "xlsx") {
+    setErro(""); setFeito("");
+    try {
+      await baixarArquivo(`/api/medicoes/${medicaoId}/frc/${formato}`, `FRC.${formato}`);
+    } catch (e) {
+      setErro(mensagem(e));
+      await carregar().catch(() => undefined);
+      aoMudar();
+    }
+  }
+
+  const numeroOk =/^\d{1,5}$/.test(numero) && Number(numero) > 0;
   return (
     <div className="notas-v3 frc">
       <div className="frc__cabeca">
@@ -182,10 +194,10 @@ export function FrcConsorcio({ medicaoId, podeEditar, versao, aoMudar, aoLer }: 
             <button type="button" className={`btn${s.frc ? "" : " btn--primario"}`} disabled={ocupado || !!s.bloqueio || !numeroOk}
               onClick={() => void gerar()}>{ocupado ? "Gerando…" : s.frc ? "Gerar de novo" : "Gerar a FRC"}</button>
           )}
-          {s.frc && (
+          {s.frc && !s.frc.desatualizada && (
             <>
-              <a className="btn" href={`/api/medicoes/${medicaoId}/frc/pdf`}>Baixar PDF</a>
-              <a className="btn" href={`/api/medicoes/${medicaoId}/frc/xlsx`}>Baixar planilha</a>
+              <button type="button" className="btn" onClick={() => void baixar("pdf")}>Baixar PDF</button>
+              <button type="button" className="btn" onClick={() => void baixar("xlsx")}>Baixar planilha</button>
             </>
           )}
         </div>
