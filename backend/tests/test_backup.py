@@ -301,10 +301,12 @@ def test_arquivo_que_saiu_dos_dados_continua_no_backup(tmp_path):
 def test_copia_externa_leva_os_arquivos(tmp_path):
     origem, gravados = _dados_com_arquivos(tmp_path)
     fora = tmp_path / "externo"
-    backup.rodada(origem, tmp_path / "dados" / "backups", fora)
+    backup.rodada_arquivos_externo(origem, fora)
     for rel, conteudo in gravados.items():
         assert (fora / "arquivos" / rel).read_bytes() == conteudo, rel
-    assert backup.ESTADO["ultima_copia_externa_erro"] is None
+    assert backup.ESTADO["ultima_copia_externa_arquivos"]
+    assert backup.ESTADO["ultima_copia_externa_arquivos_erro"] is None
+    assert backup._externo_arquivos_desde is None  # terminou: nao conta como parada
 
 
 def test_copia_de_arquivo_corrompida_e_recusada(tmp_path, monkeypatch):
@@ -318,7 +320,7 @@ def test_copia_de_arquivo_corrompida_e_recusada(tmp_path, monkeypatch):
 
     monkeypatch.setattr(backup.shutil, "copyfile", copia_truncada)
     backup.rodada(origem, destino, None)
-    assert "sha256" in backup.ESTADO["ultima_copia_arquivos_erro"]
+    assert "cópia conferida diferente da original" in backup.ESTADO["ultima_copia_arquivos_erro"]
     assert backup.ESTADO["ultimo_snapshot_erro"] is None  # o banco foi salvo mesmo assim
     assert _arquivos_no(destino / "arquivos") == []
 
@@ -333,6 +335,7 @@ def test_arquivo_com_defeito_nao_impede_os_outros(tmp_path):
     backup.rodada(origem, destino, None)
     erro = backup.ESTADO["ultima_copia_arquivos_erro"]
     assert erro and estragado.name in erro
+    assert "1 arquivo(s) sem cópia" in erro and "conteúdo não confere com o nome" in erro
     assert not (destino / "arquivos" / "notas" / estragado.name).exists()
     for rel in gravados:
         assert (destino / "arquivos" / rel).exists(), rel
@@ -343,29 +346,55 @@ def test_arquivos_copiam_mesmo_com_snapshot_falhando(tmp_path, monkeypatch):
     destino = tmp_path / "dados" / "backups"
     monkeypatch.setattr(backup, "criar_snapshot",
                         lambda o, d: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
-    backup.rodada(origem, destino, tmp_path / "externo")
+    backup.rodada(origem, destino, None)
     assert "locked" in backup.ESTADO["ultimo_snapshot_erro"]
     for rel in gravados:
         assert (destino / "arquivos" / rel).exists(), rel
-        assert (tmp_path / "externo" / "arquivos" / rel).exists(), rel
 
 
-def test_falha_dos_arquivos_la_fora_nao_segura_o_banco(tmp_path, monkeypatch):
-    # um arquivo travado nao pode impedir o banco de sair do servidor
+def test_rodada_do_snapshot_nao_toca_os_arquivos_la_fora(tmp_path):
+    # a copia externa dos arquivos e' de outra thread: compartilhamento pendurado nao para o snapshot
     origem, _ = _dados_com_arquivos(tmp_path)
     fora = tmp_path / "externo"
-    real = backup.copiar_arquivos
-
-    def falha_so_fora(o, d):
-        if fora in d.parents:
-            raise OSError("cota cheia")
-        return real(o, d)
-
-    monkeypatch.setattr(backup, "copiar_arquivos", falha_so_fora)
     backup.rodada(origem, tmp_path / "dados" / "backups", fora)
-    assert len(list(fora.glob("dashboard-*.db"))) == 1
-    assert backup.ESTADO["ultima_copia_externa_erro"] is None
-    assert "copia externa: cota cheia" in backup.ESTADO["ultima_copia_arquivos_erro"]
+    assert len(list(fora.glob("dashboard-*.db"))) == 1      # o banco saiu
+    assert not (fora / "arquivos").exists()                 # os arquivos sao da outra thread
+
+
+def test_falha_dos_arquivos_la_fora_fica_registrada(tmp_path, monkeypatch):
+    origem, _ = _dados_com_arquivos(tmp_path)
+    monkeypatch.setattr(backup, "copiar_arquivos",
+                        lambda o, d: (_ for _ in ()).throw(OSError("cota cheia")))
+    backup.rodada_arquivos_externo(origem, tmp_path / "externo")
+    assert "cota cheia" in backup.ESTADO["ultima_copia_externa_arquivos_erro"]
+    assert backup._externo_arquivos_desde is None
+
+
+def test_copia_externa_dos_arquivos_parada_aparece_no_health(tmp_path, monkeypatch):
+    # a outra thread esta pendurada ha 3 h no compartilhamento: o snapshot segue e acusa
+    origem, _ = _dados_com_arquivos(tmp_path)
+    monkeypatch.setattr(backup, "_externo_arquivos_desde", time.monotonic() - 3 * 3600)
+    monkeypatch.setitem(backup.ESTADO, "ultima_copia_externa_arquivos_erro", None)
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    assert len(list(destino.glob("dashboard-*.db"))) == 1
+    assert "a cópia está parada há 3 horas" in backup.ESTADO["ultima_copia_externa_arquivos_erro"]
+
+
+def test_agendar_sobe_thread_propria_para_os_arquivos_la_fora(tmp_path, monkeypatch):
+    origem, _ = _dados_com_arquivos(tmp_path)
+    nomes = []
+
+    class ThreadFalsa:
+        def __init__(self, target, daemon, name): nomes.append(name)
+        def start(self): pass
+
+    monkeypatch.setattr(backup.threading, "Thread", ThreadFalsa)
+    backup.agendar_backup_horario(origem, tmp_path / "b", tmp_path / "externo")
+    assert nomes == ["backup", "backup-arquivos-externo"]
+    nomes.clear()
+    backup.agendar_backup_horario(origem, tmp_path / "b", None)
+    assert nomes == ["backup"]
 
 
 def test_parcial_abandonado_de_copia_e_limpo(tmp_path):
