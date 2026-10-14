@@ -22,7 +22,6 @@ ESPERANDO_NOTA = ("espelho_gerado", "espelho_enviado")
 ESPERANDO_PROTOCOLO = ("nota_emitida",)
 PROTOCOLADAS = ("protocolada", "nf_emitida")
 FORA = ("cancelada", "desistida", "prevista")
-TERMINO_DIAS = 183
 FAIXAS = (("ate_30", 0, 30), ("de_31_a_60", 31, 60), ("mais_60", 61, None))
 TOLERANCIA_CENTAVOS = 100      # titulo pago com ate R$ 1,00 de diferenca nao e' divida (arredondamento do RM)
 AVISO_NOTA_MINIMO = 1_000_000  # nota em aberto so' vira aviso a partir de R$ 10 mil na cota; o resto so' soma
@@ -260,9 +259,7 @@ def _carteira(conn, ms: list[dict], hoje: datetime.date) -> dict:
     return {"saldo_centavos": saldo, "ritmo_mensal_centavos": ritmo_mes,
             "meses_de_producao": round(saldo / ritmo_mes, 1) if ritmo_mes > 0 else None,
             "por_orgao": [{"orgao": k, "saldo_centavos": v, "fracao": v / saldo if saldo else 0}
-                          for k, v in sorted(por_orgao.items(), key=lambda kv: -kv[1])],
-            "terminando": sorted([x for x in linhas if x["dias"] is not None and 0 <= x["dias"] <= TERMINO_DIAS],
-                                 key=lambda x: x["dias"])}
+                          for k, v in sorted(por_orgao.items(), key=lambda kv: -kv[1])]}
 
 
 def _obras(conn, hoje: datetime.date, avisos: list[dict]) -> list[dict]:

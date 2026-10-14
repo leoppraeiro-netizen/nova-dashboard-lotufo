@@ -17,7 +17,7 @@ const PAINEL = {
              mesmo_mes_ano_anterior_centavos: 80_000, acumulado_ano_centavos: 1_000_000, previsto_ano_centavos: 2_000_000,
              serie: [{ competencia: "2026-09", medido_centavos: 150_000, previsto_centavos: 200_000 }] },
   proximos: [{ competencia: "2026-09", faturamento_previsto_centavos: 200_000, recebimento_previsto_centavos: null }],
-  carteira: { saldo_centavos: 5_000_000, ritmo_mensal_centavos: 100_000, meses_de_producao: 50, por_orgao: [], terminando: [] },
+  carteira: { saldo_centavos: 5_000_000, ritmo_mensal_centavos: 100_000, meses_de_producao: 50, por_orgao: [] },
   obras: [{ contrato_id: 7, seq: 1, obra: "Cavalaria", contratante: "SINFRA", empreita: "PRÓPRIA", direito: 1,
             pi_va: 1_000_000, faturados: 400_000, saldo: 600_000, pct_recebido: 0.4, status: "EM ANDAMENTO",
             termino: "2026-12-20", vigencia: "2027-03-20", farol: "vermelho", motivo: "Cavalaria: execução vencida",

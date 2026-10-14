@@ -151,7 +151,7 @@ def test_carteira_saldo_ritmo_e_termino(cenario):
     k = diretoria.painel(c, HOJE)["carteira"]
     # proprio: 1.000.000,00 - 39.000,00 medidos; consorcio: 50% de (12.000.000,00 - 4.010.000,00)
     assert k["saldo_centavos"] == 96_100_000 + 399_500_000
-    assert [x["contrato_id"] for x in k["terminando"]] == [ids["propria"]]
+    assert "terminando" not in k
     assert k["ritmo_mensal_centavos"] == 33_833_333             # 203.000.000 / 6, meio para cima
 
 
