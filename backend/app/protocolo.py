@@ -756,7 +756,7 @@ def _destinatarios(conn, regras: dict, e: Etapa, c: dict, hoje: datetime.date) -
     para = [str(x).lower() for x in (regras.get(chave) or [])]
     # copia do orgao + a da obra (engenheiro da obra, 14/10/2026), sem repetir quem ja' esta' no Para
     copia = [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
-    copia += [x for x in json.loads(c.get("copia_extras") or "[]") if x not in copia]
+    copia = list(dict.fromkeys(copia + json.loads(c.get("copia_extras") or "[]")))
     if chave == "protocolo_assinados_para":     # nota da SINFRA (SUEF I/II, SUPU): so' o protocolo, sem fiscal
         return para, [x for x in copia if x not in para]
     f = carta.fiscal_vigente(conn, c["id"], hoje.isoformat())

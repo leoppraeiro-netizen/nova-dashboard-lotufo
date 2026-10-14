@@ -98,7 +98,7 @@ def test_enviar_reajuste_fecha_o_aviso_de_pleito(cenario):
 def test_copia_do_pleito_soma_a_da_obra_sem_quem_esta_no_para_nem_quem_envia(cenario):
     c, ids = cenario
     c.execute("UPDATE contratos SET copia_extras=? WHERE id=?", (json.dumps(
-        ["eng@l.com", "leo@l.com", "fiscal@exemplo.gov.br", "maria.outlook@l.com"]), ids["contrato"]))
+        ["eng@l.com", "eng@l.com", "leo@l.com", "fiscal@exemplo.gov.br", "maria.outlook@l.com"]), ids["contrato"]))
     c.execute("INSERT INTO envios (tipo, usuario_id, remetente, para, copia, assunto) "
               "VALUES ('teste', ?, 'maria.outlook@l.com', '[]', '[]', 'antes')", (ids["uid"],))
     c.commit()
