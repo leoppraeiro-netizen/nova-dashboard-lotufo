@@ -86,10 +86,15 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
             frcs = {d["medicao_id"]: d for d in docs if d["tipo_doc"] == "fatura"}
             for m in ms:
                 d = frcs.get(m["id"])
+                # issue #148: a FRC gerada (sem assinatura) vigente, para a etapa 4 oferecer baixa-la
+                g = conn.execute("SELECT numero FROM frcs WHERE medicao_id=? AND substituida_em IS NULL "
+                                 "ORDER BY id DESC LIMIT 1", (m["id"],)).fetchone()
+                detalhe = (f"Assinada anexada · {d['nome']}" if d
+                           else "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui" if g
+                           else "Falta a FRC assinada: gere na etapa 3 (Nota fiscal), assine no DocuSign e anexe aqui")
                 itens.append({"chave": f"frc:{m['id']}", "medicao_id": m["id"],
                               "rotulo": "FRC assinada" + (f" · {medicoes.titulo(m)}" if len(ms) > 1 else ""),
-                              "detalhe": d["nome"] if d else "Falta a FRC assinada: gere na etapa 3 (Nota fiscal), "
-                                                              "assine no DocuSign e anexe aqui",
+                              "detalhe": detalhe, "frc_gerada": g[0] if g else None,
                               "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc"})
             notas_faltam = [f for f in faltas if not f.endswith("FRC assinada não anexada")]
             itens.append({"chave": "consorcio", "rotulo": "Notas das consorciadas",

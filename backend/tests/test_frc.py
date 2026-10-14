@@ -258,13 +258,16 @@ def test_frc_gerada_nao_satisfaz_o_envio_e_a_assinada_sim(conn, usuario, consorc
     itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
     item = next(i for i in itens if i["chave"] == f"frc:{mid}")
     assert (item["estado"], item["acao"]) == ("falta", "anexar_frc")
+    # issue #148: a etapa 4 diz que falta a assinada e oferece baixar a gerada
+    assert item["frc_gerada"] == n
+    assert item["detalhe"] == "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui"
     assert next(i for i in itens if i["chave"] == "consorcio")["estado"] == "ok"
     _texto("qualquer coisa")
     notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), f"FRC {n} assinada.pdf", tipo_doc="fatura")
     assert protocolo.faltas_consorcio(conn, c, [m]) == []
     itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
     item = next(i for i in itens if i["chave"] == f"frc:{mid}")
-    assert (item["estado"], item["detalhe"]) == ("ok", f"FRC {n} assinada.pdf")
+    assert (item["estado"], item["detalhe"]) == ("ok", f"Assinada anexada · FRC {n} assinada.pdf")
     assert frc.situacao(conn, mid)["assinada"] is True
 
 
