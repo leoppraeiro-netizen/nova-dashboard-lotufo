@@ -310,10 +310,10 @@ function Saude() {
 // `conta`: o total do grupo (contaRec); `carregadas`: as linhas que ja' chegaram da API (no recorte da obra);
 // `mostrando`: as que a tabela mostra. "Ver as N linhas" abre o grupo; "Carregar mais" (`mais`) traz a pagina seguinte.
 function Grupo({ id, titulo, conta, carregadas, mostrando, verTodas, mais, children }: {
-  id: CategoriaRec; titulo: string; conta: { n: number; piso: boolean; faltam: number }; carregadas: number; mostrando: number;
+  id: CategoriaRec; titulo: string; conta: { n: number; piso: boolean; haMais: boolean }; carregadas: number; mostrando: number;
   verTodas: React.ReactNode; mais: React.ReactNode; children: React.ReactNode;
 }) {
-  const { n, piso, faltam } = conta;
+  const { n, piso, haMais } = conta;
   const qtd = quantidadeRec(n, piso);
   return (
     <section className="cartao" aria-labelledby={`titulo-rec-${id}`}>
@@ -328,7 +328,7 @@ function Grupo({ id, titulo, conta, carregadas, mostrando, verTodas, mais, child
         ? <div className="vazio vazio--curto"><p>{piso ? "Nada desta obra entre as já carregadas." : "Nada de um lado só neste grupo."}</p></div>
         : children}
       {mostrando < carregadas && <div className="cartao__corpo">{verTodas}</div>}
-      {mostrando === carregadas && faltam > 0 && <div className="cartao__corpo">{mais}</div>}
+      {mostrando === carregadas && haMais && <div className="cartao__corpo">{mais}</div>}
     </section>
   );
 }
@@ -384,7 +384,7 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
     <>
       {erroMais?.c === c && <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erroMais.texto}</p>}
       <button type="button" className="btn btn--pequeno" onClick={() => carregarMais(c)} disabled={carregando !== null}>
-        {carregando === c ? "Carregando…" : `Carregar mais (faltam ${conta(c).faltam.toLocaleString("pt-BR")})`}
+        {carregando === c ? "Carregando…" : "Carregar mais"}
       </button>
     </>
   );
@@ -510,7 +510,7 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
                 {d.alocacoes_desfeitas.slice(0, quantas(d.alocacoes_desfeitas.length)).map((x, i) => {
                   const o = porInstrumento.get(x.numero_instrumento);
                   return (
-                    <tr key={`${x.medicao_id}-${x.numero}-${x.desfeita_em}`} className={`linha${i % 2 === 1 ? " par" : ""}`}>
+                    <tr key={x.id} className={`linha${i % 2 === 1 ? " par" : ""}`}>
                       <td>{o ? <Link className="nome-link" para={{ tela: "obra", id: o.id, aba: "medicoes" }}>{nomeDaObra(o)}</Link> : x.numero_instrumento}</td>
                       <td>{o ? <Link para={{ tela: "medicao", obra: o.id, id: x.medicao_id }} secao="notas">{x.numero_medicao}ª Medição</Link> : `${x.numero_medicao}ª Medição`}</td>
                       <td className="num">{x.numero}{x.serie ? `/${x.serie}` : ""}</td>

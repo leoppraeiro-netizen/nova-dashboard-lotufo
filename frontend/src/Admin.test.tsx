@@ -87,13 +87,14 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
 // "Carregar mais" traz a página seguinte da API
 test("Reconciliação: a contagem é o total da API e Carregar mais traz as NFs seguintes", async () => {
   const nf = (id: number) => ({ id, coligada: 1, numero: String(id), serie: null, emissao: null, valor_centavos: 100, campo_livre1: null });
-  const pagina = (nfs: ReturnType<typeof nf>[]) => ({ nfs_sem_medicao: nfs, medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
-                                                     totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 0 } });
+  const pagina = (nfs: ReturnType<typeof nf>[], haMais: boolean) => ({
+    nfs_sem_medicao: nfs, medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
+    totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 0 }, ha_mais: { nfs_sem_medicao: haMais, alocacoes_desfeitas: false } });
   api.mockImplementation(async (url: string) => {
     if (url === "/api/admin/usuarios") return [];
     if (url === "/api/contratos") return [];
-    if (url === "/api/rm/reconciliacao") return pagina([nf(1), nf(2)]);
-    if (url === "/api/rm/reconciliacao?nfs_desde=2") return pagina([nf(3)]);
+    if (url === "/api/rm/reconciliacao") return pagina([nf(3), nf(2)], true);
+    if (url === "/api/rm/reconciliacao?nfs_apos=2") return pagina([nf(1)], false);
     throw new Error(`chamada inesperada: ${url}`);
   });
   render(<Admin aba="reconciliacao" busca={{ categoria: "nfs" }} />);

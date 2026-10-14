@@ -589,20 +589,37 @@ PAGINA_NFS_SEM_MEDICAO = 200
 PAGINA_DESFEITAS = 50
 
 
-def reconciliacao(conn, nfs_desde: int = 0, desfeitas_desde: int = 0) -> dict:
+def _pagina(conn, sql_de: str, chave: tuple[str, str], cursor: tuple | None, tamanho: int) -> tuple[list[dict], bool]:
+    """Uma pagina por cursor (keyset): as linhas depois de `cursor` na ordem (chave[0] DESC, chave[1] DESC), e se
+    ha' mais. Pelo cursor, e nao pela posicao, a lista nao repete nem pula linha quando a sincronizacao a muda
+    entre uma pagina e outra."""
+    a, b = chave
+    onde, params = ("", ()) if cursor is None else (f" AND ({a}, {b}) < (?, ?)", cursor)
+    linhas = [dict(r) for r in conn.execute(
+        f"{sql_de}{onde} ORDER BY {a} DESC, {b} DESC LIMIT ?", (*params, tamanho + 1))]
+    return linhas[:tamanho], len(linhas) > tamanho
+
+
+def reconciliacao(conn, nfs_apos: int | None = None, desfeitas_apos: int | None = None) -> dict:
     """RM x dashboard (spec §7 tela 8): o que esta' de um lado so'.
 
-    #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas (200 e 50), a partir da posicao
-    `*_desde`, com o total exato em `totais`; as outras duas listas vem inteiras."""
-    filtro_nfs = """
+    #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas (200 e 50, das mais recentes), depois da
+    linha de id `*_apos` (a ultima que a tela ja' tem), com o total exato em `totais` e `ha_mais`; as outras
+    duas listas vem inteiras. Id que nao existe e' ValueError."""
+    de_nfs = """
         FROM notas_fiscais n
         WHERE n.situacao='ativa'
           AND n.coligada IN (SELECT coligada_rm FROM entidades WHERE coligada_rm IS NOT NULL)
           AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=n.id AND a.desfeita_em IS NULL)"""
-    nfs_sem_medicao = [dict(r) for r in conn.execute(
-        f"SELECT n.* {filtro_nfs} ORDER BY n.emissao DESC, n.id DESC LIMIT ? OFFSET ?",
-        (PAGINA_NFS_SEM_MEDICAO, nfs_desde))]
-    total_nfs = conn.execute(f"SELECT COUNT(*) {filtro_nfs}").fetchone()[0]
+    cursor_nfs = None
+    if nfs_apos is not None:
+        cursor_nfs = conn.execute("SELECT COALESCE(emissao, ''), id FROM notas_fiscais WHERE id=?", (nfs_apos,)).fetchone()
+        if cursor_nfs is None:
+            raise ValueError(f"NF {nfs_apos} não encontrada.")
+    # emissao vazia vai para o fim, como o NULL no DESC
+    nfs_sem_medicao, mais_nfs = _pagina(conn, f"SELECT n.* {de_nfs}", ("COALESCE(n.emissao, '')", "n.id"),
+                                        cursor_nfs and tuple(cursor_nfs), PAGINA_NFS_SEM_MEDICAO)
+    total_nfs = conn.execute(f"SELECT COUNT(*) {de_nfs}").fetchone()[0]
     medicoes_sem_nf = [dict(r) for r in conn.execute("""
         SELECT m.id AS medicao_id, m.contrato_id, c.numero_instrumento, c.orgao, m.numero, m.tipo,
                m.competencia, m.estado, COALESCE(m.valor_atestado_centavos, m.valor_protocolado_centavos) AS valor_centavos
@@ -621,20 +638,26 @@ def reconciliacao(conn, nfs_desde: int = 0, desfeitas_desde: int = 0) -> dict:
             GROUP BY m.id"""):
         if r["valor_centavos"] is not None and r["alocado_centavos"] != r["valor_centavos"]:
             divergencias.append(dict(r))
-    desfeitas = [dict(r) for r in conn.execute("""
-        SELECT a.medicao_id, a.desfeita_em, a.motivo_desfazer, n.numero, n.serie, n.coligada, c.numero_instrumento,
-               m.numero AS numero_medicao, m.estado
+    de_desfeitas = """
         FROM nf_alocacoes a JOIN notas_fiscais n ON n.id=a.nota_id
         JOIN medicoes m ON m.id=a.medicao_id JOIN contratos c ON c.id=m.contrato_id
-        WHERE a.desfeita_em IS NOT NULL ORDER BY a.desfeita_em DESC, a.id DESC LIMIT ? OFFSET ?""",
-        (PAGINA_DESFEITAS, desfeitas_desde))]
-    total_desfeitas = conn.execute("""
-        SELECT COUNT(*) FROM nf_alocacoes a JOIN notas_fiscais n ON n.id=a.nota_id
-        JOIN medicoes m ON m.id=a.medicao_id JOIN contratos c ON c.id=m.contrato_id
-        WHERE a.desfeita_em IS NOT NULL""").fetchone()[0]
+        WHERE a.desfeita_em IS NOT NULL"""
+    cursor_desfeitas = None
+    if desfeitas_apos is not None:
+        cursor_desfeitas = conn.execute("SELECT desfeita_em, id FROM nf_alocacoes WHERE id=? AND desfeita_em IS NOT NULL",
+                                        (desfeitas_apos,)).fetchone()
+        if cursor_desfeitas is None:
+            raise ValueError(f"Alocação desfeita {desfeitas_apos} não encontrada.")
+    # o id da alocacao vai junto: e' o cursor da pagina seguinte e a chave da linha na tela
+    desfeitas, mais_desfeitas = _pagina(conn, f"""
+        SELECT a.id, a.medicao_id, a.desfeita_em, a.motivo_desfazer, n.numero, n.serie, n.coligada, c.numero_instrumento,
+               m.numero AS numero_medicao, m.estado {de_desfeitas}""", ("a.desfeita_em", "a.id"),
+        cursor_desfeitas and tuple(cursor_desfeitas), PAGINA_DESFEITAS)
+    total_desfeitas = conn.execute(f"SELECT COUNT(*) {de_desfeitas}").fetchone()[0]
     return {"nfs_sem_medicao": nfs_sem_medicao, "medicoes_sem_nf": medicoes_sem_nf,
             "divergencias": divergencias, "alocacoes_desfeitas": desfeitas,
-            "totais": {"nfs_sem_medicao": total_nfs, "alocacoes_desfeitas": total_desfeitas}}
+            "totais": {"nfs_sem_medicao": total_nfs, "alocacoes_desfeitas": total_desfeitas},
+            "ha_mais": {"nfs_sem_medicao": mais_nfs, "alocacoes_desfeitas": mais_desfeitas}}
 
 
 def agendar(intervalo_seg: int = INTERVALO_SEG) -> threading.Thread | None:
