@@ -5,6 +5,7 @@ das seis certidoes e' testada em test_leitura_certidao.py contra textos reais.
 """
 import base64
 import pathlib
+import re
 import zlib
 
 import pytest
@@ -85,14 +86,36 @@ def test_regexes_nao_explodem_com_espacos_ate_o_teto():
     # dezenas de SEGUNDOS de CPU (backtracking quadratico) numa rota sincrona aberta a
     # quem edita cadastros. Com o `:` dentro de um grupo opcional, custa milissegundos.
     import time
-    for palavra in ("validade", "expedição", "emissão", "válida até",
-                    "código de controle da certidão"):
-        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"  # noqa: F841
+    # Uma palavra-chave por regex de campo: o prefixo literal dela (ate o primeiro metacaractere),
+    # para nenhuma falhar no primeiro caractere e escapar dos espacos. Sai de `_CAMPOS`, nao de lista fixa.
+    # Regex sem prefixo literal (comeca por lookbehind, grupo etc.) nao da' palavra-chave: so' pode
+    # ficar de fora se estiver aqui, de modo que uma regex nova sem prefixo derruba o teste.
+    sem_prefixo_ok = {("municipal", "numero")}
+    palavras, sem_prefixo = set(), set()
+    for tipo, campos in leitura_certidao._CAMPOS.items():
+        for campo, regex in campos.items():
+            prefixo = re.match(r"(?:\\b)?([A-Z0-9 /,\-]*)", regex).group(1)
+            if prefixo:
+                palavras.add(prefixo)
+            else:
+                sem_prefixo.add((tipo, campo))
+    assert sem_prefixo <= sem_prefixo_ok, f"regex sem prefixo literal, nao estressada: {sem_prefixo - sem_prefixo_ok}"
+    assert len(palavras) >= 12, palavras
+    for palavra in sorted(palavras):
+        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"
         inicio = time.perf_counter()
+        # `ler` normaliza os espacos antes de casar (`plano`) e recusa por "sem-texto" (o que sobra
+        # fica abaixo de MIN_TEXTO): so exercita `plano`. O que estressa os padroes e' casar cada
+        # regex de campo contra o texto CRU, com os espacos intactos.
+        with pytest.raises(leitura_certidao.Recusa):
+            leitura_certidao.ler(texto)
+        for campos in leitura_certidao._CAMPOS.values():
+            for regex in campos.values():
+                re.search(regex, texto)
         # 3 s, e nao 1 s: a assercao e' "milissegundos contra dezenas de SEGUNDOS", e
         # nesta maquina compartilhada um orcamento apertado falha por carga alheia, nao
         # por regressao (M7 da revisao final).
-        assert time.perf_counter() - inicio < 3.0, palavra
+        assert time.perf_counter() - inicio < 3.0, repr(palavra)
 
 
 def test_pdf_com_paginas_demais_e_recusado_antes_de_extrair():
@@ -220,7 +243,9 @@ def test_filtro_que_nao_sabemos_desfazer_fica_com_o_subprocesso():
         leitura_pdf.com_limite(pdf, "texto")     # 200
     except ValueError:                           # TextoInadequado ou pypdf: 422
         pass
-    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 3
+    # folga larga: com a CPU freada (13% sob carga) so' abrir o subprocesso leva segundos;
+    # o que o teste prova e' que termina, nao que termina rapido (issue #19)
+    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 20
 
 
 def test_com_limite_devolve_o_mesmo_que_a_leitura_no_processo():
@@ -263,6 +288,65 @@ def test_leitura_sem_vaga_e_recusada_dentro_do_orcamento(monkeypatch):
         leitura_pdf._VAGAS.release()
     assert "demais em andamento" in str(e.value)
     assert 0.4 <= gasto < 3.0, gasto      # esperou o orcamento, e so' ele
+
+
+def test_filho_que_morre_sem_responder_nao_deixa_handle_nem_vaga(monkeypatch):
+    """Dívida da fase 3: o filho morto sem resposta vira recusa, o cano e o processo são fechados
+    (proc.close) e a vaga volta -- senão cada morte vazaria um handle e, em duas, travaria a fila."""
+    import multiprocessing
+    fechados = []
+    real = multiprocessing.get_context("spawn")
+
+    class Rastreado:
+        """Embrulha o Process real (que o spawn precisa picklar inteiro) so' para ver o close."""
+        def __init__(self, **kw):
+            self._p = real.Process(**kw)
+        def close(self):
+            fechados.append(self._p.pid)
+            self._p.close()
+        def __getattr__(self, nome):
+            return getattr(self._p, nome)
+
+    class Contexto:
+        Pipe = staticmethod(real.Pipe)
+        Process = Rastreado
+
+    monkeypatch.setattr(leitura_pdf.multiprocessing, "get_context", lambda _: Contexto())
+    for _ in range(3):
+        with pytest.raises(leitura_pdf.TextoInadequado) as e:
+            leitura_pdf.com_limite(b"%PDF-1.4", "morrer")
+        assert "falhou" in str(e.value)
+    assert len(fechados) == 3
+    assert multiprocessing.active_children() == []
+    assert leitura_pdf._VAGAS.acquire(timeout=1) and leitura_pdf._VAGAS.acquire(timeout=1)
+    leitura_pdf._VAGAS.release()
+    leitura_pdf._VAGAS.release()
+
+
+def test_spawn_que_falha_fecha_as_duas_pontas_do_cano_e_devolve_a_vaga(monkeypatch):
+    pontas = []
+
+    class Cano:
+        def __init__(self):
+            self.fechado = False
+        def close(self):
+            self.fechado = True
+
+    class Contexto:
+        def Pipe(self, duplex=False):
+            par = (Cano(), Cano())
+            pontas.extend(par)
+            return par
+        def Process(self, **_):
+            raise OSError("sem handle")
+
+    monkeypatch.setattr(leitura_pdf.multiprocessing, "get_context", lambda _: Contexto())
+    with pytest.raises(OSError):
+        leitura_pdf.com_limite(b"%PDF-1.4", "texto")
+    assert len(pontas) == 2 and all(p.fechado for p in pontas)
+    assert leitura_pdf._VAGAS.acquire(timeout=1) and leitura_pdf._VAGAS.acquire(timeout=1)
+    leitura_pdf._VAGAS.release()
+    leitura_pdf._VAGAS.release()
 
 
 def test_erro_do_pypdf_no_filho_vira_valueerror_no_pai():

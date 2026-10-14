@@ -3,7 +3,8 @@ import { afterEach, expect, test, vi } from "vitest";
 import { apiForm } from "./api";
 import Documentos, { competenciaDoNome } from "./Documentos";
 
-vi.mock("./api", () => ({
+vi.mock("./api", async (original) => ({
+  ...(await original<typeof import("./api")>()),
   api: vi.fn(async (caminho: string) => {
     if (caminho === "/api/documentos") return {
       hoje: "2026-09-23",
@@ -23,7 +24,6 @@ vi.mock("./api", () => ({
     return {};
   }),
   apiForm: vi.fn(),
-  ApiErro: class extends Error {},
 }));
 
 afterEach(cleanup);

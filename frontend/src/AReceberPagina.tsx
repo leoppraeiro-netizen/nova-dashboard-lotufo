@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { brl, contar, fmtDias } from "./formato";
 import { IconeAlerta, IconeSeta } from "./icones";
-import { Link, trocarBusca, type Busca } from "./rota";
+import { trocarBusca, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia } from "./tempo";
 import Rolagem from "./Rolagem";
 
@@ -77,7 +78,7 @@ export default function AReceberPagina({ busca }: { busca: Busca }) {
   useEffect(() => {
     let vivo = true;
     api<Painel>("/api/diretoria").then(d => { if (vivo) setP(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, []);
 

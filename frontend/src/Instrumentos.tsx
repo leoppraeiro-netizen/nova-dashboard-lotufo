@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeCadeado } from "./icones";
 import { brl } from "./Medicoes";
 import { instrumentosDaObra, type AditivoApi, type InstrumentoCadastro, type InstrumentoPrazo } from "./obra";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia as mesBR, fmtDataPura } from "./tempo";
 import { fmtPercentual } from "./formato";
 import Rolagem from "./Rolagem";
@@ -60,7 +60,7 @@ export default function Instrumentos({ contratoId, cadastro, erroCadastro }:
     setAditivos(null); setErro(""); setPrazo([]);
     api<AditivoApi[]>(`/api/contratos/${contratoId}/aditivos`)
       .then(l => { if (vivo) setAditivos(l); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     // o sinal de retroativo e' o da situacao do prazo; se ela falhar, a lista sai sem o sinal
     api<{ situacao: { instrumentos: InstrumentoPrazo[] } }>(`/api/contratos/${contratoId}/prazos`)
       .then(d => { if (vivo) setPrazo(d.situacao.instrumentos); })

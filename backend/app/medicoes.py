@@ -205,9 +205,8 @@ def definir_valor(conn, usuario_id: int, medicao_id: int, campo: str, centavos: 
                      " AND COALESCE(valor_protocolado_origem, '') <> 'espelho'")
         cur = conn.execute(f"UPDATE medicoes SET {col_v}=?, {col_o}=?{extra_sql} WHERE id=?{cond}",
                            (centavos, origem, *extra_par, medicao_id))
-        if cur.rowcount != 1:
-            raise ValueError("Medição congelada ou encerrada concorrentemente: o valor não pôde ser "
-                             "gravado (se houve reapresentação, registre o novo protocolo)")
+        db.exigir_uma_linha(cur, "Medição congelada ou encerrada concorrentemente: o valor não pôde ser "
+                                 "gravado (se houve reapresentação, registre o novo protocolo)")
         depois = {col_v: centavos, col_o: origem}
         if campo == "atestado":
             # O que FICOU gravado (COALESCE), como no motivo de mudar_estado.
@@ -280,8 +279,7 @@ def registrar_protocolo(conn, usuario_id: int, medicao_id: int, data: str,
         else:
             upd = conn.execute("UPDATE medicoes SET congelada=1 WHERE id=? AND estado=?",
                                (medicao_id, atual))
-        if upd.rowcount != 1:
-            raise ValueError("Estado da medição mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(upd, "Estado da medição mudou concorrentemente; tente novamente")
         # Bloco 5: `protocolo_id` liga ao protocolo feito pelo sistema (e, por ele, ao e-mail enviado).
         cur = conn.execute(
             "INSERT INTO medicao_protocolos (medicao_id, data, numero_oficio, numero_processo, origem, protocolo_id) "
@@ -339,8 +337,7 @@ def mudar_estado(conn, usuario_id: int, medicao_id: int, novo: str, motivo: str 
         cur = conn.execute(
             "UPDATE medicoes SET estado=?, motivo_represamento=COALESCE(?, motivo_represamento)"
             f"{extra_sql} WHERE id=? AND estado=?", (novo, motivo, *extra_par, medicao_id, atual))
-        if cur.rowcount != 1:
-            raise ValueError("Estado da medição mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Estado da medição mudou concorrentemente; tente novamente")
         # A auditoria registra o que FICOU GRAVADO, nao o parametro recebido: com motivo=None,
         # auditar depois={"motivo": None} descreveria um apagamento que o COALESCE nao fez --
         # numa cadeia append-only, a versao auditada tem que casar com a persistida.
@@ -374,8 +371,7 @@ def criar_para_espelho(conn, usuario_id: int, contrato_id: int, numero: int, tip
         cur = conn.execute("UPDATE medicoes SET valor_protocolado_centavos=?, valor_protocolado_origem='espelho', "
                            "competencia=? WHERE id=? AND estado IN ('espelho_gerado','espelho_enviado')",
                            (valor_centavos, competencia, ja["id"]))
-        if cur.rowcount != 1:
-            raise ValueError("Estado da medição mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Estado da medição mudou concorrentemente; tente novamente")
         auditoria.registrar(conn, usuario_id, "medicao.valor_protocolado", "medicao", ja["id"],
                             {"valor_protocolado_centavos": ja["valor_protocolado_centavos"]},
                             {"valor_protocolado_centavos": valor_centavos, "valor_protocolado_origem": "espelho"})

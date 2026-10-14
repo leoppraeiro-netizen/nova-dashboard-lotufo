@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CartaoPleito, type Pleito } from "./FluxoOficio";
+import { ir } from "./rota";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const PLEITO: Pleito = {
   id: 4, tipo: "prazo", rotulo: "Pedido de prorrogação", origem: "sistema", numero_oficio: "301/2026",
@@ -42,5 +43,22 @@ describe("Ofício", () => {
     await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/pleitos/4/enviar")).toBe(true));
     const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/pleitos/4/enviar")!;
     expect(JSON.parse(opcoes.body).justificativa).toBe("memorial segue amanhã");
+  });
+
+  // issue #27: carta editada pede confirmação; depois de enviada ou descartada, a guarda solta
+  it("carta editada pede confirmação ao sair; ofício enviado ou descartado não prende a tela", () => {
+    window.history.replaceState(null, "", "/obras/1/prazos");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const { rerender } = render(<CartaoPleito p={{ ...PLEITO, situacao: "rascunho" }} podeEditar aoMudar={() => {}} />);
+    fireEvent.change(document.getElementById("carta-pleito-4")!, { target: { value: "Texto alterado" } });
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/obras/1/prazos");
+    rerender(<CartaoPleito p={{ ...PLEITO, situacao: "enviado" }} podeEditar aoMudar={() => {}} />);
+    rerender(<CartaoPleito p={{ ...PLEITO, situacao: "descartado" }} podeEditar aoMudar={() => {}} />);
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/avisos");
+    vi.restoreAllMocks();
   });
 });

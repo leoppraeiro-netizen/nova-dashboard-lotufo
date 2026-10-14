@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Diretoria from "./Diretoria";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const g = (quantidade: number, valor_centavos: number | null) => ({ quantidade, valor_centavos });
 const PAINEL = {
@@ -17,7 +17,7 @@ const PAINEL = {
              mesmo_mes_ano_anterior_centavos: 80_000, acumulado_ano_centavos: 1_000_000, previsto_ano_centavos: 2_000_000,
              serie: [{ competencia: "2026-09", medido_centavos: 150_000, previsto_centavos: 200_000 }] },
   proximos: [{ competencia: "2026-09", faturamento_previsto_centavos: 200_000, recebimento_previsto_centavos: null }],
-  carteira: { saldo_centavos: 5_000_000, ritmo_mensal_centavos: 100_000, meses_de_producao: 50, por_orgao: [], terminando: [] },
+  carteira: { saldo_centavos: 5_000_000, ritmo_mensal_centavos: 100_000, meses_de_producao: 50, por_orgao: [] },
   obras: [{ contrato_id: 7, seq: 1, obra: "Cavalaria", contratante: "SINFRA", empreita: "PRÓPRIA", direito: 1,
             pi_va: 1_000_000, faturados: 400_000, saldo: 600_000, pct_recebido: 0.4, status: "EM ANDAMENTO",
             termino: "2026-12-20", vigencia: "2027-03-20", farol: "vermelho", motivo: "Cavalaria: execução vencida",
@@ -43,7 +43,30 @@ describe("Carteira", () => {
     expect(await screen.findByText("1 de 3")).toBeTruthy();
     expect(screen.getByText("obras ativas protocolaram")).toBeTruthy();
     // A-21 (10/10/2026): o farol conta mais que as "obras ativas" e diz a base
-    expect(screen.getByText("1 de 1 obras (19 ativas, 2 em encerramento, 1 suspensa) com farol em Atenção ou Crítico")).toBeTruthy();
+    expect(screen.getByText("1 de 1 obras (19 ativas, 2 em encerramento, 1 suspensa) com farol em Ação, Atenção ou Crítico")).toBeTruthy();
+  });
+
+  it("Resumo: o farol de Ação e o de Atenção têm rótulos diferentes (D10)", async () => {
+    const outra = { ...PAINEL.obras[0], contrato_id: 8, seq: 2, obra: "Outra", farol: "atencao" };
+    const respostas: Record<string, unknown> = { ...RESPOSTAS, "/api/diretoria": { ...PAINEL, obras: [{ ...PAINEL.obras[0], farol: "acao" }, outra] } };
+    api.mockImplementation((url: string) => Promise.resolve(respostas[url]));
+    render(<Diretoria ir={() => {}} />);
+    expect(await screen.findByText("Ação")).toBeTruthy();
+    expect(screen.getByText("Atenção")).toBeTruthy();
+  });
+
+  it("KPIs são lista nativa (ul/li), sem role explícito", async () => {
+    api.mockImplementation((url: string) => Promise.resolve(RESPOSTAS[url]));
+    render(<Diretoria ir={() => {}} />);
+    await screen.findByText("Onde está o dinheiro");
+    const kpis = screen.getAllByRole("listitem").filter(i => i.classList.contains("kpi"));
+    expect(kpis.length).toBe(7);
+    kpis.forEach(i => {
+      expect(i.tagName).toBe("LI");
+      expect(i.parentElement?.tagName).toBe("UL");
+      expect(i.hasAttribute("role")).toBe(false);
+    });
+    ["Onde está o dinheiro", "O mês"].forEach(n => expect(screen.getByRole("list", { name: n }).tagName).toBe("UL"));
   });
 
   it("QDOP: exporta a planilha e mostra os motivos da obra", async () => {

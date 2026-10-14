@@ -219,8 +219,10 @@ def test_envio_de_nota_em_andamento_responde_409(api):
         c.execute("UPDATE protocolos SET envio_reservado_em=datetime('now'), envio_reservado_por=? WHERE id=?",
                   (_admin(c)["id"], pid))
     c.close()
+    vistos = [{"nome": a["nome"], "tamanho": a["tamanho"]}
+              for a in cl.get(f"/api/notas/envio/{pid}").json()["previa"]["anexos"]]
     r = cl.post(f"/api/notas/envio/{pid}/enviar",
-                json={k: corpo[k] for k in ("para", "copia", "assunto", "corpo", "justificativa")})
+                json={**{k: corpo[k] for k in ("para", "copia", "assunto", "corpo", "justificativa")}, "anexos": vistos})
     d = r.json()["detail"]
     assert r.status_code == 409 and d["codigo"] == "ENVIO_RESERVADO" and d["reservado_por_nome"] == "Admin"
     assert "em andamento" in d["mensagem"] and d["reservado_em"] and d["liberavel_a_partir_de"]

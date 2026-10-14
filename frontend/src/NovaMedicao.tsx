@@ -3,7 +3,8 @@ import { api } from "./api";
 import Espelho from "./Espelho";
 import { BarraEtapas, Etapa } from "./Etapas";
 import type { Usuario } from "./Login";
-import { ir, Link } from "./rota";
+import { ir } from "./rota";
+import { Link } from "./Link";
 import { Migalhas } from "./Topo";
 
 // Nova medicao (opcao A, 2026-10-09): a etapa 1 do fluxo, antes de a medicao existir. Gerar o espelho cria a
@@ -30,7 +31,7 @@ export default function NovaMedicao({ contratoId, usuario }: { contratoId: numbe
         <BarraEtapas atual={1} />
         <Etapa n={1} situacao="atual" resumo="número, competência e os valores informados pelo órgão">
           <Espelho contratoId={contratoId} podeEditar={podeEditar} aoMudar={() => {}} abrirForm
-            aoGerar={id => ir({ tela: "medicao", obra: contratoId, id }, { secao: "etapa-2" })}
+            aoGerar={id => ir({ tela: "medicao", obra: contratoId, id }, { secao: "etapa-2", forcar: true })}
             semRegra={<p className="cartao__corpo">Esta obra ainda não gera o espelho pelo sistema: lance a medição à mão na{" "}
               <Link para={{ tela: "obra", id: contratoId, aba: "medicoes" }}>página da obra</Link>.</p>} />
         </Etapa>

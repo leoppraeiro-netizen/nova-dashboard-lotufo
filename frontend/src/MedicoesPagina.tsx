@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import AguardandoPagamento from "./AguardandoPagamento";
 import { brl, contar } from "./formato";
 import { IconeAlerta, IconeMais, IconeSeta } from "./icones";
@@ -8,7 +8,8 @@ import type { Usuario } from "./Login";
 import { passoDe } from "./medicao";
 import NotasAEnviar from "./NotasAEnviar";
 import Rolagem from "./Rolagem";
-import { Link, type AbaMedicoes, type Busca } from "./rota";
+import { type AbaMedicoes, type Busca } from "./rota";
+import { Link } from "./Link";
 import { ABAS_MEDICOES, nivelParada, porContratante, rotuloSituacao, SITUACOES, textoParada, type LinhaResumo,
   type ObraResumo, type ResumoMedicoes, type Situacao, type SituacaoOuSem } from "./resumoMedicoes";
 import "./medicoes.css";
@@ -194,7 +195,7 @@ export default function MedicoesPagina({ aba, busca, usuario }: { aba: AbaMedico
     let vivo = true;
     api<ResumoMedicoes>("/api/medicoes/resumo")
       .then(d => { if (vivo) { setDados(d); setErro(""); } })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, [aba]);
 

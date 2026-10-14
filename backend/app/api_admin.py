@@ -1,7 +1,7 @@
 import datetime
 import sqlite3
 from fastapi import APIRouter, Depends, Query
-from app import auditoria, correio
+from app import auditoria, backup, correio, tempo
 from app.api_auth import conexao
 from app.permissoes import exigir
 
@@ -17,11 +17,23 @@ def listar_auditoria(limite: int = Query(default=100, ge=1, le=500),
     A cadeia e' verificada so' na primeira pagina (sem cursor); nas seguintes `cadeia_integra` vem nulo."""
     # um a mais que o pedido so' para saber se ainda ha' anteriores
     linhas = conn.execute(
-        "SELECT * FROM audit_log WHERE id < ? ORDER BY id DESC LIMIT ?",
+        # `contrato_id`: a obra do objeto, para a tela levar da medicao ou do protocolo ate' ela (o evento so' guarda o id
+        # da medicao/protocolo); nulo quando o objeto nao e' dessas entidades ou ja' nao existe.
+        "SELECT a.*, CASE a.entidade "
+        "  WHEN 'medicao' THEN (SELECT contrato_id FROM medicoes WHERE id = CAST(a.entidade_id AS INTEGER)) "
+        "  WHEN 'protocolo' THEN (SELECT contrato_id FROM protocolos WHERE id = CAST(a.entidade_id AS INTEGER)) "
+        "END AS contrato_id FROM audit_log a WHERE a.id < ? ORDER BY a.id DESC LIMIT ?",
         (MAX_INT64 if antes_de is None else antes_de, limite + 1)).fetchall()
     return {"cadeia_integra": auditoria.verificar_cadeia(conn) if antes_de is None else None,
             "ha_mais": len(linhas) > limite,
             "eventos": [dict(l) for l in linhas[:limite]]}
+
+
+@router.get("/backup")
+def saude_do_backup(usuario: dict = Depends(exigir("administrar", com_csrf=False))):
+    """Administracao > Saude (issue #31): ultimo backup, quantos estao guardados, ultimo erro
+    e se esta atrasado (mais de 2 h sem snapshot). So' admin: traz caminhos e erros do servidor."""
+    return backup.situacao(backup.pasta_local(), backup.pasta_externa() is not None, tempo.agora_utc())
 
 
 @router.get("/contas-microsoft")

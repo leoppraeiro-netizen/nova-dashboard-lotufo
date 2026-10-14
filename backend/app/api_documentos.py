@@ -29,7 +29,7 @@ def _texto(pdf: bytes, status_inadequado: int = 422) -> str:
         return leitura_pdf.texto_de_pdf_com_limite(pdf)
     except leitura_pdf.TextoInadequado as e:
         raise HTTPException(status_inadequado, str(e))
-    except Exception as e:      # pypdf no filho: corrompido, cifrado, truncado
+    except Exception:      # pypdf no filho: corrompido, cifrado, truncado
         raise HTTPException(415, leitura_pdf.PDF_CORROMPIDO)
 
 

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta, IconeBaixar, IconeCadeado, IconeMais } from "./icones";
 import { EXCECOES, notasDivergentes, passoDe, resumoNotas, separarMedicoes, tituloMedicao } from "./medicao";
-import { Link, type Busca } from "./rota";
+import { type Busca } from "./rota";
+import { Link } from "./Link";
 // competencia vem "AAAA-MM" (formato do CHECK da tabela); na tela le-se "MM/AAAA"
 import { fmtCompetencia as competenciaBR, fmtDataHora, fmtDataPura as dataBR } from "./tempo";
 import Rolagem from "./Rolagem";
@@ -103,7 +104,7 @@ export default function Medicoes({ contratoId, busca, versao = 0 }: { contratoId
     ]).then(([lista, abertas]) => {
       if (g !== geracao.current) return;
       setItens(lista); setAndamento(new Map(abertas.map(a => [a.id, a])));
-    }).catch(e => { if (g === geracao.current) setErro(e instanceof ApiErro ? e.message : String(e)); })
+    }).catch(e => { if (g === geracao.current) setErro(mensagemDeErro(e)); })
       .finally(() => { if (g === geracao.current) setCarregando(false); });
     api<Frescor>("/api/rm/status").then(f => { if (g === geracao.current) setFrescor(f); }).catch(() => {});
     return () => { geracao.current += 1; };
@@ -245,7 +246,7 @@ export function NovaMedicaoManual({ contratoId, aoCriar }: { contratoId: number;
       setFeito({ id: r.id, numero: Number(novo.numero), tipo: novo.tipo });
       setNovo({ numero: "", tipo: "execucao", competencia: "" });
       aoCriar();
-    } catch (e) { setErro(e instanceof ApiErro ? e.message : String(e)); } finally { setSalvando(false); }
+    } catch (e) { setErro(mensagemDeErro(e)); } finally { setSalvando(false); }
   }
 
   return (

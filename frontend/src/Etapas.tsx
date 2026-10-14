@@ -85,7 +85,9 @@ export function Etapa({ n, situacao, resumo, aberta, children }: {
 
 /** Etapa 4 na pagina da medicao: o envio de Notas a enviar que contem esta medicao (medicao e reajuste juntos
  *  quando o orgao junta). Sem protocolo ainda, um botao o inicia; com protocolo, o envio aparece aqui mesmo. */
-export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar }: { medicaoId: number; podeEditar: boolean; aoMudar: (aviso?: string) => void }) {
+export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar, versaoDocs = 0 }: {
+  medicaoId: number; podeEditar: boolean; aoMudar: (aviso?: string) => void; versaoDocs?: number;
+}) {
   const [envio, setEnvio] = useState<Envio | null | undefined>(undefined);
   const [pid, setPid] = useState<number | null>(null);
   const [erro, setErro] = useState("");
@@ -106,7 +108,9 @@ export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar }: { medicaoId: 
     return <p className="campo__nota">Esta medição não aparece em Notas a enviar: confira se a obra tem o órgão no cadastro.</p>;
   }
   if (pid) {
-    return <EnviarNota key={pid} protocoloId={pid} podeEditar={podeEditar} embutido={{ aoConcluir: aoMudar, aoTrocar: setPid }} />;
+    // issue #100: NF ou FRC anexada na etapa 3 com o envio aberto faz o envio ler os anexos de novo
+    return <EnviarNota key={pid} protocoloId={pid} podeEditar={podeEditar} versao={versaoDocs}
+      embutido={{ aoConcluir: aoMudar, aoTrocar: setPid }} />;
   }
   const outras = envio.medicao_ids.length > 1;
   return (

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
-import { ir, Link, trocarBusca, type Busca } from "./rota";
+import { ir, trocarBusca, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura, hojeLocal } from "./tempo";
 import "./notas.css";
 
@@ -27,7 +28,7 @@ export type ListaEnvios = { envios: Envio[]; contadores: Record<string, number> 
 const GRUPOS = ["SINFRA", "MTPAR", "SES-MT", "Pref. VG", "Pref. Cuiabá"];
 
 export function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 /** "4 notas de 08/10/2026" / "NF 2322 de 08/10/2026" */

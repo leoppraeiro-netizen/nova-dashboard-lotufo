@@ -10,10 +10,10 @@ so' bloqueia o que e' erro (medicao encerrada, sem destinatario, anexos acima do
 """
 import datetime
 import json
+import os
 import re
 from dataclasses import dataclass
 from html import escape
-from urllib.parse import urlparse
 
 from app import (arquivos, assinatura, auditoria, carta, cadastro_arquivos, certidoes, checklist, correio, db,
                  documentos, envio_reserva, espelhos, frc, leitura_pdf, medicoes, oficios, pdfs, tempo)
@@ -29,8 +29,13 @@ ANEXO = "anexo"
 JUSTIFICATIVA_POS_ENVIO = "Pendência surgida entre a prévia e o envio; o e-mail já tinha saído"
 NUMERO_ORGAO_VAZIO = "Informe o número do protocolo no órgão"
 # A-13 (testes de quebra 10/10/2026): o link vira <a href> no e-mail oficial ao orgao; so' o OneDrive e o SharePoint
-# da Lotufo (o unico link em producao e' do primeiro). Comparacao exata do host: "...sharepoint.com.evil.test" nao passa.
-DOMINIOS_LINK = ("lotufoengmt-my.sharepoint.com", "lotufoengmt.sharepoint.com")
+# da Lotufo. Comparacao exata do host: "...sharepoint.com.evil.test" nao passa. Issue #118: os hosts vem de
+# DASH_SHAREPOINT_HOSTS (separados por virgula; repositorio publico); sem a variavel, nenhum link passa.
+VARIAVEL_HOSTS_LINK = "DASH_SHAREPOINT_HOSTS"
+
+
+def dominios_link() -> tuple[str, ...]:
+    return tuple(h for h in (x.strip().lower() for x in os.environ.get(VARIAVEL_HOSTS_LINK, "").split(",")) if h)
 
 
 @dataclass(frozen=True)
@@ -99,6 +104,12 @@ def junta_naturezas(regras: dict, o: dict, e: Etapa) -> bool:
 
 class Bloqueio(ValueError):
     """D8: o que impede o envio sem justificativa possivel (certidao vencida)."""
+
+
+class AnexosMudaram(ValueError):
+    """Issue #100 (gate Sol S2, PR #141): a lista de anexos de agora nao e' a da previa. Subclasse de ValueError, entao a
+    rota do protocolo responde como antes; a do envio da nota manda `codigo` para a tela recarregar so' nesse caso."""
+    codigo = "ANEXOS_MUDARAM"
 
 
 titulo = medicoes.titulo          # bloco 6: o titulo mora em `medicoes` (lista de medicoes em andamento)
@@ -237,9 +248,16 @@ def adicionar_link(conn, usuario_id: int, protocolo_id: int, nome: str, url: str
         raise ValueError("Nome do arquivo acima de 200 caracteres")
     if not re.fullmatch(r"https://\S{8,2000}", url):
         raise ValueError("Cole o link completo do OneDrive (começa com https://)")
-    if (urlparse(url).hostname or "").lower() not in DOMINIOS_LINK:
-        raise ValueError("Cole um link do OneDrive ou SharePoint da Lotufo "
-                         "(lotufoengmt-my.sharepoint.com ou lotufoengmt.sharepoint.com)")
+    dominios = dominios_link()
+    if not dominios:
+        raise ValueError("Links do OneDrive ou SharePoint não estão liberados neste servidor: "
+                         "o administrador precisa configurar os endereços permitidos")
+    # O texto literal entre "https://" e a PRIMEIRA "/" tem que ser um host da lista: "\", "@" (userinfo), ":" (porta),
+    # "%", "?" e "#" ficam de fora. "https://evil.test\@host/..." daria hostname=host no urlparse, mas o navegador le "\"
+    # como "/" e abre evil.test. Sem urlparse: ele tambem lancaria erro em ingles para "[" ou barra Unicode.
+    m = re.match(r"https://([^/]*)/", url)
+    if not m or m.group(1).lower() not in dominios:
+        raise ValueError(f"Cole um link do OneDrive ou SharePoint da Lotufo ({' ou '.join(dominios)})")
     p = _linha(conn, protocolo_id)
     _editavel(p)
     with db.mutacao(conn):
@@ -833,8 +851,8 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     # Issue #10: o e-mail leva os anexos que a pessoa conferiu na previa; documento anexado ou trocado depois dela
     # (na medicao ou no protocolo) recusa o envio em vez de sair sem ser visto.
     if anexos_previa is not None and sorted((a["nome"], a["tamanho"]) for a in anexos_previa) !=             sorted((a["nome"], a["tamanho"]) for a in pv["anexos"]):
-        raise ValueError("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
-                         "o que vai no e-mail")
+        raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
+                            "o que vai no e-mail")
     justificativa = (justificativa or "").strip() or None
     if pv["pendencias"] and len(justificativa or "") < MIN_JUSTIFICATIVA:
         raise ValueError(f"{len(pv['pendencias'])} pendência(s) na prévia: informe a justificativa "

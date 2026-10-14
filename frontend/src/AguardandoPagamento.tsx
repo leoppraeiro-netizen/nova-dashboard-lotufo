@@ -4,7 +4,7 @@ import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { mensagem } from "./NotasAEnviar";
 import Rolagem from "./Rolagem";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import Selo from "./Selo";
 import { fmtData, fmtDataPura } from "./tempo";
 import "./notas.css";
@@ -48,7 +48,7 @@ function NumeroSiga({ l, aoMudar }: { l: Linha; aoMudar: () => void }) {
     <form className="form-inline" onSubmit={registrar}>
       <input className="entrada--media" aria-label={`Nº do protocolo de ${l.obra} · ${l.descricao}`} name="numero_orgao" autoComplete="off" spellCheck={false} maxLength={100}
         value={numero} onChange={e => setNumero(e.target.value)} />
-      <button type="submit" className="btn btn--pequeno" disabled={ocupado || !numero.trim() || numero.trim() === (l.numero_orgao ?? "")}>Registrar</button>
+      <button type="submit" className="btn btn--pequeno" disabled={ocupado || !numero.trim() || numero.trim() === (l.numero_orgao ?? "")}>{ocupado ? "Registrando…" : "Registrar"}</button>
       {l.familia === "mtpar" && DICA_SIGA}
       {l.familia === "mtpar" && !l.numero_orgao && <Selo classe="selo--atencao">sem protocolo SIGA</Selo>}
       <span className={gravado ? "notas__ok" : "sr-only"} role="status">{gravado}</span>

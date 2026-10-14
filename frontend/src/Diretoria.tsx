@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { contagem, type Aviso } from "./Alertas";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { ABAS_CARTEIRA, motivosDaLinha, obrasComProblema, porFarol, type Motivo } from "./carteira";
 import { contar, fmtDias, fmtPercentual } from "./formato";
 import { IconeAlerta, IconeBaixar } from "./icones";
 import { filtrarObras, type ObraLista } from "./listaObras";
 import { brl } from "./Medicoes";
-import { Link, type AbaCarteira, type Ir } from "./rota";
+import { type AbaCarteira, type Ir } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataPura, fmtMesCurto as mesCurto } from "./tempo";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";
@@ -34,12 +35,11 @@ type Proximo = { competencia: string; faturamento_previsto_centavos: number; rec
 type Carteira = {
   saldo_centavos: number; ritmo_mensal_centavos: number; meses_de_producao: number | null;
   por_orgao: { orgao: string; saldo_centavos: number; fracao: number }[];
-  terminando: { contrato_id: number; obra: string; execucao_fim: string; dias: number }[];
 };
 type Obra = {
   contrato_id: number; seq: number; obra: string; contratante: string; empreita: string; direito: number;
   pi_va: number; faturados: number; saldo: number; pct_recebido: number; status: string; termino: string | null;
-  vigencia?: string | null; farol: "verde" | "amarelo" | "vermelho"; motivo: string; motivos?: Motivo[];
+  vigencia?: string | null; farol: "verde" | "atencao" | "acao" | "vermelho"; motivo: string; motivos?: Motivo[];
 };
 type ResumoMes = { mes: string; obras_protocoladas: number; obras_ativas: number };
 type Painel = {
@@ -56,11 +56,13 @@ function baseObras(b: ObrasBase): string {
     .filter(Boolean).join(", ");
 }
 
-// O selo diz a palavra do nivel (D12), a mesma do Selo dos avisos: "Critico" e "Atencao" sao niveis de aviso, e o
-// amarelo acende com qualquer aviso que nao seja critico (de acao ou de atencao). So' o QDOP EXPORTADO (arquivo)
-// segue com o vocabulario oficial (verde, amarelo, vermelho).
-const FAROL: Record<Obra["farol"], { rotulo: string; classe: string }> = {
-  verde: { rotulo: "Em dia", classe: "selo--ok" }, amarelo: { rotulo: "Atenção", classe: "selo--atencao" },
+// O selo diz a palavra do nivel (D12, D10), a mesma do Selo dos avisos: Critico, Acao e Atencao. Acao e Atencao
+// dividem o ambar e se separam pela forma (contorno cheio na Acao), como em Alertas. So' o QDOP EXPORTADO
+// (arquivo) segue com o vocabulario oficial (verde, amarelo, vermelho).
+const FAROL: Record<Obra["farol"], { rotulo: string; classe: string; forte?: boolean }> = {
+  verde: { rotulo: "Em dia", classe: "selo--ok" },
+  acao: { rotulo: "Ação", classe: "selo--atencao", forte: true },
+  atencao: { rotulo: "Atenção", classe: "selo--atencao" },
   vermelho: { rotulo: "Crítico", classe: "selo--acao" },
 };
 
@@ -153,11 +155,11 @@ function GraficoAno({ serie }: { serie: MesAno["serie"] }) {
 function Kpi({ valorTexto, rotulo, dinheiro = true, comparacoes = [] }:
     { valorTexto: string; rotulo: string; dinheiro?: boolean; comparacoes?: { rotulo: string; valor: string }[] }) {
   return (
-    <div className={`kpi${dinheiro ? " kpi--dinheiro" : ""}`} role="listitem">
+    <li className={`kpi${dinheiro ? " kpi--dinheiro" : ""}`}>
       <span className="kpi__valor num">{valorTexto}</span>
       <span className="kpi__rotulo">{rotulo}</span>
       {comparacoes.map(c => <span key={c.rotulo} className="kpi__comparacao num">{c.rotulo}: {c.valor}</span>)}
-    </div>
+    </li>
   );
 }
 
@@ -201,12 +203,12 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
     <>
       <Secao id="dir-dinheiro" titulo="Onde está o dinheiro"
         dica={p.total_a_receber_liberado ? undefined : "Valores do protocolado a conciliar com a controladoria."}>
-        <div className="kpis" role="list" aria-label="Onde está o dinheiro">
+        <ul className="kpis" aria-label="Onde está o dinheiro">
           <Kpi valorTexto={brl(d.medido_esperando_nota.valor_centavos)} rotulo={`medido esperando nota (${d.medido_esperando_nota.quantidade})`} />
           <Kpi valorTexto={brl(d.nota_esperando_protocolo.valor_centavos)} rotulo={`nota emitida esperando protocolo (${d.nota_esperando_protocolo.quantidade})`} />
           <Kpi valorTexto={valor(d.protocolado.valor_centavos)} rotulo={`protocolado esperando pagamento (${d.protocolado.quantidade})`} />
           <Kpi valorTexto={brl(d.recebido_mes.valor_centavos)} rotulo={`recebido no mês (${d.recebido_mes.quantidade})`} />
-        </div>
+        </ul>
         {/* o protocolado por orgao (faixas, obras) e os reajustes esperando apostilamento moram em A receber */}
         <div className="cartao__corpo">
           <p>
@@ -220,19 +222,19 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
       </Secao>
 
       <Secao id="dir-mes" titulo="O mês" dica={`Competência ${fmtCompetencia(m.mes)}`}>
-        <div className="kpis" role="list" aria-label="O mês">
+        <ul className="kpis" aria-label="O mês">
           <Kpi valorTexto={brl(m.medido_mes_centavos)} rotulo="medido no mês"
             comparacoes={[{ rotulo: "previsto no mês", valor: brl(m.previsto_mes_centavos) },
               { rotulo: "mesmo mês do ano anterior", valor: brl(m.mesmo_mes_ano_anterior_centavos) }]} />
           <Kpi valorTexto={brl(m.acumulado_ano_centavos)} rotulo="acumulado do ano"
             comparacoes={[{ rotulo: "previsto do ano", valor: brl(m.previsto_ano_centavos) }]} />
           <Kpi valorTexto={protocolos.v} rotulo={protocolos.r} dinheiro={false} />
-        </div>
+        </ul>
       </Secao>
 
-      <Secao id="dir-problema" titulo="Obras com problema" dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Atenção ou Crítico`}>
+      <Secao id="dir-problema" titulo="Obras com problema" dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Ação, Atenção ou Crítico`}>
         {problema.total === 0 ? (
-          <div className="vazio vazio--curto"><p>Nenhuma obra com farol em Atenção ou Crítico.</p></div>
+          <div className="vazio vazio--curto"><p>Nenhuma obra com farol em Ação, Atenção ou Crítico.</p></div>
         ) : (
           <ul className="lista-simples cartao__corpo obras-problema">
             {problema.itens.map(o => {
@@ -240,7 +242,7 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
               const { visiveis, mais } = motivosDaLinha(o.motivos, 1);
               return (
                 <li key={o.contrato_id}>
-                  <Selo classe={FAROL[o.farol].classe}>{FAROL[o.farol].rotulo}</Selo>
+                  <Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo>
                   <span className="obras-problema__texto">
                     <Link className="nome-link" para={{ tela: "obra", id: o.contrato_id, aba: "medicoes" }} ir={ir}>{o.obra}</Link>
                     <span>{visiveis[0]?.texto ?? o.motivo}</span>
@@ -320,7 +322,7 @@ function Qdop({ p, ir }: { p: Painel; ir: Ir }) {
                       embaixo, a vigencia */}
                   <td className="num">{data(o.termino)}<div className="campo__nota">vig. {data(o.vigencia)}</div></td>
                   <td className="sem-quebra">{o.status}</td>
-                  <td><Selo classe={FAROL[o.farol].classe}>{FAROL[o.farol].rotulo}</Selo></td>
+                  <td><Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo></td>
                   <td>{!o.motivos ? (o.motivo || "—") : visiveis.length === 0 ? "—" : (
                     <ul className="motivos">
                       {visiveis.map(x => <li key={`${x.tipo}-${x.texto}`}>{x.texto}</li>)}
@@ -399,12 +401,12 @@ function Producao({ p, ir }: { p: Painel; ir: Ir }) {
       </Secao>
 
       <Secao id="dir-saldo" titulo="Saldo a executar" dica="Vigente − medido. O saldo do QDOP é outra conta: contratual − faturado.">
-        <div className="kpis" role="list" aria-label="Saldo a executar">
+        <ul className="kpis" aria-label="Saldo a executar">
           <Kpi valorTexto={brl(k.saldo_centavos)} rotulo="saldo a executar" />
           <Kpi valorTexto={brl(k.ritmo_mensal_centavos)} rotulo="ritmo (média dos últimos 6 meses)" />
           <Kpi valorTexto={k.meses_de_producao === null ? "—" : `${k.meses_de_producao.toLocaleString("pt-BR")}\u00a0meses`}
             rotulo="de produção no ritmo atual" dinheiro={false} />
-        </div>
+        </ul>
         <Rolagem rotulo="Saldo a executar por órgão">
           <table className="tabela tabela--estreita">
             <caption className="sr-only">Saldo a executar por órgão, na cota da Lotufo</caption>
@@ -430,7 +432,7 @@ export default function Diretoria({ ir, aba = "resumo" }: { ir: Ir; aba?: AbaCar
     let vivo = true;
     api<Painel>("/api/diretoria")
       .then(d => { if (vivo) setP(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, []);
 

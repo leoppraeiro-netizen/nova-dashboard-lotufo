@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
-import { contar } from "./formato";
+import { contar, fmtTamanho } from "./formato";
 import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
   ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, filtrarEventos, pessoaDoEvento, quantidadeRec, reconciliacaoDaObra,
-  rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
+  rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import { nomeDaObra, type ObraLista } from "./listaObras";
 import { tituloMedicao } from "./medicao";
 import { brl, ROTULO_ESTADO } from "./Medicoes";
-import { Link, trocarBusca, type AbaAdmin, type Busca } from "./rota";
+import { trocarBusca, type AbaAdmin, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora, fmtDataPura, fmtHora } from "./tempo";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";
@@ -37,11 +38,20 @@ type StatusRm = {
 };
 // Bloco 9: fica so' quem conectou a propria conta para enviar e-mail; a conexao e' feita por cada pessoa em Minha conta.
 type Conta = { usuario_id: number; nome: string; email: string; perfil: string; conectada: boolean; token_em: string | null };
-// O estado do backup sai no /api/health e mora na memoria do servidor: zera quando ele reinicia.
-type Backup = { ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null;
+// Issue #31: /api/admin/backup. O ultimo backup, o tamanho e a contagem vem do disco local; as tentativas e os erros
+// (ultimo_*) moram na memoria do servidor e zeram quando ele reinicia. `atrasado` = mais de 2 h sem snapshot.
+type Backup = { ultimo_backup: string | null; tamanho_bytes: number | null; guardados: number;
+                copia_externa_configurada: boolean; atrasado: boolean;
+                // *_erro: frase fixa em portugues (a excecao crua fica no log do servidor); *_erro_em: quando falhou
+                ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null; ultimo_snapshot_erro_em: string | null;
+                ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null;
+                ultima_copia_externa_erro_em: string | null;
+                // issue #55: copia de notas, espelhos, modelos e evidencias; aqui o *_erro ja' vem limpo do servidor
+                // (o que faltou, ou "rodando ha N horas sem terminar"), sem caminho
                 ultima_copia_arquivos?: string | null; ultima_copia_arquivos_erro?: string | null;
+                ultima_copia_arquivos_erro_em?: string | null;
                 ultima_copia_externa_arquivos?: string | null; ultima_copia_externa_arquivos_erro?: string | null;
-                ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null };
+                ultima_copia_externa_arquivos_erro_em?: string | null };
 
 const ROTULO_ESTADO_RODADA: Record<string, string> = { success: "OK", failed: "Falhou", running: "Rodando" };
 // A auditoria chega em paginas dos mais recentes; "Carregar mais" traz as anteriores e os filtros correm sobre
@@ -52,7 +62,7 @@ type PaginaAuditoria = { cadeia_integra: boolean | null; ha_mais: boolean; event
 const PRIMEIRAS = 10;
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // falha ao carregar: o proximo passo vai junto da mensagem da API
@@ -89,15 +99,17 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
   const [status, setStatus] = useState<StatusRm | null>(null);
   const [erro, setErro] = useState("");
   const [rodando, setRodando] = useState(false);
+  const [concluida, setConcluida] = useState("");
 
   const carregar = () => api<StatusRm>("/api/rm/status").then(setStatus).catch(e => setErro(falhaDeCarga(e)));
   useEffect(() => { carregar(); }, []);
 
   async function sincronizar() {
-    setErro(""); setRodando(true);
+    setErro(""); setConcluida(""); setRodando(true);
     try {
       const r = await api<{ estado: string; erro?: string }>("/api/rm/sincronizar", { method: "POST" });
       if (r.estado === "failed") setErro(`A sincronização falhou: ${r.erro ?? "erro desconhecido"}`);
+      else if (r.estado === "success") setConcluida("Sincronização concluída.");
       await carregar();
       aoSincronizar();
     } catch (e) {
@@ -134,6 +146,7 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
       </div>
 
       {erro && <Erro texto={erro} />}
+      <div role="status">{concluida && !erro && <div className="cartao__corpo"><p className="campo__nota">{concluida}</p></div>}</div>
 
       {status && !status.configurado && (
         <div className="cartao__corpo">
@@ -259,10 +272,12 @@ function ReconciliacaoResumo({ versao }: { versao: number }) {
   );
 }
 
-function LinhaBackup({ rotulo, em, erro, nenhum }: { rotulo: string; em: string | null; erro: string | null; nenhum: string }) {
+function LinhaBackup({ rotulo, em, erro, erroEm, nenhum }: {
+  rotulo: string; em: string | null; erro: string | null; erroEm: string | null; nenhum: string;
+}) {
   if (erro) return (
     <CaixaAviso nivel="critico">
-      {rotulo}: a última tentativa falhou ({erro}).{em ? ` A última que deu certo foi em ${fmtDataHora(em)}.` : ""} Veja docs/runbook.md.
+      {rotulo}: a última tentativa{erroEm ? `, em ${fmtDataHora(erroEm)},` : ""} falhou ({erro}).{em ? ` A última que deu certo foi em ${fmtDataHora(em)}.` : ""}
     </CaixaAviso>
   );
   return <p>{rotulo}: {em ? fmtDataHora(em) : nenhum}.</p>;
@@ -272,28 +287,45 @@ function Backup() {
   // undefined = carregando; null = nao deu para ler
   const [b, setB] = useState<Backup | null | undefined>(undefined);
   useEffect(() => {
-    api<{ backup?: Backup }>("/api/health").then(h => setB(h.backup ?? null)).catch(() => setB(null));
+    api<Backup>("/api/admin/backup").then(setB).catch(() => setB(null));
   }, []);
+  const falhou = !!b && (b.atrasado || !!b.ultimo_snapshot_erro || !!b.ultima_copia_externa_erro
+    || !!b.ultima_copia_arquivos_erro || !!b.ultima_copia_externa_arquivos_erro);
   return (
     <section className="cartao" aria-labelledby="titulo-backup">
       <div className="cartao__cabeca">
         <h2 className="cartao__titulo" id="titulo-backup">Backup</h2>
-        {/* o resultado de relance: Falhou se uma das tentativas falhou; OK quando alguma deu certo e nenhuma falhou */}
-        {b && (b.ultimo_snapshot_erro || b.ultima_copia_arquivos_erro || b.ultima_copia_externa_erro
-               || b.ultima_copia_externa_arquivos_erro ? <SeloRodada estado="failed" />
-          : b.ultimo_snapshot || b.ultima_copia_arquivos || b.ultima_copia_externa || b.ultima_copia_externa_arquivos ? <SeloRodada estado="success" /> : null)}
-        <span className="cartao__dica">desde que o servidor subiu</span>
+        {/* o resultado de relance: Falhou se esta atrasado ou uma das tentativas falhou; OK com backup em dia */}
+        {b && (falhou ? <SeloRodada estado="failed" /> : b.ultimo_backup ? <SeloRodada estado="success" /> : null)}
+        <span className="cartao__dica">um snapshot por hora</span>
       </div>
       <div className="cartao__corpo pilha">
         {b === undefined ? <p>Carregando…</p>
           : b === null ? <p className="campo__nota">Não foi possível ler o estado do backup; recarregue a página para tentar de novo.</p>
           : <>
-              <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} nenhum="nenhum desde que o servidor subiu" />
+              {b.atrasado && (
+                <CaixaAviso nivel="critico" role="alert">
+                  {`Backup atrasado: ${b.ultimo_backup ? `o último foi em ${fmtDataHora(b.ultimo_backup)}, há mais de 2 horas.`
+                    : "nenhum backup guardado neste servidor."} Confira a tarefa do servidor e a pasta de backups.`}
+                </CaixaAviso>
+              )}
+              <p>Último backup: {b.ultimo_backup
+                ? `${fmtDataHora(b.ultimo_backup)}${b.tamanho_bytes !== null ? ` (${fmtTamanho(b.tamanho_bytes)})` : ""}`
+                : "nenhum"}.</p>
+              <p>{contar(b.guardados, "snapshot guardado", "snapshots guardados")} neste servidor.</p>
+              {b.ultimo_snapshot_erro && <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} erroEm={b.ultimo_snapshot_erro_em} nenhum="" />}
+              {/* sem pasta externa configurada nao ha copia a esperar: a linha so' confundiria */}
+              {(b.copia_externa_configurada || b.ultima_copia_externa_erro) &&
+                <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} erroEm={b.ultima_copia_externa_erro_em} nenhum="nenhuma desde que o servidor subiu" />}
+              {/* issue #55: notas, espelhos, modelos e evidencias; a externa so' com pasta externa (como a do banco) */}
               <LinhaBackup rotulo="Última cópia dos arquivos" em={b.ultima_copia_arquivos ?? null} erro={b.ultima_copia_arquivos_erro ?? null}
-                nenhum="nenhuma desde que o servidor subiu" />
-              <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} nenhum="nenhuma desde que o servidor subiu" />
-              <LinhaBackup rotulo="Última cópia externa dos arquivos" em={b.ultima_copia_externa_arquivos ?? null}
-                erro={b.ultima_copia_externa_arquivos_erro ?? null} nenhum="nenhuma desde que o servidor subiu" />
+                erroEm={b.ultima_copia_arquivos_erro_em ?? null} nenhum="nenhuma desde que o servidor subiu" />
+              {(b.copia_externa_configurada || b.ultima_copia_externa_arquivos_erro) &&
+                <LinhaBackup rotulo="Última cópia externa dos arquivos" em={b.ultima_copia_externa_arquivos ?? null}
+                  erro={b.ultima_copia_externa_arquivos_erro ?? null} erroEm={b.ultima_copia_externa_arquivos_erro_em ?? null}
+                  nenhum="nenhuma desde que o servidor subiu" />}
+              {/* atrasado sem erro registrado (thread parada, servidor recem-reiniciado): "nenhum erro" desmentiria o alerta */}
+              {!falhou && <p>Último erro: nenhum desde que o servidor subiu.</p>}
             </>}
       </div>
     </section>
@@ -737,6 +769,11 @@ function Auditoria({ busca }: { busca: Busca }) {
   const f = { acao: busca.acao ?? null, pessoa: busca.pessoa ?? null, desde: busca.desde ?? null };
   const quem = (p: string) => (p === "sistema" ? "sistema" : nomes?.get(Number(p)) ?? `usuário ${p}`);
   const eventos = audit ? filtrarEventos(audit.eventos, f) : [];
+  // o objeto e' link para a tela dele; sem tela, fica o texto
+  const objeto = (ev: Evento) => {
+    const rota = rotaDoObjeto(ev);
+    return rota ? <Link para={rota}>{rotuloObjeto(ev.entidade, ev.entidade_id)}</Link> : rotuloObjeto(ev.entidade, ev.entidade_id);
+  };
   // as opcoes do filtro em ordem alfabetica do rotulo em portugues (o valor segue sendo o codigo da acao)
   const acoes = audit ? [...new Set(audit.eventos.map(e => e.acao))].sort((a, b) => rotuloAcao(a).localeCompare(rotuloAcao(b), "pt-BR")) : [];
   const pessoas = audit ? [...new Set(audit.eventos.map(pessoaDoEvento))] : [];
@@ -812,7 +849,7 @@ function Auditoria({ busca }: { busca: Busca }) {
                       <td className="num">{fmtDataHora(ev.criado_em)}</td>
                       <td>{quem(pessoaDoEvento(ev))}</td>
                       <td>{rotuloAcao(ev.acao)}</td>
-                      <td>{rotuloObjeto(ev.entidade, ev.entidade_id)}</td>
+                      <td>{objeto(ev)}</td>
                     </tr>
                   ))}
                 </tbody>

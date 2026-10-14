@@ -1,15 +1,16 @@
+import { useRascunho } from "./rascunho";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeSeta } from "./icones";
 import { FormMotivo } from "./MedicaoAtos";
 import { brl, ROTULO_ESTADO } from "./Medicoes";
 import { fmtTamanho as mb } from "./formato";
 import { protocolosDa } from "./medicao";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora } from "./tempo";
 import Selo from "./Selo";
 import Pendencias from "./Pendencias";
@@ -45,7 +46,7 @@ const SITUACAO: Record<string, string> = {
 };
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // As pecas do orgao como checklist (F-67). "Falta" e' Atencao: peca exigida sem anexo e' pendencia que se envia
@@ -75,6 +76,8 @@ function Cartao({ p, pecasCfg, podeEditar, aoMudar, marcado, aoMarcar }: {
   const [ocupado, setOcupado] = useState(false);
   const [descartando, setDescartando] = useState(false);
   useEffect(() => { setCorpo(p.corpo_carta || p.corpo_padrao || ""); }, [p.id, p.corpo_carta, p.corpo_padrao]);
+  useRascunho(podeEditar && !["enviado", "descartado"].includes(p.situacao)
+    && corpo.trim() !== (p.corpo_carta || p.corpo_padrao || "").trim());   // carta editada e ainda nao montada
 
   async function agir(f: () => Promise<ProtocoloDet | void>) {
     setOcupado(true); setErro("");
