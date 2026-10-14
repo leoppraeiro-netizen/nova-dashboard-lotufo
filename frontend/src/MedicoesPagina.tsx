@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import AguardandoPagamento from "./AguardandoPagamento";
 import { brl, contar } from "./formato";
 import { IconeAlerta, IconeMais, IconeSeta } from "./icones";
@@ -194,7 +194,7 @@ export default function MedicoesPagina({ aba, busca, usuario }: { aba: AbaMedico
     let vivo = true;
     api<ResumoMedicoes>("/api/medicoes/resumo")
       .then(d => { if (vivo) { setDados(d); setErro(""); } })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, [aba]);
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Aviso, Nivel } from "./Alertas";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { STATUS, type StatusObra } from "./ContratoPagina";
 import { IconeAlerta } from "./icones";
 import {
@@ -76,7 +76,7 @@ export default function Contratos({ ir, busca = {} }: { ir: Ir; busca?: Busca })
   useEffect(() => {
     let vivo = true;
     api<ObraLista[]>("/api/contratos").then(l => { if (vivo) setLista(l); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     // o nome da empresa e o numero de avisos completam a linha; sem eles, a lista continua
     api<Entidade[]>("/api/entidades")
       .then(l => { if (vivo) setEmpresas(new Map(l.map(e => [e.id, e.nome_curto || e.nome]))); })

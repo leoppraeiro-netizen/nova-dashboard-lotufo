@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Alertas, { avisosDaObra, type Aviso } from "./Alertas";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import type { Usuario } from "./Login";
 import Espelho from "./Espelho";
@@ -152,7 +152,7 @@ export default function ContratoPagina({ contratoId, usuario, aba, origem, busca
     setC(null); setErro("");
     api<Cabecalho>(`/api/contratos/${contratoId}/cabecalho`)
       .then(d => { if (vigente) setC(d); })
-      .catch(e => { if (vigente) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vigente) setErro(mensagemDeErro(e)); });
     return () => { vigente = false; };
   }, [contratoId]);
 

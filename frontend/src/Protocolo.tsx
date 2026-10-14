@@ -3,7 +3,7 @@ import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeSeta } from "./icones";
 import { FormMotivo } from "./MedicaoAtos";
 import { brl, ROTULO_ESTADO } from "./Medicoes";
@@ -45,7 +45,7 @@ const SITUACAO: Record<string, string> = {
 };
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // As pecas do orgao como checklist (F-67). "Falta" e' Atencao: peca exigida sem anexo e' pendencia que se envia

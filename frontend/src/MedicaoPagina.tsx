@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { baseDosValores } from "./formato";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import Espelho from "./Espelho";
 import { BarraEtapas, Etapa, EnvioDaMedicao, etapaDe, situacaoDa } from "./Etapas";
 import { FrcConsorcio } from "./Frc";
@@ -68,7 +68,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
     const g = geracao.current;
     setCab(null); setMedicoes(null); setErro(""); setFeito(""); setPainel(null);
     api<Cabecalho>(`/api/contratos/${contratoId}/cabecalho`).then(c => { if (g === geracao.current) setCab(c); }).catch(() => {});
-    carregar().catch(e => { if (g === geracao.current) setErro(e instanceof ApiErro ? e.message : String(e)); });
+    carregar().catch(e => { if (g === geracao.current) setErro(mensagemDeErro(e)); });
     return () => { geracao.current += 1; };
   }, [contratoId, medicaoId, carregar]);
 
@@ -97,7 +97,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
       await protocolos.carregar();
     } catch (e) {
       setErro(gravou ? "Gravado, mas a página não recarregou — recarregue para ver o resultado."
-        : e instanceof ApiErro ? e.message : String(e));
+        : mensagemDeErro(e));
     } finally { setSalvando(false); }
     return gravou;
   };
@@ -129,7 +129,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
       <>{cabeca}<div className="pagina">
         <div className="form-inline">
           <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />Não foi possível abrir a medição: {erro}</p>
-          <button type="button" className="btn" onClick={() => { setErro(""); void carregar().catch(e => setErro(e instanceof ApiErro ? e.message : String(e))); }}>Tentar de novo</button>
+          <button type="button" className="btn" onClick={() => { setErro(""); void carregar().catch(e => setErro(mensagemDeErro(e))); }}>Tentar de novo</button>
         </div>
       </div></>
     );

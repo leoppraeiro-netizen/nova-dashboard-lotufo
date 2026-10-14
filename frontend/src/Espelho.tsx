@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
 import { larDoEspelho, tituloMedicao } from "./medicao";
 import { brl } from "./Medicoes";
@@ -52,7 +52,7 @@ function mesCivil(comp: string): [string, string] {
   return [`${m[1]}-${m[2]}-01`, `${m[1]}-${m[2]}-${String(ultimo).padStart(2, "0")}`];
 }
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 const col = (v: number | null) => (v === null ? "—" : brl(v));
 

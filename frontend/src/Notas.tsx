@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { brl } from "./formato";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import { tituloMedicao } from "./medicao";
 import type { Medicao } from "./Medicoes";
@@ -42,7 +42,7 @@ function dataBR(iso: string | null): string {
   return iso ? fmtDataPura(iso) : "sem data";
 }
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 function motivoLeitura(motivo: string | null): string {
   if (motivo === "sem-texto") return "o PDF não tem texto (digitalizado)";

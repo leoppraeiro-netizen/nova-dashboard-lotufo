@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, apiForm } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import type { Usuario } from "./Login";
 import Selo from "./Selo";
 
@@ -21,7 +21,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   const [erroSenha, setErroSenha] = useState("");
   const [senhaTrocada, setSenhaTrocada] = useState("");
 
-  const carregar = () => api<Status>("/api/correio/status").then(setSt).catch(e => setErro(String(e.message ?? e)));
+  const carregar = () => api<Status>("/api/correio/status").then(setSt).catch(e => setErro(mensagemDeErro(e)));
   useEffect(() => { if (podeEditar) carregar(); return () => window.clearInterval(timer.current); }, [podeEditar]);
 
   // Enquanto a Microsoft espera a pessoa digitar o codigo, consultar o estado a cada 5 s.

@@ -3,7 +3,7 @@ import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import { FormMotivo } from "./MedicaoAtos";
 import { fmtTamanho as mb } from "./formato";
@@ -35,7 +35,7 @@ type Previa = { para: string[]; copia: string[]; assunto: string; corpo: string;
 const MIN_JUSTIFICATIVA = 10;        // o servidor recusa menos que isso (pleitos.MIN_JUSTIFICATIVA)
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // Os anexos do oficio como checklist (F-67). Tudo o que o servidor lista em `exigidos` e' exigido, entao sem

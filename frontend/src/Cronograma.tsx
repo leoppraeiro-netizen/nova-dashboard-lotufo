@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeCadeado, IconeMais } from "./icones";
 import { brl } from "./Medicoes";
 // O cadeado do passado congelado e a data de publicacao da versao sao decisoes de
@@ -347,7 +347,7 @@ export default function Cronograma({ contratoId, podeEditar }:
     setErro(""); setSucesso(""); setSalvando(false);
     setCarregando(true);
     carregar()
-      .catch(e => { if (g === geracao.current) setErro(e instanceof ApiErro ? e.message : String(e)); })
+      .catch(e => { if (g === geracao.current) setErro(mensagemDeErro(e)); })
       .finally(() => { if (g === geracao.current) setCarregando(false); });
     return () => { geracao.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -377,7 +377,7 @@ export default function Cronograma({ contratoId, podeEditar }:
       if (g === geracao.current) {
         setErro(gravou
           ? "Versão publicada, mas o cronograma não recarregou — recarregue a página para ver o resultado."
-          : e instanceof ApiErro ? e.message : String(e));
+          : mensagemDeErro(e));
       }
     } finally { if (g === geracao.current) setSalvando(false); }
     return gravou;

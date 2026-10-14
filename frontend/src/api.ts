@@ -92,3 +92,10 @@ export async function apiForm<T = unknown>(caminho: string, dados: FormData): Pr
   }
   return r.json();
 }
+
+/** Texto de erro para a tela. `ApiErro` ja traz mensagem em portugues (inclusive a falha de rede, status 0);
+ * qualquer outra coisa lancada (bug de codigo, erro nativo) nao pode vazar "TypeError: ..." em ingles. */
+export function mensagemDeErro(e: unknown): string {
+  if (e instanceof ApiErro) return e.message;
+  return "Algo deu errado. Tente de novo.";
+}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, ApiErro } from "./api";
+import { api, ApiErro, mensagemDeErro } from "./api";
 
 function responde(status: number, corpo: unknown) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(corpo), { status })));
@@ -29,5 +29,22 @@ describe("api: detail do servidor", () => {
     responde(422, { detail: "Informe ao menos um destinatário" });
     const erro = (await api("/api/x").catch(e => e)) as ApiErro;
     expect(erro.message).toBe("Informe ao menos um destinatário");
+  });
+});
+
+describe("api: falha de rede", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sem rede, fetch rejeita em inglês e a tela recebe a frase em português", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const erro = await api("/api/x").catch(e => e);
+    expect(mensagemDeErro(erro)).toBe("Sem conexão com o servidor.");
+    expect(mensagemDeErro(erro)).not.toContain("Failed to fetch");
+  });
+
+  it("mensagemDeErro nunca devolve o texto cru de um erro que não é ApiErro", () => {
+    expect(mensagemDeErro(new TypeError("Failed to fetch"))).toBe("Algo deu errado. Tente de novo.");
+    expect(mensagemDeErro("boom")).toBe("Algo deu errado. Tente de novo.");
+    expect(mensagemDeErro(new ApiErro(500, "Servidor indisponível."))).toBe("Servidor indisponível.");
   });
 });

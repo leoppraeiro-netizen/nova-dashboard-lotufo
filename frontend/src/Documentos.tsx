@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { api, ApiErro, apiForm } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar } from "./icones";
 import type { Usuario } from "./Login";
 import { focarPorId } from "./foco";
@@ -43,7 +43,7 @@ const ROTULO_TIPO = Object.fromEntries(TIPOS.map(t => [t.chave, t.rotulo]));
 const NATUREZA: Record<string, string> = { negativa: "negativa", positiva_efeito_negativa: "positiva com efeito de negativa" };
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 function cnpjBR(c: string): string {
   return c.length === 14 ? `${c.slice(0, 2)}.${c.slice(2, 5)}.${c.slice(5, 8)}/${c.slice(8, 12)}-${c.slice(12)}` : c;

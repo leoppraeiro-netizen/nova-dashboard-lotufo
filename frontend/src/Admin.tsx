@@ -7,7 +7,7 @@ import {
   rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import { nomeDaObra, type ObraLista } from "./listaObras";
 import { tituloMedicao } from "./medicao";
@@ -50,7 +50,7 @@ type PaginaAuditoria = { cadeia_integra: boolean | null; ha_mais: boolean; event
 const PRIMEIRAS = 10;
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // falha ao carregar: o proximo passo vai junto da mensagem da API
