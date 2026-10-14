@@ -110,6 +110,18 @@ def test_motivos_da_obra_um_a_um_sem_o_nome_da_obra(cenario, monkeypatch):
     assert obra["motivos"][1]["valor_centavos"] == 300_000 and obra["farol"] == "vermelho"
 
 
+def test_farol_separa_acao_de_atencao(cenario, monkeypatch):
+    c, ids = cenario                   # D10: o farol distingue Acao de Atencao (antes os dois eram "amarelo")
+    def com(*avisos_):
+        monkeypatch.setattr(diretoria._av, "listar", lambda conn, hoje, publico: list(avisos_))
+        return [o for o in diretoria.painel(c, HOJE)["obras"] if o["contrato_id"] == ids["propria"]][0]["farol"]
+    a = lambda nivel: avisos.aviso("pagamento_atrasado", nivel, "Própria: aviso", ids["propria"], "Própria", dias=5)
+    assert com(a("atencao")) == "atencao"
+    assert com(a("atencao"), a("acao")) == "acao"
+    assert com(a("acao"), a("critico")) == "vermelho"
+    assert com() == "verde"
+
+
 def test_faturado_e_a_receber_da_obra_em_valor_cheio(cenario):
     c, ids = cenario                   # A3: recebidas 800 mil + 11 x 100 mil; protocoladas 700 mil e 300 mil
     assert diretoria.da_obra(c, ids["propria"]) == {"faturado_centavos": 2_900_000, "a_receber_centavos": None}

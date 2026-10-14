@@ -273,7 +273,9 @@ def _obras(conn, hoje: datetime.date, avisos: list[dict]) -> list[dict]:
     out = []
     for linha in qdop.linhas(conn, hoje):
         av = por_obra.get(linha["contrato_id"], [])
-        farol = "vermelho" if any(a["nivel"] == "critico" for a in av) else "amarelo" if av else "verde"
+        # D10: o farol separa os niveis do aviso: critico = vermelho; acao = acao; o resto (atencao) = atencao
+        niveis = {a["nivel"] for a in av}
+        farol = "vermelho" if "critico" in niveis else "acao" if "acao" in niveis else "atencao" if av else "verde"
         # A5 (mapa de 2026-09-28; backlog de 2026-09-25): os motivos um a um, na ordem dos avisos (nivel e
         # dias), sem o prefixo com o nome da obra, que a linha ja' mostra. `motivo` fica para o QDOP exportado.
         prefixo = f"{av[0]['obra']}: " if av and av[0].get("obra") else None
