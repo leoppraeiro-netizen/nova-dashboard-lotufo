@@ -145,19 +145,27 @@ def test_obra_sem_medicao_traz_ultima_ha_quanto_tempo_prevista_e_proxima(conn):
                                       (d, 3, "2026-10", "recebida")):
         c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) VALUES (?,?,'execucao',?,?)",
                   (cid, numero, comp, estado))
-    # medição de projeto não entra na numeração da execução
+    # B mista (execução + projeto): o número é um só para os tipos, então a projeto 9 é a última e a próxima é a 10
     c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
               "VALUES (?,9,'projeto','2026-08','recebida')", (b,))
+    # F só mede projeto (ex.: espelho só de projeto): tem última e próxima, não "1ª"
+    f = _obra(c, "F", sinfra)
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,2,'projeto','2026-07','recebida')", (f,))
+    # o reajuste repete o número da execução e não conta
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,23,'reajuste','2026-02','recebida')", (a,))
     c.commit()
     obras = {o["obra"]: o for o in medicoes.resumo(conn, HOJE)["obras"]}
     assert obras["A"]["ultima"] == {"numero": 23, "competencia": "2026-01"}
     assert obras["A"]["ha_dias"] == (HOJE - datetime.date(2026, 1, 31)).days == 251
     assert obras["A"]["prevista"] == {"numero": 24, "competencia": "2026-09"} and obras["A"]["proxima"] == 24
-    # a cancelada da B não conta como última; o nº 6 já existe (UNIQUE), então a próxima é a 7
-    assert obras["B"]["ultima"] == {"numero": 5, "competencia": "2026-02"} and obras["B"]["ha_dias"] == 223
-    assert obras["B"]["prevista"] is None and obras["B"]["proxima"] == 7
-    # competência ainda em curso: a contagem não começou
-    assert obras["D"]["ultima"] == {"numero": 3, "competencia": "2026-10"} and obras["D"]["ha_dias"] is None
+    # a cancelada da B não conta como última; a projeto 9 (2026-08) é a última e a próxima é a 10
+    assert obras["B"]["ultima"] == {"numero": 9, "competencia": "2026-08"} and obras["B"]["ha_dias"] == 39
+    assert obras["B"]["prevista"] is None and obras["B"]["proxima"] == 10
+    assert obras["F"]["ultima"] == {"numero": 2, "competencia": "2026-07"} and obras["F"]["proxima"] == 3
+    # competência ainda em curso: "hoje" (0 dia), como no protótipo; "—" (nulo) só sem medição anterior
+    assert obras["D"]["ultima"] == {"numero": 3, "competencia": "2026-10"} and obras["D"]["ha_dias"] == 0
     assert obras["E"]["ultima"] is None and obras["E"]["ha_dias"] is None
     assert obras["E"]["prevista"] is None and obras["E"]["proxima"] == 1
 
