@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { confirmarSaida, haRascunho } from "./rascunho";
 
 // Roteador da casa (fase 3,5; casca do mapa aprovado em NAVEGACAO.md): URL por tela, objeto e aba, com os
 // filtros na busca (?obra=7) e a secao na ancora (#notas), sem dependencia nova.
@@ -185,17 +186,35 @@ function ler(): Local {
 let local: Local | null = null;
 const ouvintes = new Set<() => void>();
 
+// Onde se estava antes do ultimo movimento: o Voltar do navegador ja' trocou a URL quando o popstate chega, entao
+// recusar a saida (rascunho) e' repor este endereco.
+let ultimo: { href: string; estado: unknown } | null = null;
+
+function marcarUltimo() {
+  ultimo = { href: `${window.location.pathname}${window.location.search}${window.location.hash}`, estado: window.history.state ?? null };
+}
+
 function avisar() {
   local = ler();
+  marcarUltimo();
   for (const f of ouvintes) f();
 }
 
+function aoVoltar() {
+  const anterior = ultimo;
+  if (anterior && haRascunho() && window.location.pathname !== anterior.href.split(/[?#]/)[0] && !confirmarSaida()) {
+    window.history.pushState(anterior.estado, "", anterior.href);
+    return;
+  }
+  avisar();
+}
+
 function assinar(f: () => void) {
-  if (ouvintes.size === 0) window.addEventListener("popstate", avisar);
+  if (ouvintes.size === 0) { marcarUltimo(); window.addEventListener("popstate", aoVoltar); }
   ouvintes.add(f);
   return () => {
     ouvintes.delete(f);
-    if (ouvintes.size === 0) window.removeEventListener("popstate", avisar);
+    if (ouvintes.size === 0) window.removeEventListener("popstate", aoVoltar);
   };
 }
 
@@ -205,7 +224,8 @@ function instantaneo(): Local {
   return local;
 }
 
-export type OpcoesIr = { busca?: Busca; secao?: string; menu?: boolean };
+/** `forcar`: a navegacao e' o desfecho de uma acao concluida (gerou, enviou, descartou): nao pergunta pelo rascunho. */
+export type OpcoesIr = { busca?: Busca; secao?: string; menu?: boolean; forcar?: boolean };
 /** Assinatura de `ir`, para as telas que recebem a navegacao por prop (e os testes, que passam um vazio). */
 export type Ir = (destino: Rota, opcoes?: OpcoesIr) => void;
 
@@ -219,6 +239,8 @@ export function ir(destino: Rota, opcoes: OpcoesIr = {}) {
   if (href === aqui) { if (opcoes.secao) irParaSecao(opcoes.secao); return; }
   const de = parseRota(window.location.pathname);
   const outroCaminho = caminhoDe(destino) !== window.location.pathname;
+  // Trocar de tela com formulario sujo pede confirmacao; filtro e secao da mesma tela nao.
+  if (outroCaminho && !opcoes.forcar && !confirmarSaida()) return;
   const anterior = ((window.history.state ?? null) as EstadoHistorico | null)?.origem;
   const origem = opcoes.menu ? undefined
     : origemPara(de, `${window.location.pathname}${window.location.search}`, destino, anterior);

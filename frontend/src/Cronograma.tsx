@@ -1,3 +1,4 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import { api, ApiErro } from "./api";
@@ -316,6 +317,7 @@ export default function Cronograma({ contratoId, podeEditar }:
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
+  useRascunho(texto.trim() !== "");   // cronograma digitado e ainda nao publicado
   const area = useRef<HTMLTextAreaElement>(null);
 
   // GERACAO da leitura — mesma guarda de Medicoes.tsx. Cada troca de `contratoId` (e o
