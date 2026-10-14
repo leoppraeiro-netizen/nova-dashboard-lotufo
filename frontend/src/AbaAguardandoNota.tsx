@@ -1,5 +1,5 @@
 import { brl, contar } from "./formato";
-import { IconeSeta } from "./icones";
+import { IconeMais, IconeSeta } from "./icones";
 import { Link } from "./Link";
 import { passoDe } from "./medicao";
 import { cliqueSimples, ir } from "./rota";
@@ -33,7 +33,8 @@ function Linha({ l }: { l: LinhaResumo }) {
       onKeyDown={ev => { if (ev.key === "Enter" && ev.target === ev.currentTarget) { ev.preventDefault(); abrir(); } }}>
       <td><Link className="medicoes__obra" para={{ tela: "obra", id: l.contrato_id, aba: "medicoes" }}>{l.obra}</Link></td>
       <td>{l.contratante}{l.orgao_sub && <span className="medicoes__sub">{l.orgao_sub}</span>}</td>
-      <td>{l.titulo}</td>
+      <td><Link className="medicoes__medicao" para={{ tela: "medicao", obra: l.contrato_id, id: l.medicao_id }}
+        secao={secao}>{l.titulo}</Link></td>
       <td className="col-num dinheiro">{brl(l.valor_centavos)}</td>
       <td className="aba-nota__data" data-rotulo="Enviada ao faturamento em">
         {l.marco ? fmtDataPura(l.marco) : <span className="medicoes__traco">{"—"}</span>}</td>
@@ -43,15 +44,31 @@ function Linha({ l }: { l: LinhaResumo }) {
   );
 }
 
-export default function AbaAguardandoNota({ linhas }: { linhas: LinhaResumo[] }) {
+function Iniciar({ podeIniciar, aoIniciar }: { podeIniciar: boolean; aoIniciar: () => void }) {
+  return podeIniciar ? (
+    <div className="medicoes__acoes">
+      <button type="button" className="btn btn--primario medicoes__iniciar" onClick={aoIniciar}>
+        <IconeMais className="icone" />Iniciar processo de medição
+      </button>
+    </div>
+  ) : null;
+}
+
+export default function AbaAguardandoNota({ linhas, podeIniciar, aoIniciar }:
+    { linhas: LinhaResumo[]; podeIniciar: boolean; aoIniciar: () => void }) {
   if (linhas.length === 0) {
     return (
+      <>
+      <Iniciar podeIniciar={podeIniciar} aoIniciar={aoIniciar} />
       <section className="medicoes__quadro" aria-label="Aguardando nota">
         <div className="vazio"><p className="vazio__titulo">Nenhuma medição esperando nota.</p></div>
       </section>
+      </>
     );
   }
   return (
+    <>
+    <Iniciar podeIniciar={podeIniciar} aoIniciar={aoIniciar} />
     <section className="medicoes__quadro" aria-labelledby="aba-nota-titulo">
       <div className="medicoes__quadro-cabeca">
         <h2 id="aba-nota-titulo">Aguardando nota</h2>
@@ -80,5 +97,6 @@ export default function AbaAguardandoNota({ linhas }: { linhas: LinhaResumo[] })
         <tbody>{linhas.map(l => <Linha key={l.medicao_id} l={l} />)}</tbody>
       </table>
     </section>
+    </>
   );
 }

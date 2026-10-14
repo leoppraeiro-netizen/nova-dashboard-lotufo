@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import AbaAguardandoNota from "./AbaAguardandoNota";
 import type { LinhaResumo } from "./resumoMedicoes";
 
@@ -21,7 +21,7 @@ describe("Aba Aguardando nota", () => {
   afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); });
 
   it("mostra o aviso, a contagem e cada linha com valor, data de envio e parada", () => {
-    render(<AbaAguardandoNota linhas={LINHAS} />);
+    render(<AbaAguardandoNota linhas={LINHAS} podeIniciar aoIniciar={() => {}} />);
     const quadro = screen.getByRole("region", { name: "Aguardando nota" });
     expect(within(quadro).getByText("4 medições")).toBeTruthy();
     expect(within(quadro).getByText("A nota aparece aqui sozinha quando o faturamento a emite no RM.")).toBeTruthy();
@@ -41,7 +41,7 @@ describe("Aba Aguardando nota", () => {
   });
 
   it("a linha inteira abre a medição na etapa pendente, por clique e por teclado; a obra abre a obra", () => {
-    render(<AbaAguardandoNota linhas={LINHAS} />);
+    render(<AbaAguardandoNota linhas={LINHAS} podeIniciar aoIniciar={() => {}} />);
     const linhaBRT = screen.getByRole("row", { name: /Integra BRT/ });
     fireEvent.click(within(linhaBRT).getByText("SINFRA"));
     expect(window.location.pathname + window.location.hash).toBe("/obras/5/medicoes/40#etapa-3");
@@ -52,8 +52,26 @@ describe("Aba Aguardando nota", () => {
     expect(window.location.pathname + window.location.hash).toBe("/obras/8");
   });
 
+  it("o título da medição é link de verdade na etapa pendente; Ctrl+clique na linha não navega", () => {
+    render(<AbaAguardandoNota linhas={LINHAS} podeIniciar aoIniciar={() => {}} />);
+    expect(screen.getByRole("link", { name: "16ª Medição" }).getAttribute("href")).toBe("/obras/5/medicoes/40#etapa-3");
+    fireEvent.click(screen.getByRole("row", { name: /Integra BRT/ }), { ctrlKey: true });
+    expect(window.location.pathname).toBe("/");
+  });
+
+  it("o botão Iniciar processo aparece só para quem pode iniciar, com ou sem linhas", () => {
+    const aoIniciar = vi.fn();
+    const { rerender } = render(<AbaAguardandoNota linhas={LINHAS} podeIniciar aoIniciar={aoIniciar} />);
+    fireEvent.click(screen.getByRole("button", { name: /Iniciar processo de medição/ }));
+    expect(aoIniciar).toHaveBeenCalledOnce();
+    rerender(<AbaAguardandoNota linhas={[]} podeIniciar aoIniciar={aoIniciar} />);
+    expect(screen.getByRole("button", { name: /Iniciar processo de medição/ })).toBeTruthy();
+    rerender(<AbaAguardandoNota linhas={LINHAS} podeIniciar={false} aoIniciar={aoIniciar} />);
+    expect(screen.queryByRole("button", { name: /Iniciar processo/ })).toBeNull();
+  });
+
   it("sem medição esperando nota: estado vazio, sem tabela", () => {
-    render(<AbaAguardandoNota linhas={[]} />);
+    render(<AbaAguardandoNota linhas={[]} podeIniciar aoIniciar={() => {}} />);
     expect(screen.getByText("Nenhuma medição esperando nota.")).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
