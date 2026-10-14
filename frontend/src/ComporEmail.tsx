@@ -129,6 +129,12 @@ function Destinatarios({ campo, valor, nomes, aoMudar, aoAbrirCatalogo, direita,
   );
 }
 
+// Virtualizacao do catalogo (issue #30): linhas de altura fixa (ALTURA_LINHA, igual no CSS), so' as visiveis
+// mais uma folga entram no DOM; duas linhas-espaco mantem a altura total para a barra de rolagem.
+const ALTURA_LINHA = 48;
+const FOLGA_LINHAS = 6;
+const ALTURA_PADRAO = 360;
+
 function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
   campo: Campo; inicial: string[]; aoSalvar: (v: string[]) => void; aoCancelar: () => void;
 }) {
@@ -136,16 +142,24 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
   const [lista, setLista] = useState<Contato[] | null>(null);
   const [escolhidos, setEscolhidos] = useState<string[]>(inicial);
   const [nomes, setNomes] = useState<Map<string, string | null>>(new Map());
+  const [rolagem, setRolagem] = useState(0);
+  const rolavel = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let vivo = true;
     const t = setTimeout(() => {
       buscar<Contato[]>(`/api/correio/contatos?todos=true&q=${encodeURIComponent(busca.trim())}`)
-        .then(l => { if (vivo) { setLista(l); setNomes(n => new Map([...n, ...l.map(c => [c.email, c.nome] as const)])); } })
+        .then(l => { if (vivo) { setLista(l); setRolagem(0); if (rolavel.current) rolavel.current.scrollTop = 0; setNomes(n => new Map([...n, ...l.map(c => [c.email, c.nome] as const)])); } })
         .catch(() => { if (vivo) setLista([]); });
     }, 200);
     return () => { vivo = false; clearTimeout(t); };
   }, [busca]);
+
+  const total = lista?.length ?? 0;
+  const altura = rolavel.current?.clientHeight || ALTURA_PADRAO;
+  const ini = Math.max(0, Math.floor(rolagem / ALTURA_LINHA) - FOLGA_LINHAS);
+  const fim = Math.min(total, Math.ceil((rolagem + altura) / ALTURA_LINHA) + FOLGA_LINHAS);
+  const visiveis = lista ? lista.slice(ini, fim) : [];
 
   const alternar = (e: string) => setEscolhidos(v => v.includes(e) ? v.filter(x => x !== e) : [...v, e]);
 
@@ -180,14 +194,15 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
         <div className="ol-modal__corpo">
           <input className="ol-busca" type="search" autoFocus placeholder="Pesquisar contatos…" aria-label="Pesquisar contatos"
             autoComplete="off" spellCheck={false} value={busca} onChange={e => setBusca(e.target.value)} />
-          <div className="ol-tabela-wrap">
+          <div className="ol-tabela-wrap" ref={rolavel} onScroll={ev => setRolagem(ev.currentTarget.scrollTop)}>
             <table className="ol-tabela">
               <thead><tr><th aria-label="Escolher" /><th>Nome</th><th>Email</th></tr></thead>
               <tbody>
                 {lista === null && <tr><td colSpan={3} className="ol-vazio">Carregando…</td></tr>}
                 {lista?.length === 0 && <tr><td colSpan={3} className="ol-vazio">Nenhum resultado correspondente</td></tr>}
-                {lista?.map(c => (
-                  <tr key={c.email} onClick={() => alternar(c.email)}>
+                {ini > 0 && <tr aria-hidden="true" style={{ height: ini * ALTURA_LINHA }}><td colSpan={3} /></tr>}
+                {visiveis.map(c => (
+                  <tr key={c.email} className="ol-linha-fixa" onClick={() => alternar(c.email)}>
                     <td><input type="checkbox" checked={escolhidos.includes(c.email)} onChange={() => alternar(c.email)}
                       onClick={ev => ev.stopPropagation()} aria-label={`Escolher ${c.nome || c.email}`} /></td>
                     <td><span className="ol-pessoa"><Avatar c={c} /><span><span className="ol-sugestao__nome">{c.nome || c.email}</span>
@@ -195,6 +210,7 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
                     <td>{c.email}</td>
                   </tr>
                 ))}
+                {fim < total && <tr aria-hidden="true" style={{ height: (total - fim) * ALTURA_LINHA }}><td colSpan={3} /></tr>}
               </tbody>
             </table>
           </div>

@@ -67,4 +67,27 @@ describe("ComporEmail", () => {
     expect(validarAntes).toHaveBeenCalled();
     expect(aoEnviar).not.toHaveBeenCalled();
   });
+
+  // issue #30: com 1.000 contatos so' as linhas visiveis (mais folga) entram no DOM, e rolar troca a janela
+  it("catalogo com 1.000 contatos renderiza so' as linhas visiveis", async () => {
+    const todos = Array.from({ length: 1000 }, (_, i) => ({ nome: `Pessoa ${i}`, email: `p${i}@lotufo.com` }));
+    api.mockImplementation((caminho: string) => {
+      if (caminho.startsWith("/api/correio/remetente")) return Promise.resolve({ remetente: "eu@lotufo.com" });
+      if (caminho.includes("todos=true")) return Promise.resolve(todos);
+      return Promise.resolve([]);
+    });
+    render(<ComporEmail ocupado={false} anexos={[]} aoEnviar={() => {}} aoDescartar={() => {}}
+      inicial={{ para: [], copia: [], cco: [], assunto: "A", corpo: "" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Para" }));
+    expect(await screen.findByLabelText("Escolher Pessoa 0")).toBeTruthy();
+    const linhas = () => document.querySelectorAll("tr.ol-linha-fixa").length;
+    expect(linhas()).toBeGreaterThan(0);
+    expect(linhas()).toBeLessThan(60);
+    expect(screen.queryByLabelText("Escolher Pessoa 500")).toBeNull();
+    const wrap = document.querySelector(".ol-tabela-wrap") as HTMLElement;
+    fireEvent.scroll(wrap, { target: { scrollTop: 500 * 48 } });
+    expect(await screen.findByLabelText("Escolher Pessoa 500")).toBeTruthy();
+    expect(screen.queryByLabelText("Escolher Pessoa 0")).toBeNull();
+    expect(linhas()).toBeLessThan(60);
+  });
 });

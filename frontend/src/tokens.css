@@ -1433,6 +1433,9 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
   padding: 6px 8px; border-bottom: 1px solid #e1dfdd; }
 .ol-tabela td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
 .ol-tabela tbody tr { cursor: pointer; }
+.ol-tabela tbody tr.ol-linha-fixa { height: 48px; box-sizing: border-box; }
+.ol-tabela tbody tr.ol-linha-fixa td { padding-top: 0; padding-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+.ol-tabela tbody tr.ol-linha-fixa td:first-child { max-width: none; }
 .ol-tabela tbody tr:hover { background: #f5f5f5; }
 .ol-pessoa { display: flex; align-items: center; gap: 10px; }
 .ol-pessoa > span:last-child { display: grid; }
