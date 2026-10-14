@@ -67,14 +67,27 @@ def conectar(usuario: dict = Depends(exigir("editar_cadastros"))):
         raise HTTPException(422, "Microsoft 365 não configurado neste servidor "
                                  "(DASH_GRAPH_CLIENT_ID / DASH_GRAPH_TOKENS_DIR) — ver docs/runbook.md")
     uid = usuario["id"]
+    # Ver e reservar sob a mesma trava: dois cliques juntos (ou duas abas) pedem UM codigo a' Microsoft; o segundo
+    # recebe o "aguardando" do primeiro. _status pega a mesma trava (nao reentrante): so' depois de solta-la.
     with _LOCK:
-        aguardando = _LOGINS.get(uid, {}).get("estado") == "aguardando"
-    if aguardando:          # _status pega a mesma trava (nao reentrante): chamar so' depois de solta-la
+        antes = _LOGINS.get(uid)
+        aguardando = (antes or {}).get("estado") == "aguardando"
+        if not aguardando:
+            _LOGINS[uid] = {"estado": "aguardando", "user_code": None, "verification_uri": None}
+            _CODIGO.pop(uid, None)
+    if aguardando:
         return _status(uid)
     try:
         d = graph.iniciar_device_code(cfg["tenant"], cfg["client_id"], correio.ESCOPOS_LOGIN)
-    except graph.ErroGraph as e:
-        raise HTTPException(502, str(e)) from None
+    except Exception as e:
+        with _LOCK:             # desfaz a reserva: a pessoa pode tentar de novo
+            if antes is None:
+                _LOGINS.pop(uid, None)
+            else:
+                _LOGINS[uid] = antes
+        if isinstance(e, graph.ErroGraph):
+            raise HTTPException(502, str(e)) from None
+        raise
     with _LOCK:
         _LOGINS[uid] = {"estado": "aguardando", "user_code": d["user_code"],
                         "verification_uri": d["verification_uri"]}

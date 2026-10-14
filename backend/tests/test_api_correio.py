@@ -100,6 +100,39 @@ def test_assinatura_png_cortada_ao_meio_da_422_em_portugues(client_admin):
     assert r.status_code == 200 and r.json()["assinatura"] is True
 
 
+def test_dois_cliques_simultaneos_pedem_um_codigo_so(client_admin, monkeypatch):
+    pedidos, liberar = [], threading.Event()
+
+    def devagar(tenant, cid, escopos):
+        pedidos.append(1)
+        liberar.wait(5)
+        return {"device_code": "d", "user_code": "ABCD-1234", "verification_uri": "https://microsoft.com/devicelogin",
+                "expires_in": 900, "interval": 5, "message": ""}
+    monkeypatch.setattr(graph, "iniciar_device_code", devagar)
+    respostas = []
+    ts = [_THREAD(target=lambda: respostas.append(client_admin.post("/api/correio/conectar")), daemon=True)
+          for _ in range(2)]
+    for t in ts:
+        t.start()
+    for _ in range(50):                  # o segundo responde logo, com o "aguardando" reservado pelo primeiro
+        if respostas:
+            break
+        api_correio.time.sleep(0.1)
+    liberar.set()
+    for t in ts:
+        t.join(5)
+    assert len(pedidos) == 1 and len(respostas) == 2 and all(r.status_code == 200 for r in respostas)
+    assert client_admin.get("/api/correio/status").json()["login"]["user_code"] == "ABCD-1234"
+
+
+def test_falha_da_microsoft_ao_pedir_codigo_desfaz_a_reserva(client_admin, monkeypatch):
+    def fora_do_ar(*a):
+        raise graph.ErroGraph("Microsoft fora do ar")
+    monkeypatch.setattr(graph, "iniciar_device_code", fora_do_ar)
+    assert client_admin.post("/api/correio/conectar").status_code == 502
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+
+
 def test_acompanhamento_de_codigo_velho_nao_apaga_o_conectado_do_novo(monkeypatch):
     monkeypatch.setattr(api_correio.time, "sleep", lambda s: None)
     monkeypatch.setattr(graph, "concluir_device_code", lambda tenant, cid, codigo, arquivo:
