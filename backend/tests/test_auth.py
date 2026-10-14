@@ -304,3 +304,138 @@ def test_trocar_senha_nao_sobrescreve_redefinicao_concorrente(tmp_path, monkeypa
     monkeypatch.setattr(auth, "_ph", real)
     assert auth.autenticar(conn, "leo@lotufo.com", "senha-do-atacante") is None
     assert auth.autenticar(conn, "leo@lotufo.com", "senha-do-admin-99") is not None
+
+
+# --- #4: canal de tempo no login ------------------------------------------------------------
+# Conta existente com senha errada roda um verify argon2 E grava o contador (BEGIN IMMEDIATE e
+# commit com pagina alterada, que custa a escrita no WAL). "E-mail inexistente" e "conta
+# bloqueada" tem que pagar o mesmo par de custos, senao o tempo entrega quais e-mails tem conta.
+
+def _custo(conn, monkeypatch, email, senha):
+    """Conta os verify argon2, as transacoes de escrita e se alguma pagina foi gravada."""
+    contagem = {"verify": 0}
+    real = auth._ph
+
+    class _Contador:
+        def verify(self, h, s):
+            contagem["verify"] += 1
+            return real.verify(h, s)
+        def __getattr__(self, nome):
+            return getattr(real, nome)
+
+    monkeypatch.setattr(auth, "_ph", _Contador())
+    import os
+    wal = conn.execute("PRAGMA database_list").fetchone()["file"] + "-wal"
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # WAL zerado: o que crescer e' desta chamada
+    assert os.path.getsize(wal) == 0
+    sql = []
+    conn.set_trace_callback(sql.append)
+    try:
+        assert auth.autenticar(conn, email, senha) is None
+    finally:
+        conn.set_trace_callback(None)
+        monkeypatch.setattr(auth, "_ph", real)
+    # "escreveu" = pagina gravada no WAL (o custo real); contar linhas alteradas nao serve, porque um
+    # UPDATE que nao muda o valor conta linha mas nao grava pagina
+    return {"verify": contagem["verify"],
+            "begin_immediate": sum(1 for s in sql if s.strip().upper().startswith("BEGIN IMMEDIATE")),
+            "escreveu": os.path.getsize(wal) > 0}
+
+def _usuarios(conn):
+    return [tuple(r) for r in conn.execute("SELECT * FROM usuarios ORDER BY id")]
+
+def test_login_inexistente_custa_o_mesmo_que_senha_errada(tmp_path, monkeypatch):
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    existente = _custo(conn, monkeypatch, "leo@lotufo.com", "errada")
+    assert existente == {"verify": 1, "begin_immediate": 1, "escreveu": True}
+    antes = _usuarios(conn)
+    assert _custo(conn, monkeypatch, "ninguem@lotufo.com", "errada") == existente
+    # a escrita equivalente nao deixa rastro: nenhum dado de usuario muda
+    assert _usuarios(conn) == antes
+
+def test_login_bloqueado_custa_o_mesmo_que_senha_errada(tmp_path, monkeypatch):
+    # igualado o inexistente ao existente, o bloqueado (que nao gravava) viraria o caminho distinguivel
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    auth.criar_usuario(conn, "Ana", "ana@lotufo.com", "senha-forte-456", "engenharia")
+    conn.execute("UPDATE usuarios SET bloqueado_ate=? WHERE email='ana@lotufo.com'",
+                 ((auth._agora() + auth.timedelta(minutes=10)).isoformat(),))
+    conn.commit()
+    existente = _custo(conn, monkeypatch, "leo@lotufo.com", "errada")
+    antes = _usuarios(conn)
+    assert _custo(conn, monkeypatch, "ana@lotufo.com", "senha-forte-456") == existente
+    assert _usuarios(conn) == antes
+
+def test_login_com_hash_corrompido_paga_verify_e_escrita(tmp_path, monkeypatch):
+    # o hash invalido falha sem gastar o argon2: a resposta rapida entregaria a conta
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    auth.criar_usuario(conn, "Ana", "ana@lotufo.com", "senha-forte-456", "engenharia")
+    conn.execute("UPDATE usuarios SET senha_hash='lixo-nao-argon2' WHERE email='ana@lotufo.com'")
+    conn.commit()
+    antes = _usuarios(conn)
+    custo = _custo(conn, monkeypatch, "ana@lotufo.com", "qualquer")
+    # gate Sol S1: exatamente um verify, como os outros caminhos (o formato e' conferido sem argon2)
+    assert custo == {"verify": 1, "begin_immediate": 1, "escreveu": True}
+    assert _usuarios(conn) == antes
+
+def test_login_sem_nenhum_usuario_nao_quebra(tmp_path, monkeypatch):
+    # banco vazio: a escrita equivalente nao tem linha onde gravar, e nao ha conta a esconder
+    conn = _conn(tmp_path, monkeypatch)
+    custo = _custo(conn, monkeypatch, "ninguem@lotufo.com", "qualquer")
+    assert custo["verify"] == 1 and custo["begin_immediate"] == 1
+    assert _usuarios(conn) == []
+
+def test_endpoint_responde_igual_em_toda_recusa(client):
+    # gate Sol S3: inexistente, senha errada, bloqueada e hash invalido: mesmo status, mesma
+    # mensagem e o mesmo evento de auditoria (so' o e-mail digitado muda)
+    import json
+    _seed("leo@lotufo.com")
+    _seed("bloq@lotufo.com")
+    _seed("lixo@lotufo.com")
+    _seed("cortado@lotufo.com")
+    conn = db.get_conn()
+    conn.execute("UPDATE usuarios SET bloqueado_ate=? WHERE email='bloq@lotufo.com'",
+                 ((auth._agora() + auth.timedelta(minutes=10)).isoformat(),))
+    conn.execute("UPDATE usuarios SET senha_hash='lixo-nao-argon2' WHERE email='lixo@lotufo.com'")
+    # revisor, 2a rodada: hash real cortado no fim passa no formato, mas o verify levanta
+    # VerificationError (nao InvalidHashError) -- antes virava 500 e entregava a conta
+    conn.execute("UPDATE usuarios SET senha_hash=substr(senha_hash, 1, length(senha_hash) - 10) "
+                 "WHERE email='cortado@lotufo.com'")
+    conn.commit()
+    respostas = []
+    for email in ("ninguem@lotufo.com", "leo@lotufo.com", "bloq@lotufo.com", "lixo@lotufo.com",
+                  "cortado@lotufo.com"):
+        r = client.post("/api/auth/login", json={"email": email, "senha": "senha-errada-1"})
+        ultimo = conn.execute("SELECT usuario_id, acao, entidade, entidade_id, depois FROM audit_log "
+                              "ORDER BY id DESC LIMIT 1").fetchone()
+        respostas.append((r.status_code, r.json()["detail"], tuple(ultimo)[:4], json.loads(ultimo["depois"]) == {"email": email}))
+    conn.close()
+    assert len(set(respostas)) == 1, respostas
+    assert respostas[0][0] == 401
+
+def test_escrita_equivalente_em_paralelo_preserva_os_contadores(tmp_path, monkeypatch):
+    # gate Sol S3: logins inexistentes concorrentes com senhas erradas reais na conta-alvo da escrita
+    # equivalente (a de menor id): o contador termina exatamente no numero de senhas erradas
+    import threading
+    conn = _conn(tmp_path, monkeypatch)
+    uid = auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    largada = threading.Barrier(8)
+
+    def tentar(email):
+        c = db.get_conn()
+        try:
+            largada.wait()
+            auth.autenticar(c, email, "errada")
+        finally:
+            c.close()
+
+    emails = ["ninguem@lotufo.com"] * 5 + ["leo@lotufo.com"] * 3
+    threads = [threading.Thread(target=tentar, args=(e,)) for e in emails]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    row = conn.execute("SELECT tentativas_falhas, bloqueado_ate FROM usuarios WHERE id=?", (uid,)).fetchone()
+    assert (row["tentativas_falhas"], row["bloqueado_ate"]) == (3, None)
