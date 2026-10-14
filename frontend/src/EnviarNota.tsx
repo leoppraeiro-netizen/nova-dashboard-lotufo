@@ -6,7 +6,7 @@ import ErroCampo from "./ErroCampo";
 import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
-import { EnvioPorFora, IconeCheck, iniciarEnvio, ItensEnvio, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
+import { avisoPorFora, EnvioPorFora, IconeCheck, iniciarEnvio, ItensEnvio, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
 import "./notas.css";
 import LiberarEnvio, { envioReservado, type Reserva } from "./LiberarEnvio";
 import { ir } from "./rota";
@@ -458,7 +458,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
 
         <div className="nota-rodape">
           {motivo && <p className={`nota-rodape__motivo nota-rodape__motivo--${det.bloqueio ? "bloqueio" : !justOk ? "atencao" : "neutro"}`}>{motivo}</p>}
-          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} aoFeito={() => embutido ? embutido.aoConcluir("Envio registrado: a nota foi para Aguardando pagamento.") : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` }, forcar: true })} />}
+          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} irmas={e.irmas} aoFeito={js => embutido ? embutido.aoConcluir(avisoPorFora(js, e.medicao_ids.length)) : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` }, forcar: true })} />}
         </div>
         {e.familia === "mtpar" && (
           <p className="nota-porfora__dica">Depois do envio a nota vai para Aguardando pagamento com a marca “sem protocolo SIGA”; o número é registrado lá.</p>

@@ -5,6 +5,7 @@ como feito por fora) -> aguardando pagamento (= `protocolada`). Um ENVIO e' um e
 medicao e reajuste da mesma competencia vao juntos (D9); na MTPAR e na SES, um por medicao.
 """
 import datetime
+import json
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
@@ -147,6 +148,30 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
     return itens, notas, curtos
 
 
+def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.date) -> list[dict]:
+    """Issue #172: onde medicao e reajuste vao no mesmo e-mail (SINFRA, Pref. VG), a irma (mesmo numero, o outro tipo
+    do par execucao x reajuste) com nota emitida que ficou fora deste envio, para o registro por fora leva-la junto.
+    Nao se oferece a irma bloqueada (certidao vencida da natureza dela: o registro por fora contornaria o bloqueio)
+    nem a que tem envio proprio ja' montado ou assinado (o registro descartaria esse protocolo); rascunho nao conta."""
+    regras = json.loads(o.get("regras") or "{}")
+    if not protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, _etapa(familia))):
+        return []
+    dentro = {m["id"] for m in ms}
+    outro = {"execucao": "reajuste", "reajuste": "execucao"}
+    achadas: dict[int, dict] = {}
+    for m in ms:
+        if m["tipo"] not in outro:
+            continue
+        for r in conn.execute("SELECT * FROM medicoes WHERE contrato_id=? AND numero=? AND tipo=? "
+                              "AND estado='nota_emitida' ORDER BY id", (c["id"], m["numero"], outro[m["tipo"]])):
+            if r["id"] in dentro or any(p["situacao"] != "rascunho" for p in _ativos(conn, _etapa(familia), r["id"])):
+                continue
+            if any(i["estado"] == "vencida" for i in _itens(conn, c, familia, [dict(r)], hoje)[0]):
+                continue
+            achadas[r["id"]] = {"medicao_id": r["id"], "titulo": medicoes.titulo(r), "tipo": r["tipo"]}
+    return list(achadas.values())
+
+
 def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: int | None,
            hoje: datetime.date) -> dict:
     itens, notas, curtos = _itens(conn, c, familia, ms, hoje)
@@ -163,10 +188,23 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
             "valor_centavos": sum(m.get("valor_centavos") or 0 for m in ms), "emitida_em": emitida,
             "dias": (hoje - datetime.date.fromisoformat(emitida)).days if emitida else None,
             "situacao": situacao, "aviso": " · ".join(dict.fromkeys(curtos)) or None, "itens": itens,
-            "protocolo_id": protocolo_id}
+            "protocolo_id": protocolo_id, "irmas": _irmas(conn, c, familia, o, ms, hoje)}
 
 
 # --- lista -----------------------------------------------------------------------------------------
+
+def _agrupar(conn, familia: str, regras: dict, o: dict, ms: list[dict]) -> dict[tuple, list[dict]]:
+    """Os envios de um contrato: protocolo ja' iniciado manda; senao a regra do orgao (competencia ou um por medicao).
+    Tambem confere, no registro por fora, que as medicoes pedidas sao um envio da lista (gate Sol S1, PR #178)."""
+    etapa = _etapa(familia)
+    junta = protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, etapa))
+    grupos: dict[tuple, list[dict]] = {}
+    for m in ms:
+        ativos = _ativos(conn, etapa, m["id"])
+        k = ("p", ativos[0]["id"]) if ativos else ("c", m["competencia"]) if junta else ("m", m["id"])
+        grupos.setdefault(k, []).append(m)
+    return grupos
+
 
 def a_enviar(conn, hoje: datetime.date | None = None) -> dict:
     hoje = hoje or tempo.hoje_local()
@@ -179,14 +217,7 @@ def a_enviar(conn, hoje: datetime.date | None = None) -> dict:
         if not c.get("orgao_id"):
             continue                          # sem orgao no cadastro nao ha para quem mandar
         familia, regras, o = protocolo._orgao(conn, c)
-        etapa = _etapa(familia)
-        junta = protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, etapa))
-        grupos: dict[tuple, list[dict]] = {}
-        for m in ms:                          # protocolo ja' iniciado manda; senao a regra do orgao
-            ativos = _ativos(conn, etapa, m["id"])
-            k = ("p", ativos[0]["id"]) if ativos else ("c", m["competencia"]) if junta else ("m", m["id"])
-            grupos.setdefault(k, []).append(m)
-        for k, gm in grupos.items():
+        for k, gm in _agrupar(conn, familia, regras, o, ms).items():
             envios.append(_envio(conn, c, familia, o, gm, k[1] if k[0] == "p" else None, hoje))
     contadores = {"Todas": len(envios)}
     for x in envios:
@@ -322,11 +353,53 @@ def _e_email(dados: bytes) -> bool:
         return False
 
 
+def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
+    """As medicoes do registro por fora, conferidas. Roda antes de gravar o .eml e de novo DENTRO da transacao
+    (revisor da PR #178): outro registro ou envio entre as duas leituras nao pode passar. Recusa a medicao fora de
+    `nota_emitida`, contratos diferentes, protocolo com envio reservado (o e-mail esta' saindo pelo sistema) e, em
+    `irmas` (as que a tela juntou a' medicao da pagina), a que `_irmas` nao ofereceria."""
+    ms = []
+    for mid in ids:
+        m = conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone()
+        if m is None:
+            raise ValueError(f"Medição {mid} não encontrada")
+        if m["estado"] != "nota_emitida":
+            raise ValueError(f"{medicoes.titulo(m)} não está com a nota emitida ({m['estado']})")
+        ms.append(dict(m))
+    if len({m["contrato_id"] for m in ms}) > 1:       # issue #172: um e-mail e' de um contrato so'
+        raise ValueError("Medição de outro contrato")
+    for m in ms:
+        if any(p["envio_reservado_em"] for etapa in ("nota", "unico") for p in _ativos(conn, etapa, m["id"])):
+            raise ValueError(f"{medicoes.titulo(m)} está sendo enviada pelo sistema agora: confira o envio dela "
+                             "antes de registrar por fora")
+    principais = [m for m in ms if m["id"] not in irmas]
+    if len(principais) > 1 or irmas:
+        c = protocolo._contrato(conn, ms[0]["contrato_id"])
+        familia, regras, o = protocolo._orgao(conn, c)
+    if len(principais) > 1:
+        # gate Sol S1 (PR #178): varias medicoes so' como um envio da lista (o cliente nao escolhe o que junta)
+        grupos = _agrupar(conn, familia, regras, o, medicoes.em_andamento(conn, contrato_id=c["id"],
+                                                                          estado="nota_emitida"))
+        if sorted(m["id"] for m in principais) not in [sorted(m["id"] for m in g) for g in grupos.values()]:
+            raise ValueError("Estas medições não vão no mesmo envio: registre cada uma no envio dela")
+    if irmas:
+        validas = {i["medicao_id"] for i in _irmas(conn, c, familia, o, principais, tempo.hoje_local())}
+        for m in ms:
+            if m["id"] in irmas and m["id"] not in validas:
+                raise ValueError(f"{medicoes.titulo(m)} não pode ir neste registro (envio próprio montado ou "
+                                 "assinado, bloqueio ou órgão que tramita separado): registre-a no envio dela")
+    return ms
+
+
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
-                  eml: tuple[str, bytes] | None = None) -> None:
-    ids = sorted(set(medicao_ids or []))
-    if not ids:
+                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None) -> None:
+    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`)."""
+    irmas = set(irma_ids or [])
+    ids = sorted(set(medicao_ids or []) | irmas)
+    if not set(medicao_ids or []):
         raise ValueError("Escolha ao menos uma medição")
+    if irmas & set(medicao_ids):                      # gate Sol S1 (PR #178): a irma nao vira "medicao do envio"
+        raise ValueError("A mesma medição veio como do envio e como irmã: abra o registro de novo")
     try:
         data = datetime.date.fromisoformat(enviado_em)
     except (TypeError, ValueError):
@@ -336,22 +409,17 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     obs = (observacao or "").strip()
     if not obs:
         raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
-    ms = []
-    for mid in ids:
-        m = conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone()
-        if m is None:
-            raise ValueError(f"Medição {mid} não encontrada")
-        if m["estado"] != "nota_emitida":
-            raise ValueError(f"{medicoes.titulo(m)} não está com a nota emitida ({m['estado']})")
-        ms.append(dict(m))
+    _conferir_externo(conn, ids, irmas)
     rel = sha = None
     if eml:
         if len(eml[1]) > TETO_EML:
             raise ValueError("Arquivo .eml acima de 25 MB")
         if not _e_email(eml[1]):
             raise ValueError(NAO_E_EML)
-        rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
     with db.mutacao(conn):
+        ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
+        if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
+            rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
         for m in ms:
             medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
                                          protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
