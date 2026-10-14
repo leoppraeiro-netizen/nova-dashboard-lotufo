@@ -154,6 +154,7 @@ _CAMPOS_CONTRATO = ("nome_curto", "orgao", "orgao_id", "entidade_id", "objeto", 
                     "art", "numero_processo", "centro_custo_rm", "valor_original_centavos",
                     "percentual_direito_bp", "execucao_inicio", "execucao_fim", "vigencia_inicio",
                     "vigencia_fim", "sem_reajuste", "encerramento_iniciado_em", "destinatarios_extras",
+                    "copia_extras",
                     "estado", "documentos", "objeto_completo", "cno_arquivo", "folga_vigencia_dias",
                     "centros_custo_anteriores_rm", "objeto_carta")
 _CAMPOS_FISCAL = ("cargo", "tratamento", "portaria")
@@ -235,7 +236,9 @@ def _contrato(conn, usuario_id, c, ids_orgao, ids_ent, rel) -> int:
             "execucao_inicio": c["execucao_inicio"], "execucao_fim": c["execucao_fim"],
             "vigencia_inicio": c["vigencia_inicio"], "vigencia_fim": c["vigencia_fim"],
             "sem_reajuste": 1 if c["sem_reajuste"] else 0, "encerramento_iniciado_em": enc,
-            "destinatarios_extras": _json(c["destinatarios_extras"]), "estado": _ESTADO[c["status"]],
+            "destinatarios_extras": _json(c["destinatarios_extras"]),
+            "copia_extras": _json(c["copia_extras"]) if c.get("copia_extras") else None,
+            "estado": _ESTADO[c["status"]],
             "documentos": _json(c["documentos"]) if c.get("documentos") else None,
             "objeto_completo": c.get("objeto_completo"),
             "cno_arquivo": _no_disco("anexos", c["cno_caminho"], "pdf", rel["ensaio"]) if c.get("cno_caminho")

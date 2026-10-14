@@ -246,7 +246,9 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
         if e["chave"] in emissores and e["emails_faturamento"]:
             extras += json.loads(e["emails_faturamento"])
     para = list(dict.fromkeys(g["para"] + extras))
-    copia = [e for e in g["copia"] if e not in para and e != (remetente or "").lower()]
+    # o e-mail de login e a conta do Outlook podem ser diferentes; nenhum dos dois vai em copia de si mesmo
+    fora = {(remetente or "").lower()} | correio.contas_do_usuario(conn, remetente or "")
+    copia = [e for e in g["copia"] if e not in para and e.lower() not in fora]
     assunto = g["assunto"].format(medicao=rotulo_medicao(d["numero"], d["saidas"]),
                                   competencia=f"{d['competencia'][5:7]}/{d['competencia'][:4]}",
                                   obra=_obra(c), instrumento=c["numero_instrumento"])

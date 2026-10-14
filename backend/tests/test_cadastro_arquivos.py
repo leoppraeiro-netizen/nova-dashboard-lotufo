@@ -192,6 +192,19 @@ def test_emails_faturamento_da_entidade_normalizados(tmp_path):
     assert cad["geral"] is None and cad["espelho"] == []
 
 
+def test_copia_extras_do_contrato_normalizada_e_validada(tmp_path):
+    cad = ca.preparar(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": [" Eng.Obra@Lotufo.com ", "eng.obra@lotufo.com"]}]))
+    assert cad["contratos"][0]["copia_extras"] == ["eng.obra@lotufo.com"]
+    assert ca.preparar(_escrever(tmp_path))["contratos"][0]["copia_extras"] == []
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": "eng@lotufo.com"}]))
+    assert any("copia_extras" in e and "lista" in e for e in erros)
+    for vazio_errado in ("", False, {}):
+        erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": vazio_errado}]))
+        assert any("copia_extras" in e and "lista" in e for e in erros)
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": ["eng@lotufo"]}]))
+    assert any("copia_extras" in e and "inválido" in e for e in erros)
+
+
 def test_orgao_com_cnpj_valido_normaliza_e_invalido_e_erro(tmp_path):
     cad = ca.preparar(_escrever(tmp_path, orgaos=[{**ORGAO, "cnpj": "31.300.101/0001-01"}]))
     assert cad["orgaos"][0]["cnpj"] == "31300101000101"

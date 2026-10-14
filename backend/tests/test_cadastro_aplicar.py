@@ -94,7 +94,8 @@ def _contrato(**troca):
             "vigencia_inicio": None, "vigencia_fim": "2026-11-22", "status": "ativo", "status_desde": None,
             "sem_reajuste": False, "datas_base": [{"mes": "2023-04", "indice": "setorial"}],
             "fiscais": [{"nome": "Zeno", "email": "z@orgao-a.exemplo.com.br", "desde": "2026-01-01"}],
-            "destinatarios_extras": ["medicao@supervisora.exemplo.com.br"], "instrumentos": []}
+            "destinatarios_extras": ["medicao@supervisora.exemplo.com.br"],
+            "copia_extras": ["engenheiro@lotufo.com"], "instrumentos": []}
     return {**base, **troca}
 
 
@@ -108,11 +109,19 @@ def test_contrato_existente_e_atualizado_pelo_numero_do_instrumento(conn):
     assert len(c) == 1 and c[0]["nome_curto"] == "MT-402" and c[0]["lei"] == "14.133"
     assert c[0]["orgao_id"] == 1 and c[0]["entidade_id"] == 1
     assert json.loads(c[0]["destinatarios_extras"]) == ["medicao@supervisora.exemplo.com.br"]
+    assert json.loads(c[0]["copia_extras"]) == ["engenheiro@lotufo.com"]
 
 
 def test_reaplicar_contrato_e_igual(conn):
     cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato()]))
     r = cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato()]))
+    assert r["contratos"] == {"criados": [], "alterados": [], "iguais": 1}
+
+
+def test_contrato_sem_copia_extras_continua_igual_depois_da_migracao_037(conn):
+    cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(copia_extras=[])]))
+    assert conn.execute("SELECT copia_extras FROM contratos").fetchone()[0] is None
+    r = cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(copia_extras=[])]))
     assert r["contratos"] == {"criados": [], "alterados": [], "iguais": 1}
 
 

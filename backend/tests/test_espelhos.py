@@ -117,6 +117,19 @@ def test_consorciada_emissora_entra_nos_destinatarios_e_remetente_sai_da_copia(a
     assert p["corpo"] in ("Bom dia.", "Boa tarde.")
 
 
+def test_previa_tira_da_copia_a_conta_do_outlook_diferente_do_login(ambiente):
+    conn, u, cid = ambiente
+    conn.execute("UPDATE cadastro_geral SET valor=? WHERE chave='faturamento'", (json.dumps(
+        {"para": ["f@x.com"], "copia": ["leo.tal@x.com", "maria@l.com", "luana@l.com"], "assunto": "{medicao} - {obra}",
+         "corpo": "{saudacao}"}),))
+    conn.execute("INSERT INTO envios (tipo, usuario_id, remetente, para, copia, assunto) "
+                 "VALUES ('espelho', ?, 'leo.tal@x.com', '[]', '[]', 'antes')", (u["id"],))
+    conn.commit()
+    eid = espelhos.gerar(conn, u, cid, 23, "2026-01", {"medicao": 100})
+    p = espelhos.previa_envio(conn, eid, remetente=u["email"])
+    assert p["copia"] == ["luana@l.com"]
+
+
 def test_enviar_registra_liga_medicoes_e_avanca_o_estado(ambiente, tmp_path, monkeypatch):
     monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
     conn, u, cid = ambiente

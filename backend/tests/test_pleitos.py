@@ -1,5 +1,6 @@
 """Pleitos de reajuste, prazo e conclusao (bloco 7): criar, carta, assinado, envio."""
 import datetime
+import json
 import pathlib
 
 import pytest
@@ -92,6 +93,18 @@ def test_enviar_reajuste_fecha_o_aviso_de_pleito(cenario):
     assert c.execute("SELECT tipo FROM envios WHERE id=?", (eid,)).fetchone()[0] == "pleito_reajuste"
     assert reajuste.ciclos(c, ids["contrato"], D(2026, 6, 15))[0]["situacao"] == "apostilamento_pendente"
     assert "reajuste_pleito" not in {a["tipo"] for a in reajuste.avisos(c, D(2026, 6, 15))}
+
+
+def test_copia_do_pleito_soma_a_da_obra_sem_quem_esta_no_para_nem_quem_envia(cenario):
+    c, ids = cenario
+    c.execute("UPDATE contratos SET copia_extras=? WHERE id=?", (json.dumps(
+        ["eng@l.com", "eng@l.com", "leo@l.com", "fiscal@exemplo.gov.br", "maria.outlook@l.com"]), ids["contrato"]))
+    c.execute("INSERT INTO envios (tipo, usuario_id, remetente, para, copia, assunto) "
+              "VALUES ('teste', ?, 'maria.outlook@l.com', '[]', '[]', 'antes')", (ids["uid"],))
+    c.commit()
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122")
+    pv = pleitos.previa_envio(c, pid, remetente="maria@l.com")
+    assert "fiscal@exemplo.gov.br" in pv["para"] and pv["copia"] == ["leo@l.com", "eng@l.com"]
 
 
 def test_falha_do_graph_nao_muda_o_pleito(cenario, monkeypatch):

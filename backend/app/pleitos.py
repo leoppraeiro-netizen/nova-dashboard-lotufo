@@ -321,7 +321,9 @@ def _destinatarios(conn, regras: dict, c: dict, hoje: datetime.date) -> tuple[li
     if f and f["email"] and f["email"] not in para:
         para.append(f["email"])
     para += [x for x in json.loads(c.get("destinatarios_extras") or "[]") if x not in para]
-    return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia = [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia = list(dict.fromkeys(copia + json.loads(c.get("copia_extras") or "[]")))     # a da obra (14/10/2026)
+    return para, [x for x in copia if x not in para]
 
 
 def _anexos_envio(conn, p: dict) -> list[tuple[str, bytes]]:
@@ -339,8 +341,9 @@ def previa_envio(conn, pleito_id: int, remetente: str | None = None, hoje: datet
     _, regras, _ = _orgao(conn, c)
     textos, campos = _textos(conn, p), _campos(conn, p, c, hoje)
     para, copia = _destinatarios(conn, regras, c, hoje)
-    if remetente:
-        copia = [x for x in copia if x.lower() != remetente.lower()]
+    if remetente:       # o e-mail de login e a conta do Outlook (podem ser diferentes), como no protocolo
+        fora = {remetente.lower()} | correio.contas_do_usuario(conn, remetente)
+        copia = [x for x in copia if x.lower() not in fora]
     anexos = _anexos_envio(conn, p)
     total = sum(len(b) for _, b in anexos)
     pend = pendencias(conn, p, hoje)
