@@ -5,7 +5,7 @@ import CaixaAviso from "./CaixaAviso";
 import { IconeAlerta } from "./icones";
 import { focarPorId } from "./foco";
 import { desfechoDoPedido, type InstrumentoPrazo } from "./obra";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura } from "./tempo";
 import Selo from "./Selo";
 

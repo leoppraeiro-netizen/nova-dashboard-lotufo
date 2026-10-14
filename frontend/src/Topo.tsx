@@ -1,6 +1,7 @@
 import { IconeVoltar } from "./icones";
 import { tituloDe } from "./navegacao";
-import { Link, parseRota, type Busca, type Origem, type Rota } from "./rota";
+import { parseRota, type Busca, type Origem, type Rota } from "./rota";
+import { Link } from "./Link";
 
 // Pecas da casca (NAVEGACAO.md › Subnavegacao, breadcrumb e voltar): o breadcrumb diz onde se esta' na
 // hierarquia, o "← origem" diz de onde se veio, e as abas sao links (abrem em nova aba do navegador).

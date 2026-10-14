@@ -235,7 +235,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 - 2026-09-02 Bootstrap único do histórico (contratos, cronogramas, NFs do RM) NÃO feito: depende da planilha de contratos da engenharia e das consultas DASH02/DASH04 — dono Leonardo (dados). O seletor de contrato já tira o `contrato_id` da importação.
 - 2026-09-02 Pendências do parecer ainda abertas nesta fase: confirmação de sucesso após ação; origem/confiança visíveis; tabela de medições estoura em 1280 px (coluna de ações fora do cartão; rola dentro do `tabela-wrap`).
 - 2026-09-02 Gate Sol da fase 3,5 (um round): checklist movido para dentro da transação do protocolo; datas de NF/baixa validadas na ordem (NF ≥ último protocolo, baixa ≥ NF); `/api` exato não vira index; id de contrato na URL limitado ao inteiro seguro. **Ficou**: o atesto continua sobrescrevível (spec §5 diz "editável, glosa"); o Sol pediu atestos como eventos append-only, inclusive após NF/recebimento — decidir na fase 4/6 junto com itens de medição. O achado de "prevista com valor entra na caixa" era falso (ESTADOS_VALIDOS já exclui); ganhou teste.
-- 2026-09-02 `rota.tsx` exporta hook + componente + funções no mesmo arquivo (aviso `only-export-components` do oxlint, fast refresh); separar `Link` se incomodar em dev.
 - 2026-09-02 CI do backend roda em `windows-latest` (paridade com o `<servidor>`); nunca executado ainda — conferir na primeira ação do GitHub após o push.
 
 ## Fase 6 (branch `fase6-outlook-sharepoint`)
