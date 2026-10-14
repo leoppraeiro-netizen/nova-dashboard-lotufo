@@ -194,7 +194,7 @@ def test_rodada_registra_erro_de_acesso_a_pasta_externa(tmp_path, monkeypatch):
     monkeypatch.setattr(backup, "_copiou_hoje",
                         lambda p, h: (_ for _ in ()).throw(PermissionError("Acesso negado")))
     backup.rodada(origem, tmp_path / "backups", tmp_path / "externo")
-    assert "Acesso negado" in backup.ESTADO["ultima_copia_externa_erro"]
+    assert "acesso negado" in backup.ESTADO["ultima_copia_externa_erro"]
 
 
 def test_rodada_registra_erro_da_copia_sem_derrubar(tmp_path, monkeypatch):
@@ -215,6 +215,7 @@ def _worker_limpo(monkeypatch):
     monkeypatch.setattr(backup, "_arquivos_desde", None)
     monkeypatch.setattr(backup, "_thread_arquivos", None)
     monkeypatch.setattr(backup, "_conferido_em", {})
+    monkeypatch.setattr(backup, "_pendentes", {})
     for chave in ("ultima_copia_arquivos", "ultima_copia_arquivos_erro",
                   "ultima_copia_externa_arquivos", "ultima_copia_externa_arquivos_erro"):
         monkeypatch.setitem(backup.ESTADO, chave, None)
@@ -364,7 +365,7 @@ def test_arquivos_copiam_mesmo_com_snapshot_falhando(tmp_path, monkeypatch):
     monkeypatch.setattr(backup, "criar_snapshot",
                         lambda o, d: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
     _rodar(origem, destino)
-    assert "locked" in backup.ESTADO["ultimo_snapshot_erro"]
+    assert "banco ocupado" in backup.ESTADO["ultimo_snapshot_erro"]
     for rel in gravados:
         assert (destino / "arquivos" / rel).exists(), rel
 
@@ -384,10 +385,10 @@ def test_falha_dos_arquivos_la_fora_fica_registrada_sem_caminho(tmp_path, monkey
     fora = tmp_path / "externo"
     real = backup.copiar_arquivos
 
-    def negado_fora(o, d, conferir=False):
+    def negado_fora(o, d, conferir=False, **kw):
         if fora in d.parents:
             raise PermissionError(13, "Acesso negado", str(d))
-        return real(o, d, conferir)
+        return real(o, d, conferir, **kw)
 
     monkeypatch.setattr(backup, "copiar_arquivos", negado_fora)
     backup.rodada_arquivos(origem, tmp_path / "dados" / "backups", fora)
@@ -433,7 +434,7 @@ def test_worker_morto_aparece_e_e_reiniciado(tmp_path, monkeypatch):
     monkeypatch.setattr(backup, "_thread_arquivos", _ThreadMorta())
     assert "parou" in backup.estado()["ultima_copia_arquivos_erro"]
     subidos = []
-    monkeypatch.setattr(backup, "_iniciar_worker_arquivos", lambda *a: subidos.append(a))
+    monkeypatch.setattr(backup, "_iniciar_worker_arquivos", lambda *a: subidos.append(a) or True)
     backup._supervisionar_arquivos(tmp_path / "d.db", tmp_path / "b", None)
     assert len(subidos) == 1
     assert "foi reiniciada" in backup.ESTADO["ultima_copia_arquivos_erro"]
@@ -445,10 +446,64 @@ def test_agendar_sobe_worker_dos_arquivos_separado(tmp_path, monkeypatch):
     class ThreadFalsa:
         def __init__(self, target, daemon, name, args=()): nomes.append(name)
         def start(self): pass
+        def is_alive(self): return True
 
     monkeypatch.setattr(backup.threading, "Thread", ThreadFalsa)
     backup.agendar_backup_horario(tmp_path / "d.db", tmp_path / "b", tmp_path / "externo")
     assert nomes == ["backup-arquivos", "backup"]
+    # 2a passada (gate Sol S3): agendar de novo no mesmo processo nao sobe um segundo worker
+    backup.agendar_backup_horario(tmp_path / "d.db", tmp_path / "b", tmp_path / "externo")
+    assert nomes.count("backup-arquivos") == 1
+
+
+def test_worker_vivo_nao_e_substituido(tmp_path, monkeypatch):
+    vivo = type("Viva", (), {"is_alive": lambda self: True})()
+    monkeypatch.setattr(backup, "_thread_arquivos", vivo)
+    assert backup._iniciar_worker_arquivos(tmp_path / "d.db", tmp_path / "b", None) is False
+    assert backup._thread_arquivos is vivo
+
+
+def test_conferencia_que_falha_nao_rele_o_acervo_toda_hora(tmp_path, monkeypatch):
+    # 2a passada (gate Sol S1): vale a tentativa; so' o arquivo que falhou e' conferido de novo
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    ruim = next(iter(gravados))
+    chamadas, falhou = [], []
+    real = backup._copiar_um
+
+    def espia(arquivo, alvo, conferir=False):
+        rel = f"{arquivo.parent.name}/{arquivo.name}"
+        chamadas.append((rel, conferir))
+        if rel == ruim and not falhou:
+            falhou.append(rel)
+            raise PermissionError(13, "Acesso negado", str(alvo))
+        return real(arquivo, alvo, conferir)
+
+    monkeypatch.setattr(backup, "_copiar_um", espia)
+    backup.rodada_arquivos(origem, destino, None)          # conferencia do dia, uma falha
+    assert all(c for _, c in chamadas)
+    assert "acesso negado" in backup.ESTADO["ultima_copia_arquivos_erro"]
+    chamadas.clear()
+    backup.rodada_arquivos(origem, destino, None)          # hora seguinte
+    assert dict(chamadas) == {rel: rel == ruim for rel in gravados}
+    assert backup.ESTADO["ultima_copia_arquivos_erro"] is None
+    assert backup._pendentes[str(destino / "arquivos")] == set()
+
+
+def test_erros_do_banco_no_estado_sem_caminho(tmp_path, monkeypatch):
+    # 2a passada (gate Sol S2): snapshot e copia externa do banco tambem passam por _motivo
+    origem = _origem(tmp_path)
+    caminho = str(tmp_path / "segredo")
+    monkeypatch.setattr(backup, "criar_snapshot",
+                        lambda o, d: (_ for _ in ()).throw(sqlite3.OperationalError(f"unable to open {caminho}")))
+    backup.rodada(origem, tmp_path / "backups", None)
+    assert backup.ESTADO["ultimo_snapshot_erro"].endswith(": erro do banco (detalhes no log do servidor)")
+    monkeypatch.undo()
+    monkeypatch.setattr(backup, "copiar_externo",
+                        lambda s, p: (_ for _ in ()).throw(PermissionError(13, "Access is denied", caminho)))
+    backup.rodada(origem, tmp_path / "backups", tmp_path / "externo")
+    erro = backup.ESTADO["ultima_copia_externa_erro"]
+    assert erro.endswith(": acesso negado") and caminho not in erro
 
 
 def test_destino_estragado_do_mesmo_tamanho_e_trocado_na_conferencia(tmp_path):

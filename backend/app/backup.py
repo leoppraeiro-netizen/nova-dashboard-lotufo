@@ -57,7 +57,9 @@ _arquivos_fase: str | None = None
 _arquivos_desde: float | None = None
 _thread_arquivos: threading.Thread | None = None
 _acordar_arquivos = threading.Event()
-_conferido_em: dict[str, float] = {}  # destino -> ultima releitura completa (time.monotonic)
+_conferido_em: dict[str, float] = {}  # destino -> ultima releitura completa tentada (time.monotonic)
+_pendentes: dict[str, set[str]] = {}  # destino -> "<pasta>/<nome>" que falharam na ultima passada
+_lock_worker = threading.Lock()  # criacao e supervisao do worker: nunca dois vivos no processo
 
 
 class SnapshotInvalido(Exception):
@@ -166,7 +168,7 @@ def copiar_externo(snapshot: Path, pasta_externa: Path) -> Path:
     try:
         shutil.copyfile(snapshot, parcial)
         if _sha256(parcial) != esperado:
-            raise OSError(f"checksum divergente ao copiar {snapshot.name} para {pasta_externa}")
+            raise OSError(f"cópia externa de {snapshot.name} conferida diferente da original")
         parcial.replace(destino)
     except BaseException:
         parcial.unlink(missing_ok=True)
@@ -218,10 +220,19 @@ def _motivo(e: BaseException) -> str:
         return "disco cheio"
     if isinstance(e, TimeoutError):
         return "a pasta não respondeu a tempo"
+    if isinstance(e, OSError) and e.errno is None and e.filename is None and len(e.args) == 1:
+        return str(e)  # levantado pelo nosso codigo, com texto nosso (sem caminho)
+    if isinstance(e, SnapshotInvalido):
+        return "o snapshot não passou no ensaio de restauração"
+    if isinstance(e, sqlite3.OperationalError) and "locked" in str(e):
+        return "banco ocupado"
+    if isinstance(e, sqlite3.Error):
+        return "erro do banco (detalhes no log do servidor)"
     return "erro de leitura ou gravação (detalhes no log do servidor)"
 
 
-def copiar_arquivos(raiz_origem: Path, raiz_destino: Path, conferir: bool = False) -> int:
+def copiar_arquivos(raiz_origem: Path, raiz_destino: Path, conferir: bool = False,
+                    conferir_estes: set[str] | None = None, falhos: set[str] | None = None) -> int:
     """Copia `raiz_origem/<pasta>/*` para `raiz_destino/<pasta>/` nas PASTAS_ARQUIVOS.
 
     Serve aos dois sentidos: backup (dados -> backups/arquivos) e restauracao
@@ -235,9 +246,13 @@ def copiar_arquivos(raiz_origem: Path, raiz_destino: Path, conferir: bool = Fals
     roda toda hora). Com `conferir`, o destino e' relido e comparado ao sha256; o estragado
     e' substituido pela origem (o worker faz isso uma vez por dia; a restauracao, sempre).
 
+    `conferir_estes` ("<pasta>/<nome>") confere so' esses (os que falharam na passada
+    anterior); `falhos`, se dado, recebe os que falharam nesta.
+
     Um arquivo com problema nao impede os outros: todos sao tentados e, no fim, sobe
     ErroArquivo com os que ficaram sem copia. Devolve quantos arquivos copiou.
     """
+    conferir_estes = conferir_estes or set()
     copiados = 0
     falhas: list[str] = []
     agora = time.time()
@@ -251,12 +266,15 @@ def copiar_arquivos(raiz_origem: Path, raiz_destino: Path, conferir: bool = Fals
         for arquivo in sorted(origem.iterdir()):
             if not arquivo.is_file() or arquivo.name.endswith(".tmp"):
                 continue
+            rel = f"{nome}/{arquivo.name}"
             try:
-                if _copiar_um(arquivo, destino / arquivo.name, conferir):
+                if _copiar_um(arquivo, destino / arquivo.name, conferir or rel in conferir_estes):
                     copiados += 1
             except OSError as e:
                 log.warning("arquivo sem copia: %s -> %s", arquivo, destino, exc_info=True)
-                falhas.append(f"{nome}/{arquivo.name} ({_motivo(e)})")
+                falhas.append(f"{rel} ({_motivo(e)})")
+                if falhos is not None:
+                    falhos.add(rel)
     if falhas:
         mais = f" e mais {len(falhas) - 3}" if len(falhas) > 3 else ""
         raise ErroArquivo(f"{len(falhas)} arquivo(s) sem cópia: {'; '.join(falhas[:3])}{mais}")
@@ -336,7 +354,7 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         ESTADO["ultimo_snapshot"] = agora.isoformat(timespec="seconds")
         ESTADO["ultimo_snapshot_erro"] = None
     except Exception as e:
-        ESTADO["ultimo_snapshot_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
+        ESTADO["ultimo_snapshot_erro"] = f"{agora.isoformat(timespec='seconds')}: {_motivo(e)}"
         log.exception("snapshot falhou")
         return
     if pasta_externa is None:
@@ -351,7 +369,7 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         ESTADO["ultima_copia_externa"] = agora.isoformat(timespec="seconds")
         ESTADO["ultima_copia_externa_erro"] = None
     except Exception as e:
-        ESTADO["ultima_copia_externa_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
+        ESTADO["ultima_copia_externa_erro"] = f"{agora.isoformat(timespec='seconds')}: {_motivo(e)}"
         log.exception("copia externa falhou")
 
 
@@ -374,16 +392,21 @@ def rodada_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | 
         _arquivos_fase, _arquivos_desde = fase, inicio
         ultima = _conferido_em.get(str(destino))
         conferir = ultima is None or inicio - ultima > CONFERIR_DESTINO_SEG
+        if conferir:
+            # vale a TENTATIVA: falha em um arquivo nao faz reler o acervo inteiro toda hora;
+            # os que falharam voltam sozinhos na passada seguinte (`_pendentes`)
+            _conferido_em[str(destino)] = inicio
+        falhos: set[str] = set()
         try:
-            copiar_arquivos(origem_db.parent, destino, conferir=conferir)
-            if conferir:
-                _conferido_em[str(destino)] = inicio
+            copiar_arquivos(origem_db.parent, destino, conferir=conferir,
+                            conferir_estes=_pendentes.get(str(destino)), falhos=falhos)
             ESTADO[chave] = agora.isoformat(timespec="seconds")
             ESTADO[f"{chave}_erro"] = None
         except Exception as e:
             ESTADO[f"{chave}_erro"] = f"{agora.isoformat(timespec='seconds')}: {_motivo(e)}"
             log.exception("copia dos arquivos falhou (%s)", fase)
         finally:
+            _pendentes[str(destino)] = falhos
             _arquivos_fase, _arquivos_desde = None, None
 
 
@@ -413,22 +436,26 @@ def _loop_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | N
             log.exception("copia dos arquivos falhou fora do previsto")
 
 
-def _iniciar_worker_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
+def _iniciar_worker_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> bool:
+    """Sobe o worker so' se nao houver um vivo (sob `_lock_worker`). True se subiu."""
     global _thread_arquivos
-    _thread_arquivos = threading.Thread(target=_loop_arquivos, args=(origem_db, pasta_destino, pasta_externa),
-                                        daemon=True, name="backup-arquivos")
-    _thread_arquivos.start()
+    with _lock_worker:
+        if _thread_arquivos is not None and _thread_arquivos.is_alive():
+            return False
+        _thread_arquivos = threading.Thread(target=_loop_arquivos, args=(origem_db, pasta_destino, pasta_externa),
+                                            daemon=True, name="backup-arquivos")
+        _thread_arquivos.start()
+        return True
 
 
 def _supervisionar_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
     """Worker dos arquivos morto: registra e sobe outro (a thread do banco chama a cada hora)."""
     t = _thread_arquivos
-    if t is not None and not t.is_alive():
+    if t is not None and not t.is_alive() and _iniciar_worker_arquivos(origem_db, pasta_destino, pasta_externa):
         agora = tempo.para_local(tempo.agora_utc())
         ESTADO["ultima_copia_arquivos_erro"] = (f"{agora.isoformat(timespec='seconds')}: a tarefa de "
                                                 "cópia dos arquivos tinha parado e foi reiniciada")
-        log.error("worker dos arquivos estava morto; reiniciando")
-        _iniciar_worker_arquivos(origem_db, pasta_destino, pasta_externa)
+        log.error("worker dos arquivos estava morto; reiniciado")
 
 
 def agendar_backup_horario(origem_db: Path, pasta_destino: Path,
