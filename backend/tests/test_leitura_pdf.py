@@ -6,7 +6,6 @@ das seis certidoes e' testada em test_leitura_certidao.py contra textos reais.
 import base64
 import pathlib
 import re
-import unicodedata
 import zlib
 
 import pytest
@@ -87,22 +86,28 @@ def test_regexes_nao_explodem_com_espacos_ate_o_teto():
     # dezenas de SEGUNDOS de CPU (backtracking quadratico) numa rota sincrona aberta a
     # quem edita cadastros. Com o `:` dentro de um grupo opcional, custa milissegundos.
     import time
-    for palavra in ("validade", "expedição", "emissão", "válida até",
-                    "código de controle da certidão"):
+    # Uma palavra-chave por regex de campo: o prefixo literal dela (ate o primeiro metacaractere),
+    # para nenhuma falhar no primeiro caractere e escapar dos espacos. Sai de `_CAMPOS`, nao de lista fixa.
+    palavras = set()
+    for campos in leitura_certidao._CAMPOS.values():
+        for regex in campos.values():
+            palavras.add(re.match(r"(?:\\b)?([A-Z0-9 /,\-]*)", regex).group(1))
+    assert len(palavras) >= 12, palavras
+    for palavra in sorted(palavras):
         texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"
         inicio = time.perf_counter()
-        # A leitura real normaliza os espacos antes de casar (`plano`), entao `ler` sozinha nao
-        # estressa o padrao; por isso tambem se casa cada regex de campo contra o texto CRU.
+        # `ler` normaliza os espacos antes de casar (`plano`) e recusa por "sem-texto" (o que sobra
+        # fica abaixo de MIN_TEXTO): so exercita `plano`. O que estressa os padroes e' casar cada
+        # regex de campo contra o texto CRU, com os espacos intactos.
         with pytest.raises(leitura_certidao.Recusa):
             leitura_certidao.ler(texto)
-        cru = "".join(c for c in unicodedata.normalize("NFD", texto.upper()) if not unicodedata.combining(c))
         for campos in leitura_certidao._CAMPOS.values():
             for regex in campos.values():
-                re.search(regex, cru)
+                re.search(regex, texto)
         # 3 s, e nao 1 s: a assercao e' "milissegundos contra dezenas de SEGUNDOS", e
         # nesta maquina compartilhada um orcamento apertado falha por carga alheia, nao
         # por regressao (M7 da revisao final).
-        assert time.perf_counter() - inicio < 3.0, palavra
+        assert time.perf_counter() - inicio < 3.0, repr(palavra)
 
 
 def test_pdf_com_paginas_demais_e_recusado_antes_de_extrair():
