@@ -2,7 +2,7 @@ import { brl, contar } from "./formato";
 import { IconeSeta } from "./icones";
 import { Link } from "./Link";
 import { passoDe } from "./medicao";
-import { ir } from "./rota";
+import { cliqueSimples, ir } from "./rota";
 import { nivelParada, textoParada, type LinhaResumo } from "./resumoMedicoes";
 import { fmtDataPura } from "./tempo";
 import "./abaAguardandoNota.css";
@@ -28,8 +28,8 @@ function Linha({ l }: { l: LinhaResumo }) {
   const secao = passoDe(l.proximo_passo)?.secao || undefined;
   const abrir = () => ir({ tela: "medicao", obra: l.contrato_id, id: l.medicao_id }, { secao });
   return (
-    <tr className="aba-nota__linha" tabIndex={0} aria-label={`Abrir ${l.obra}, ${l.titulo}`}
-      onClick={ev => { if (!(ev.target as HTMLElement).closest("a")) abrir(); }}
+    <tr className="aba-nota__linha" tabIndex={0}
+      onClick={ev => { if (cliqueSimples(ev) && !(ev.target as HTMLElement).closest("a")) abrir(); }}
       onKeyDown={ev => { if (ev.key === "Enter" && ev.target === ev.currentTarget) { ev.preventDefault(); abrir(); } }}>
       <td><Link className="medicoes__obra" para={{ tela: "obra", id: l.contrato_id, aba: "medicoes" }}>{l.obra}</Link></td>
       <td>{l.contratante}{l.orgao_sub && <span className="medicoes__sub">{l.orgao_sub}</span>}</td>
