@@ -315,8 +315,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             </Etapa>
 
             <Etapa n={4} situacao={sit(4)} resumo={m.protocolos.length > 0 ? `enviada em ${fmtDataPura(m.protocolos[m.protocolos.length - 1].data)}` : undefined}>
-              {sit(4) === "atual" && <EnvioDaMedicao medicaoId={m.id} podeEditar={podeEditar}
-                aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }} />}
+              {sit(4) === "atual" && <EnvioDaMedicao medicaoId={m.id} podeEditar={podeEditar} versaoDocs={versaoNotas + versaoFrc}                aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }} />}
               {/* o historico dos envios so' depois de enviada: na etapa da vez, o envio acima ja' e' o caminho */}
               {sit(4) === "feita" && <ProtocolosDaMedicao contratoId={contratoId} medicaoId={m.id} dados={protocolos.dados} erro={protocolos.erro}
                 carregar={protocolos.carregar} podeEditar={podeEditar} aoMudar={() => void carregar().catch(() => {})}

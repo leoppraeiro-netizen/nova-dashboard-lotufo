@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
@@ -159,7 +159,11 @@ function Secao({ n, titulo, passo, acoes, children }: {
  *  enviar (ou registrar por fora) ela recarrega em vez de voltar a Notas a enviar. */
 export type Embutido = { aoConcluir: (aviso?: string) => void; aoTrocar: (protocoloId: number) => void };
 
-export default function EnviarNota({ protocoloId, embutido, podeEditar }: { protocoloId: number; embutido?: Embutido; podeEditar: boolean }) {
+/** `versao` (issue #100): a pagina da medicao a incrementa quando um documento da medicao muda em outra etapa; o envio
+ *  e' lido de novo e, se os anexos mudaram, a previa e' refeita com o aviso. */
+export default function EnviarNota({ protocoloId, embutido, podeEditar, versao = 0 }: {
+  protocoloId: number; embutido?: Embutido; podeEditar: boolean; versao?: number;
+}) {
   const [det, setDet] = useState<Det | null>(null);
   const [erro, setErro] = useState("");
   const [erroAcao, setErroAcao] = useState("");
@@ -171,10 +175,21 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const [juntar, setJuntar] = useState<string[]>([]);
   const [conferencia, setConferencia] = useState<Conferencia>(null);
 
+  // issue #100 (revisor na PR #141): os anexos mudaram depois da primeira leitura, entao o e-mail foi refeito e o
+  // texto editado voltou ao padrao; a tela diz isso em vez de trocar o e-mail calada
+  const [refeita, setRefeita] = useState(false);
+  const anexosLidos = useRef<string | null>(null);
+
   const carregar = useCallback(async () => {
-    try { setDet(await api<Det>(`/api/notas/envio/${protocoloId}`)); setErro(""); } catch (e) { setErro(mensagem(e)); }
+    try {
+      const novo = await api<Det>(`/api/notas/envio/${protocoloId}`);
+      const assinatura = JSON.stringify(novo.previa.anexos.map(a => [a.nome, a.tamanho]));
+      if (anexosLidos.current !== null && anexosLidos.current !== assinatura) setRefeita(true);
+      anexosLidos.current = assinatura;
+      setDet(novo); setErro("");
+    } catch (e) { setErro(mensagem(e)); }
   }, [protocoloId]);
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => { void carregar(); }, [carregar, versao]);   // versao: documento da medicao mudou em outra etapa
 
   async function agir(f: () => Promise<void>) {
     setOcupado(true); setErroAcao(""); setReserva(null); setTentou(false);
@@ -223,6 +238,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const anexosVistos = det.previa.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho }));
 
   async function enviar(m: Mensagem) {
+    setRefeita(false);
     await agir(async () => {
       try {
         await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
@@ -294,6 +310,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
         aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
+      {refeita && <CaixaAviso nivel="atencao" role="status">A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.</CaixaAviso>}
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>
   );

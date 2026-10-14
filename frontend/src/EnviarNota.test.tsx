@@ -92,6 +92,7 @@ describe("Enviar a nota", () => {
   describe("anexos da prévia", () => {
     const NF = { nome: "NFS 2301.pdf", origem: "nota", tamanho: 10 };
     const FRC = { nome: "FRC 77.pdf", origem: "nota", tamanho: 20 };
+    const AVISO = "A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.";
     const comFrc = (anexos: object[]) => ({ ...det,
       envio: { ...det.envio, itens: [{ chave: "frc", rotulo: "FRC assinada", estado: "falta", acao: "anexar_frc", medicao_id: 631 }] },
       previa: { ...det.previa, anexos } });
@@ -131,9 +132,27 @@ describe("Enviar a nota", () => {
         return Promise.resolve({});
       });
       render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
-      fireEvent.click(await screen.findByRole("button", { name: "Enviar a nota" }));
+      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
+      fireEvent.change(corpo, { target: { value: "Bom dia. Segue com a observação do fiscal." } });
+      expect(screen.queryByText(AVISO)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
       expect(await screen.findByText(RECUSA)).toBeTruthy();
       await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      // revisor na PR #141: o texto editado se perdeu na prévia nova; a tela diz isso antes do próximo Enviar
+      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia.");
+      expect(screen.getAllByRole("status").some(x => x.textContent?.endsWith(AVISO))).toBe(true);
+    });
+
+    it("documento novo da medição avisado pela página (versao) relê o envio e refaz a prévia com o aviso", async () => {
+      let atual = comFrc([NF]);
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? atual : {}));
+      const props = { protocoloId: 3, podeEditar: true, embutido: { aoConcluir: () => {}, aoTrocar: () => {} } };
+      const { rerender } = render(<EnviarNota {...props} versao={0} />);
+      await screen.findByRole("button", { name: "Enviar a nota" });
+      atual = comFrc([NF, FRC]);
+      rerender(<EnviarNota {...props} versao={1} />);
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
+      expect(screen.getByText(AVISO)).toBeTruthy();
     });
   });
 });
