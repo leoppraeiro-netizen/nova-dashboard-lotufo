@@ -144,7 +144,6 @@ def desativar(conn: sqlite3.Connection, usuario_id: int, entidade_id: int) -> No
         # condicao, duas requisicoes concorrentes gravariam DUAS linhas de auditoria
         # dizendo 1 -> 0 para uma mudanca que aconteceu uma vez so.
         cur = conn.execute("UPDATE entidades SET ativo=0 WHERE id=? AND ativo=1", (entidade_id,))
-        if cur.rowcount != 1:
-            raise ValueError("Entidade desativada concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Entidade desativada concorrentemente; tente novamente")
         auditoria.registrar(conn, usuario_id, "entidade.desativar", "entidade", entidade_id,
                             {"ativo": 1}, {"ativo": 0})

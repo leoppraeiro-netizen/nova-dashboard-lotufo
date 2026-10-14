@@ -267,10 +267,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 - 2026-09-02 Fora do escopo desta fase (itens do parecer para a 4): documentos de habilitação com validade (garantia, ART) — emenda ao §5 a decidir; município/CNO/regime e estados "paralisada"/"aguardando OS"; baseline nomeado do cronograma. Alerta de vigência já usa o vigente com aditivos.
 - 2026-09-02 A leitura do termo depende do PDF ter texto (digitalizado não lê) e de rótulos comuns (acréscimo, supressão, prorrogação, "passa a ser"); com mais de um candidato por papel nada é preenchido, só listado.
 
-## Dívida herdada da fase 3 (lista "fica" da T11, ver ledger)
-
-- 2026-09-02 auth lockout lost update; painel() N+1; helpers de corrida triplicados; handle vazado por filho morto no spawn; semáforo de leitura de PDF por processo.
-
 ## Pendências externas (Leonardo)
 
 - Caixa compartilhada de protocolos; segundo administrador; credencial SMTP/Graph para resumo diário; `CAMPOLIVRE1` nas NFs do RM; planilha de contratos + consultas RM para o bootstrap do histórico.
