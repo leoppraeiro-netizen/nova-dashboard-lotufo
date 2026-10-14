@@ -98,11 +98,11 @@ A sincronização roda a cada hora (e no boot) quando `DASH_RM_URL`, `DASH_RM_US
 
 O cadastro de obras mora em `cadastro/` (YAML), é editado pelo Leonardo com o Claude e entra no banco por comando. Não há tela.
 
-A pasta vem de `DASH_CADASTRO_DIR` (produção: `C:\DashboardLotufo\cadastro`, clone do repositório privado `lotufo-cadastro`, atualizado com `git pull --ff-only` antes do `cadastro aplicar`; `rodar_producao.ps1` a exporta só para o servidor: na sessão do `cadastro aplicar` ela precisa ser definida à mão, `$env:DASH_CADASTRO_DIR = "C:\DashboardLotufo\cadastro"`); `--raiz` vence a variável. **Enquanto o clone não existir (antes do corte, #107)**, sem `pull`: `--raiz C:\DashboardLotufo\app\cadastro`, o `cadastro/` do próprio checkout pinado. Sem nenhuma das duas, o comando lê `cadastro-exemplo/` (fictício, para testes e CI), que o `aplicar` recusa em banco com contratos, órgãos ou entidades de outro cadastro. `validar` e `aplicar` imprimem na primeira linha a pasta que leram: conferir antes de confiar no resultado.
+A pasta vem de `DASH_CADASTRO_DIR` (produção: `C:\DashboardLotufo\cadastro`, clone do repositório privado `lotufo-cadastro`, atualizado com `git pull --ff-only` antes do `cadastro aplicar`; `rodar_producao.ps1` a exporta só para o servidor: na sessão do `cadastro aplicar` ela precisa ser definida à mão, `$env:DASH_CADASTRO_DIR = "C:\DashboardLotufo\cadastro"`); `--raiz` vence a variável. Sem nenhuma das duas, o comando lê `cadastro-exemplo/` (fictício, para testes e CI), que o `aplicar` recusa em banco com contratos, órgãos ou entidades de outro cadastro. `validar` e `aplicar` imprimem na primeira linha a pasta que leram: conferir antes de confiar no resultado.
 
 1. Editar os arquivos, rodar `cd backend && .venv\Scripts\python -m app.cli cadastro validar --raiz <pasta do cadastro>` (ou com `DASH_CADASTRO_DIR` definida) e conferir a pasta impressa.
-2. Commit e merge em `master`; `scripts\deploy.ps1` atualiza o checkout de produção. (Com o cadastro no `lotufo-cadastro`:
-   commit e push lá e `git -C C:\DashboardLotufo\cadastro pull --ff-only` na produção; o deploy não toca esse clone.)
+2. Commit e push no `lotufo-cadastro`, e `git -C C:\DashboardLotufo\cadastro pull --ff-only` na produção. O deploy
+   (`scripts\deploy.ps1`) só atualiza o código e não toca esse clone.
 3. No checkout de produção (`C:\DashboardLotufo\app\backend`), com `DASH_DB_PATH` (banco de produção) e `DASH_CADASTRO_DIR` (ou `--raiz`) definidos:
    `.venv\Scripts\python -m app.cli cadastro aplicar --usuario <e-mail do admin> --ensaio` e conferir o relatório;
    repetir sem `--ensaio`. O snapshot horário do backup cobre o antes.
