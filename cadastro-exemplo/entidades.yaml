@@ -1,0 +1,25 @@
+# Empresas fictícias. A chave `lotufo` é o papel "empresa própria" que o código reconhece.
+- chave: lotufo
+  nome: Construtora Exemplo Ltda
+  nome_curto: Exemplo
+  cnpj: '31.200.101/0001-30'
+  papel: lotufo
+  coligada_rm: 1
+  sigla_oficio: EX
+- chave: consorcio-exemplo
+  nome: Consórcio Exemplo
+  nome_curto: Consórcio Exemplo
+  cnpj: '31.200.303/0001-81'
+  papel: consorcio
+  consorciadas: [lotufo, beta]
+  regularidade_propria: true
+  coligada_rm: 90
+  sigla_oficio: CE
+- chave: beta
+  nome: Engenharia Beta S.A.
+  nome_curto: Beta
+  cnpj: '31.200.202/0001-00'
+  papel: consorciada
+  coligada_rm: null
+  sigla_oficio: null
+  emails_faturamento: [beta@exemplo.com.br]

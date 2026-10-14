@@ -1,0 +1,26 @@
+# E-mail de exemplo do espelho ao faturamento. Placeholders do assunto: {medicao}, {competencia}, {obra},
+# {instrumento}. No corpo, {saudacao} vira "Bom dia." ou "Boa tarde.".
+faturamento:
+  para: [faturamento@exemplo.com.br]
+  copia: [engenharia@exemplo.com.br]
+  assunto: 'Espelhos: {medicao}, {competencia}, {obra}, contrato {instrumento}'
+  corpo: |
+    {saudacao}
+
+    Seguem os espelhos de exemplo para emitir as notas.
+
+    Confira os impostos e as deduções antes de emitir.
+
+    Atenciosamente,
+
+diretoria:
+  total_a_receber_liberado: true
+# Cobrança de certidão por e-mail (vencidas e vencendo): quem recebe e o login de quem envia. O e-mail sai da
+# conta Microsoft do primeiro usuário ativo com um desses logins.
+cobranca_certidoes:
+  para: [responsavel@exemplo.com.br]
+  enviada_por: [responsavel@exemplo.com.br]
+# Planilha do quadro de obras (QDOP): modelo neutro com cabeçalho nas linhas 1-13, estilo na linha 14 e
+# rodapé nas linhas 16-17.
+qdop:
+  modelo: modelos/qdop/qdop-modelo.xlsx

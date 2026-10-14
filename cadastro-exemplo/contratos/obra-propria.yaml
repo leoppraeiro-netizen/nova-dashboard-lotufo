@@ -1,0 +1,46 @@
+# Obra Própria: contrato da empresa sozinha. Todos os dados são fictícios.
+nome_curto: Obra Própria
+numero_instrumento: 001/2025/00/00-EXEMPLO
+orgao: secretaria-exemplo
+entidade: lotufo
+objeto: Obra Própria
+objeto_completo: 'EXECUÇÃO DAS OBRAS DE PAVIMENTAÇÃO DE EXEMPLO NA RODOVIA EXEMPLO-001'
+municipio: Rondonópolis
+lei: '14.133'
+cno: null
+art: null
+numero_processo: null
+centro_custo_rm: 9.001.001
+valor_original: 10.000.000,00
+percentual_lotufo: 100,00
+execucao_inicio: '2025-03-10'
+execucao_fim: '2026-09-30'
+vigencia_inicio: '2025-03-10'
+vigencia_fim: '2026-12-28'
+status: ativo
+status_desde: null
+sem_reajuste: false
+datas_base:
+- mes: 2024-06
+  indice: índice setorial de exemplo
+fiscais:
+- nome: Fiscal de Exemplo
+  email: fiscal@exemplo.gov.br
+  desde: '2025-03-10'
+destinatarios_extras: []
+instrumentos:
+- chave: ta-01
+  tipo: aditivo_valor
+  data: '2026-02-02'
+  numero: 001/2025/01/01
+  objeto: 1º Termo Aditivo de valor (acréscimo de R$ 1.000.000,00)
+  delta_valor: 1.000.000,00
+- chave: ap-01
+  tipo: apostilamento_prazo
+  data: '2026-06-01'
+  numero: 001/2025/02/01
+  objeto: 1º Termo de Apostilamento de prazo (mais 60 dias)
+  nova_execucao_fim: '2026-09-30'
+  nova_vigencia_fim: '2026-12-28'
+pleitos_anteriores:
+- {tipo: prazo, oficio: CT-001-EX-2026, data: 2026-05-04, dias: 60}

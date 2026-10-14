@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-02T11:40:00-03:00",
+  "title": "Design System: Dashboard Lotufo",
+  "extensions": {
+    "colorMeta": {
+      "marca": {
+        "role": "secondary",
+        "displayName": "Laranja Lotufo",
+        "canonical": "#FF6500",
+        "note": "Cor real da marca. 2,96:1 sobre branco — nunca carrega texto. Só na logo e na barra de 3px do item ativo da nav.",
+        "tonalRamp": ["#3d1800", "#6b2a00", "#9e3e00", "#d15200", "#FF6500", "#ff8a3d", "#ffb180", "#ffdcc2"]
+      },
+      "acento": {
+        "role": "primary",
+        "displayName": "Acento Tijolo",
+        "canonical": "#C2410C",
+        "note": "Laranja da marca escurecido até ~5,2:1 sobre branco. Tudo que é interativo.",
+        "tonalRamp": ["#431407", "#7c2d12", "#9A3412", "#C2410C", "#ea580c", "#fb923c", "#fed7aa", "#fff5ed"]
+      },
+      "acento-forte": { "role": "primary", "displayName": "Acento Forte", "canonical": "#9A3412", "note": "Hover de tudo que usa o acento." },
+      "acento-mais": { "role": "primary", "displayName": "Acento Mais", "canonical": "#7c2d12", "note": ":active do primário e a segunda série empilhada do gráfico." },
+      "acento-fundo": { "role": "primary", "displayName": "Tinta do Acento", "canonical": "#fff5ed", "note": "Fundo do item ativo da nav e do painel inline." },
+      "acento-linha": { "role": "primary", "displayName": "Linha do Acento", "canonical": "#fed7aa", "note": "Costura do painel expandido e ::selection." },
+      "previsto": {
+        "role": "tertiary",
+        "displayName": "Cinza Previsto",
+        "canonical": "#cbd5e1",
+        "note": "Série 'previsto' do gráfico e ponto do estado prevista/em aberto.",
+        "tonalRamp": ["#1e293b", "#334155", "#475569", "#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0", "#f1f5f9"]
+      },
+      "acao": {
+        "role": "semantic",
+        "displayName": "Ação / Vencido",
+        "canonical": "#b42318",
+        "note": "Destrutivo, erro, alerta vencido, certidão sem cobertura ou vencida, veredito 'Pendências' e número negativo que é problema. Nunca decorativo.",
+        "tonalRamp": ["#55160f", "#7a1d15", "#912018", "#b42318", "#d92d20", "#f04438", "#fecdca", "#fef3f2"]
+      },
+      "atencao": {
+        "role": "semantic",
+        "displayName": "Atenção",
+        "canonical": "#93540A",
+        "note": "Pendência e prazo se aproximando ('Vence em N dias'). Só como chip claro — nunca âmbar sólido.",
+        "tonalRamp": ["#4e2809", "#7a4508", "#93540A", "#b54708", "#dc6803", "#f79009", "#fde68a", "#FEF0C7"]
+      },
+      "ok": {
+        "role": "semantic",
+        "displayName": "OK / Em dia",
+        "canonical": "#067647",
+        "note": "Concluído, atestado, dinheiro recebido — e, desde a fase 3, o chip afirmativo: 'Em dia' no semáforo de certidão e 'Pronto' no veredito do checklist. Os tons de fundo e linha saíram da reserva.",
+        "tonalRamp": ["#053321", "#054f31", "#067647", "#079455", "#17b26a", "#47cd89", "#abefc6", "#ecfdf3"]
+      },
+      "texto": {
+        "role": "neutral",
+        "displayName": "Texto",
+        "canonical": "#101828",
+        "note": "Um dos dois únicos tons que carregam texto legível. Título, número, dado forte e cabeçalho de grupo. A rampa é a escala neutra real do projeto.",
+        "tonalRamp": ["#101828", "#5b6474", "#9aa3b2", "#c3cad6", "#d5dae3", "#e5e8ee", "#f2f4f7", "#f6f7f9"]
+      },
+      "texto-2": { "role": "neutral", "displayName": "Texto 2", "canonical": "#5b6474", "note": "Corpo de célula, rótulo, meta e nota." },
+      "texto-fraco": { "role": "neutral", "displayName": "Texto Fraco", "canonical": "#9aa3b2", "note": "SÓ controle desabilitado e traço do riscado de exceção. Nunca hierarquia." },
+      "bg": {
+        "role": "neutral",
+        "displayName": "Fundo do App",
+        "canonical": "#f6f7f9",
+        "tonalRamp": ["#101828", "#5b6474", "#9aa3b2", "#c3cad6", "#d5dae3", "#e5e8ee", "#f2f4f7", "#f6f7f9"]
+      },
+      "superficie": { "role": "neutral", "displayName": "Superfície", "canonical": "#ffffff", "note": "Cartão, sidebar, controle, célula — e o fundo OPACO da coluna de ações ancorada, que precisa cobrir as colunas que passam por baixo." },
+      "superficie-2": { "role": "neutral", "displayName": "Superfície 2", "canonical": "#fafbfc", "note": "Zebra, cabeçalho, rodapé e cabeçalho de grupo de tabela, rodapé de cartão, selo neutro." },
+      "superficie-vidro": { "role": "neutral", "displayName": "Vidro", "canonical": "rgb(255 255 255 / .92)", "note": "Topbar translúcida com backdrop-filter: o conteúdo passa por baixo ao rolar." },
+      "hover": { "role": "neutral", "displayName": "Hover", "canonical": "#f2f4f7" },
+      "pressionado": { "role": "neutral", "displayName": "Pressionado", "canonical": "#eef0f4" },
+      "linha": { "role": "neutral", "displayName": "Linha", "canonical": "#e5e8ee", "note": "Divisor de superfície." },
+      "linha-forte": { "role": "neutral", "displayName": "Linha Forte", "canonical": "#d5dae3", "note": "Borda de controle, topo da linha de totais, sinal de borda da coluna ancorada, polegar da barra de rolagem." },
+      "linha-hover": { "role": "neutral", "displayName": "Linha Hover", "canonical": "#c3cad6" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Um só uso: o total da faixa de saldo, o maior número da tela. Sempre tabular.", "usos": 1 },
+      "headline": { "displayName": "Headline", "purpose": "O h1 da topbar, um por tela.", "usos": 1 },
+      "numero": { "displayName": "Número", "purpose": "Valor de uma faixa de grandezas: parcela do saldo, operador da conta, item de totais e o valor vigente do contrato (que na fase 2 tinha um 18px só seu). O degrau em que um número vira dado de leitura, não título.", "usos": 4 },
+      "title": { "displayName": "Title", "purpose": "Título de cartão (h2/h3). Mesmo tamanho do corpo — o que separa é o peso, não o tamanho.", "usos": 1 },
+      "body": { "displayName": "Body", "purpose": "Corpo do app, herdado do body.", "usos": 2 },
+      "tabela": { "displayName": "Tabela", "purpose": "Célula, item de nav, aba, botão-valor, botão-nome, linha de alerta, vazio e o cabeçalho de grupo da matriz (aqui em 600: é dado, não rótulo de coluna). A densidade de leitura padrão e o degrau mais repetido do arquivo.", "usos": 8 },
+      "controle": { "displayName": "Controle", "purpose": "O texto que vive DENTRO de um controle: botão, campo, campo de arquivo, nome do usuário, bloco de erro. Uma unidade abaixo da tabela porque a caixa já delimita.", "usos": 5 },
+      "meta": { "displayName": "Meta", "purpose": "Texto de apoio que acompanha alguma coisa: meta da topbar, dica do cartão, chip de aviso, título do painel, legenda do gráfico — e os controles pequenos (28px/26px). A voz secundária da casa.", "usos": 7 },
+      "nota": { "displayName": "Nota", "purpose": "Tipografia de formulário e de rodapé de explicação: rótulo de campo (em 600), nota (com teto de 78ch), erro sob o campo, perfil do usuário, nota do saldo. Sempre em --texto-2, exceto o erro em --acao.", "usos": 6 },
+      "label": { "displayName": "Label", "purpose": "Cabeçalho de coluna, rótulo de resumo e de totais, selo semântico, inicial do avatar, eixo X do gráfico. O único degrau em caixa alta.", "usos": 5 },
+      "eixo": { "displayName": "Eixo", "purpose": "EXCEÇÃO NOMEADA: rótulo do eixo Y do gráfico, texto SVG em px reais, onde o número precisa caber entre linhas de grade. A menor tipografia do sistema; desde a fase 3 nenhuma superfície de HTML desce abaixo de 11,5px — sem asterisco.", "usos": 1 },
+      "mono": { "displayName": "Mono", "purpose": "Só formato literal digitável dentro de <code>. Nunca como fantasia de 'coisa técnica'." }
+    },
+    "fonts": [
+      {
+        "family": "Hanken Grotesk",
+        "source": "auto-hospedada em frontend/public/fonts/*.woff2",
+        "weightRange": "100 900",
+        "note": "Variável: um arquivo por faixa de caracteres (latin, latin-ext), não um por peso. Nada pode voltar a apontar para fonts.googleapis.com — rede interna sem saída."
+      }
+    ],
+    "shadows": [
+      { "name": "sombra", "value": "0 1px 2px rgb(16 24 40 / .06)", "purpose": "O único valor de sombra do arquivo inteiro: cartões, botões e .btn. Removida em :active e :disabled. A irmã de .05 que o botão carregava foi colapsada nesta na fase 3." },
+      { "name": "costura-painel", "value": "inset 0 1px 0 var(--acento-linha)", "purpose": "Fio claro no topo da linha expandida, costurando o painel à linha que o abriu." },
+      { "name": "sinal-coluna-ancorada", "value": "inset 1px 0 0 var(--linha-forte)", "purpose": "NÃO é sombra: é a borda esquerda da coluna sticky pintada por outro caminho, porque border-left numa célula position: sticky sob border-collapse: collapse não pinta no Chrome. Só com a classe .tabela-wrap--rola, posta pelo React ao medir scrollWidth > clientWidth." }
+    ],
+    "motion": [
+      { "name": "abrir-painel", "value": "140ms cubic-bezier(.16, 1, .3, 1)", "purpose": "O único momento animado da interface: o painel que abre sob a linha da tabela (opacidade + 3px de translação)." },
+      { "name": "transicao-estado", "value": "120ms ease", "purpose": "Hover de botão, borda de campo e fundo de linha de tabela. Nada mais transiciona." },
+      { "name": "reduced-motion", "value": "0.01ms", "purpose": "Sob prefers-reduced-motion a animação some e toda transição cai para 0,01ms." }
+    ],
+    "breakpoints": [
+      { "name": "compacto", "value": "900px", "purpose": "Único ponto de quebra: a grade vira uma coluna, a sidebar vira faixa horizontal rolável (overflow-x: auto MAIS min-width: 0) e a coluna de ações ancorada volta a static." }
+    ],
+    "layout": [
+      { "name": "sidebar", "value": "232px", "purpose": "Largura da barra lateral fixa. Cinco itens de nav." },
+      { "name": "conteudo", "value": "1200px", "purpose": "Largura máxima da página." },
+      { "name": "linha-tabela", "value": "40px", "purpose": "Altura canônica da linha de tabela: 10px de sangria + 19,5px de texto." },
+      { "name": "escala-controles", "value": "32 / 28 / 26", "purpose": "As três alturas de controle do sistema: padrão, botão de linha de tabela, botão voltar e botão interno do campo de arquivo. Não há 24." },
+      { "name": "medida-apoio", "value": "78ch", "purpose": "Teto de medida de todo texto de apoio (.campo__nota, .saldo__nota, .aviso). O objeto do contrato usa 72ch." },
+      { "name": "truncamento", "value": "34ch / 12ch", "purpose": ".truncar para nome longo; .truncar--curto para dado de identificação (nº de certidão) que passa de 30 caracteres e empurrava a coluna de ações para fora do cartão." }
+    ],
+    "focus": {
+      "ring": "2px solid color-mix(in srgb, var(--acento) 40%, transparent)",
+      "offset": "2px",
+      "purpose": "Derivado do próprio token de acento: trocar --acento leva o anel junto. Campos ganham a borda inteira em --acento, offset 1px; a linha de alerta usa offset -2px para o anel caber dentro dela."
+    }
+  },
+  "components": [
+    {
+      "name": "Botão Primário",
+      "kind": "button",
+      "refersTo": "button-primario",
+      "description": "Uma decisão por contexto: fundo de acento com texto branco.",
+      "html": "<button class=\"ds-btn ds-btn--primario\">Arquivar certidão</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); transition: background .12s ease, border-color .12s ease; } .ds-btn--primario { background: var(--acento, #C2410C); border-color: var(--acento, #C2410C); color: #fff; } .ds-btn--primario:hover { background: var(--acento-forte, #9A3412); border-color: var(--acento-forte, #9A3412); } .ds-btn--primario:active { background: var(--acento-mais, #7c2d12); border-color: var(--acento-mais, #7c2d12); box-shadow: none; } .ds-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Botão Secundário",
+      "kind": "button",
+      "refersTo": "button-secundario",
+      "description": "O padrão da casa: superfície branca com borda. A base vale para <button> e para .btn, para que uma âncora de download (CSV, PDF da certidão) também seja um botão de verdade.",
+      "html": "<button class=\"ds-btn2\"><svg class=\"ds-icone\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20 15.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2.5\"/><path d=\"M8 11.5 12 15.5l4-4\"/><path d=\"M12 15.5V4\"/></svg>Baixar CSV</button>",
+      "css": ".ds-btn2 { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); transition: background .12s ease, border-color .12s ease; } .ds-btn2:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); } .ds-btn2:active { background: var(--pressionado, #eef0f4); box-shadow: none; } .ds-btn2:disabled { color: var(--texto-fraco, #9aa3b2); cursor: not-allowed; box-shadow: none; } .ds-btn2:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 2px; } .ds-icone { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Campo com rótulo",
+      "kind": "input",
+      "refersTo": "entrada",
+      "description": "Rótulo em cima, campo, nota ou erro embaixo. Foco troca a borda inteira para o acento. A nota tem teto de medida de 78ch.",
+      "html": "<div class=\"ds-campo\"><label class=\"ds-campo__rotulo\" for=\"ds-comp\">Competência</label><input class=\"ds-entrada ds-entrada--media\" id=\"ds-comp\" value=\"2026-07\" /><span class=\"ds-campo__nota\">Formato AAAA-MM</span></div>",
+      "css": ".ds-campo { display: grid; gap: 4px; min-width: 0; font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-campo__rotulo { font-size: 12px; font-weight: 600; color: var(--texto-2, #5b6474); } .ds-campo__nota { font-size: 12px; color: var(--texto-2, #5b6474); max-width: 78ch; } .ds-entrada { height: 32px; padding: 0 10px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font: inherit; font-size: 13px; caret-color: var(--acento, #C2410C); transition: border-color .12s ease; } .ds-entrada--media { width: 168px; max-width: 100%; } .ds-entrada:hover { border-color: var(--linha-hover, #c3cad6); } .ds-entrada:focus-visible { border-color: var(--acento, #C2410C); outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 1px; } .ds-entrada::placeholder { color: var(--texto-2, #5b6474); }"
+    },
+    {
+      "name": "Campo de arquivo",
+      "kind": "input",
+      "refersTo": "entrada-arquivo",
+      "description": "O único controle do sistema que traz um botão do próprio navegador dentro de si. Sem estilizar ::file-selector-button, o formulário ganha um botão cinza de outro mundo no meio de uma linha de controles de 32px. A altura vira auto (quem manda é o botão interno de 26px) e 2px de sangria devolvem os mesmos ~32px da linha.",
+      "html": "<div class=\"ds-campo-arq\"><label class=\"ds-arq__rotulo\" for=\"ds-arq\">PDF da certidão</label><input class=\"ds-arq\" id=\"ds-arq\" type=\"file\" /><p class=\"ds-arq__nota\">Só PDF, até 10 MB. O servidor confere a assinatura do formato, não a extensão do nome.</p></div>",
+      "css": ".ds-campo-arq { display: grid; gap: 4px; justify-items: start; font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-arq__rotulo { font-size: 12px; font-weight: 600; color: var(--texto-2, #5b6474); } .ds-arq__nota { margin: 0; font-size: 12px; color: var(--texto-2, #5b6474); max-width: 78ch; } .ds-arq { height: auto; max-width: 100%; min-width: 0; padding: 2px 10px 2px 2px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); font-family: inherit; font-size: 13px; color: var(--texto-2, #5b6474); transition: border-color .12s ease; } .ds-arq:hover { border-color: var(--linha-hover, #c3cad6); } .ds-arq:focus-visible { border-color: var(--acento, #C2410C); outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 1px; } .ds-arq::file-selector-button { box-sizing: border-box; height: 26px; padding: 0 9px; margin-right: 10px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font: inherit; font-weight: 500; cursor: pointer; transition: background .12s ease, border-color .12s ease; } .ds-arq::file-selector-button:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); }"
+    },
+    {
+      "name": "Item de navegação",
+      "kind": "nav",
+      "refersTo": "nav-item-ativo",
+      "description": "Nav da sidebar, cinco itens. O ativo troca para a tinta do acento e ganha a barra decorativa de 3px em laranja puro da marca — o único laranja puro fora da logo.",
+      "html": "<nav class=\"ds-nav\"><button class=\"ds-nav__item\" aria-current=\"page\"><svg class=\"ds-nav__icone\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M9 12.5 11 14.5l4.5-4.5\"/><path d=\"M12 3l7 3v5.5c0 4.4-2.9 8.4-7 9.5-4.1-1.1-7-5.1-7-9.5V6z\"/></svg>Certidões</button><button class=\"ds-nav__item\"><svg class=\"ds-nav__icone\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z\"/><path d=\"M14 3v5h5\"/><path d=\"M9 13h6\"/><path d=\"M9 17h4\"/></svg>Contratos</button></nav>",
+      "css": ".ds-nav { padding: 4px 12px; display: flex; flex-direction: column; gap: 2px; background: var(--superficie, #fff); font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-nav__item { position: relative; display: inline-flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; padding: 8px 10px; border: 0; background: none; border-radius: var(--raio-ctrl, 6px); color: var(--texto-2, #5b6474); font: inherit; font-size: 13.5px; font-weight: 500; text-align: left; cursor: pointer; } .ds-nav__item:hover { background: var(--superficie-2, #fafbfc); color: var(--texto, #101828); } .ds-nav__item[aria-current=\"page\"] { background: var(--acento-fundo, #fff5ed); color: var(--acento, #C2410C); font-weight: 600; } .ds-nav__item[aria-current=\"page\"]::before { content: \"\"; position: absolute; left: -12px; top: 50%; transform: translateY(-50%); width: 3px; height: 20px; border-radius: 0 2px 2px 0; background: var(--marca, #FF6500); } .ds-nav__item:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 2px; } .ds-nav__icone { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Tabela densa",
+      "kind": "card",
+      "refersTo": "tabela-celula",
+      "description": "O componente central: linha de 40px, cabeçalho em rótulo de caixa alta, zebra por classe (nunca :nth-child), dinheiro tabular à direita e linha de totais no tfoot. Sempre dentro de um .tabela-wrap com position: relative.",
+      "html": "<div class=\"ds-wrap\"><table class=\"ds-tabela\"><thead><tr><th>Medição</th><th>Estado</th><th class=\"ds-col-num\">Protocolado</th></tr></thead><tbody><tr class=\"ds-linha\"><td>12ª / 07-2026</td><td><span class=\"ds-estado\"><span class=\"ds-estado__ponto ds-estado__ponto--nf\"></span>NF emitida</span></td><td class=\"ds-col-num ds-num ds-dinheiro\">R$ 1.284.930,45</td></tr><tr class=\"ds-linha ds-par\"><td>11ª / 06-2026</td><td><span class=\"ds-estado\"><span class=\"ds-estado__ponto ds-estado__ponto--ok\"></span>Recebida</span></td><td class=\"ds-col-num ds-num ds-dinheiro\">R$ 987.112,00</td></tr></tbody><tfoot><tr><th scope=\"row\">Total</th><td></td><td class=\"ds-col-num ds-num\">R$ 2.272.042,45</td></tr></tfoot></table></div>",
+      "css": ".ds-wrap { overflow-x: auto; position: relative; } .ds-tabela { width: 100%; border-collapse: collapse; font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 13.5px; background: var(--superficie, #fff); } .ds-tabela thead th { padding: 9px 12px; background: var(--superficie-2, #fafbfc); border-bottom: 1px solid var(--linha, #e5e8ee); color: var(--texto-2, #5b6474); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; text-align: left; white-space: nowrap; } .ds-tabela tbody td { padding: 10px 12px; border-bottom: 1px solid var(--linha, #e5e8ee); color: var(--texto-2, #5b6474); vertical-align: middle; } .ds-tabela th:first-child, .ds-tabela td:first-child { padding-left: 20px; } .ds-tabela th:last-child, .ds-tabela td:last-child { padding-right: 20px; } .ds-tabela tbody tr.ds-par > td { background: var(--superficie-2, #fafbfc); } .ds-tabela tbody tr.ds-linha { transition: background .12s ease; } .ds-tabela tbody tr.ds-linha:hover > td { background: var(--hover, #f2f4f7); } .ds-tabela tfoot td, .ds-tabela tfoot th { padding: 10px 12px; border-top: 1px solid var(--linha-forte, #d5dae3); background: var(--superficie-2, #fafbfc); color: var(--texto, #101828); font-weight: 600; text-align: left; } .ds-tabela tfoot th:first-child { padding-left: 20px; } .ds-tabela tfoot td:last-child { padding-right: 20px; } .ds-col-num { text-align: right; white-space: nowrap; } .ds-num { font-variant-numeric: tabular-nums lining-nums; font-feature-settings: \"tnum\" 1, \"lnum\" 1; } .ds-dinheiro { color: var(--texto, #101828); } .ds-estado { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--texto, #101828); } .ds-estado__ponto { width: 7px; height: 7px; border-radius: 999px; flex: none; background: var(--texto-2, #5b6474); } .ds-estado__ponto--nf { background: var(--acento, #C2410C); } .ds-estado__ponto--ok { background: var(--ok, #067647); }"
+    },
+    {
+      "name": "Matriz agrupada por entidade",
+      "kind": "custom",
+      "refersTo": "tabela-grupo",
+      "description": "Um <tbody> por entidade, aberto por um th[scope=rowgroup] que atravessa a tabela: tira do corpo as colunas que se repetiam em toda linha (10 colunas viraram 8 e a matriz passou a caber no cartão), e o leitor de tela anuncia a entidade ao entrar nas linhas dela. Faixa --superficie-2 do thead, mas em --texto 13,5px/600 — é dado, não rótulo de coluna. A zebra recomeça em cada grupo; o nº da certidão trunca em 12ch.",
+      "html": "<div class=\"ds-wrap2\"><table class=\"ds-mtz\"><thead><tr><th>Tipo</th><th>Situação</th><th>Validade</th><th>Nº</th></tr></thead><tbody><tr class=\"ds-grupo\"><th scope=\"rowgroup\" colspan=\"4\">Consórcio BRT Integra · Consórcio</th></tr><tr class=\"ds-linha2\"><td><span class=\"ds-trunc\" title=\"CND Federal (RFB/PGFN)\">CND Federal (RFB/PGFN)</span></td><td><span class=\"ds-selo ds-selo--ok\"><span class=\"ds-selo__ponto\"></span><span class=\"ds-selo__texto\">Em dia</span></span></td><td class=\"ds-num2\">24/02/2027</td><td><span class=\"ds-trunc ds-trunc--curto ds-num2\" title=\"A1B2.C3D4.E5F6.7890\">A1B2.C3D4.E5F6.7890</span></td></tr><tr class=\"ds-linha2 ds-par2\"><td><span class=\"ds-trunc\">CNDT</span></td><td><span class=\"ds-selo ds-selo--acao\"><span class=\"ds-selo__ponto\"></span><span class=\"ds-selo__texto\">Vencida em 13/08/2026</span></span></td><td class=\"ds-num2\">13/08/2026</td><td>—</td></tr></tbody></table></div>",
+      "css": ".ds-wrap2 { overflow-x: auto; position: relative; } .ds-mtz { width: 100%; border-collapse: collapse; font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 13.5px; background: var(--superficie, #fff); } .ds-mtz thead th { padding: 9px 12px; background: var(--superficie-2, #fafbfc); border-bottom: 1px solid var(--linha, #e5e8ee); color: var(--texto-2, #5b6474); font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; text-align: left; white-space: nowrap; } .ds-mtz tbody td { padding: 10px 12px; border-bottom: 1px solid var(--linha, #e5e8ee); color: var(--texto-2, #5b6474); vertical-align: middle; } .ds-mtz th:first-child, .ds-mtz td:first-child { padding-left: 20px; } .ds-mtz th:last-child, .ds-mtz td:last-child { padding-right: 20px; } .ds-mtz tbody tr.ds-grupo > th { padding: 10px 20px; background: var(--superficie-2, #fafbfc); border-top: 1px solid var(--linha, #e5e8ee); border-bottom: 1px solid var(--linha, #e5e8ee); color: var(--texto, #101828); font-size: 13.5px; font-weight: 600; text-align: left; white-space: nowrap; } .ds-mtz tbody tr.ds-par2 > td { background: var(--superficie-2, #fafbfc); } .ds-mtz tbody tr.ds-linha2:hover > td { background: var(--hover, #f2f4f7); } .ds-num2 { font-variant-numeric: tabular-nums lining-nums; } .ds-trunc { display: inline-block; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; } .ds-trunc--curto { max-width: 12ch; } .ds-selo { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--linha, #e5e8ee); border-radius: 999px; background: var(--superficie-2, #fafbfc); color: var(--texto-2, #5b6474); font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; max-width: 100%; } .ds-selo--ok { background: var(--ok-fundo, #ecfdf3); border-color: var(--ok-linha, #abefc6); color: var(--ok, #067647); } .ds-selo--acao { background: var(--acao-fundo, #fef3f2); border-color: var(--acao-linha, #fecdca); color: var(--acao, #b42318); } .ds-selo__ponto { width: 7px; height: 7px; border-radius: 999px; flex: none; background: currentColor; } .ds-selo__texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    },
+    {
+      "name": "Semáforo de certidão (selo de 4 níveis)",
+      "kind": "chip",
+      "refersTo": "selo-ok",
+      "description": "Quatro cores, cinco rótulos: a cor diz a gravidade, o rótulo diz o trabalho. 'Vencida em dd/mm/aaaa' e 'Sem cobertura' são o mesmo vermelho e não a mesma tarefa. Estrutura de três partes: .selo__ponto (currentColor, repete a semântica em forma), .selo__texto (filho de BLOCO com min-width: 0, sem o qual text-overflow nunca desenha o '…' num inline-flex) e um sr-only com a explicação dentro do chip — o chip é um span não focável, e tooltip não existe para teclado nem para leitor de tela.",
+      "html": "<div class=\"ds-semaforo\"><span class=\"ds-s ds-s--ok\"><span class=\"ds-s__ponto\"></span><span class=\"ds-s__texto\">Em dia</span></span><span class=\"ds-s ds-s--atencao\"><span class=\"ds-s__ponto\"></span><span class=\"ds-s__texto\">Vence em 9 dias</span></span><span class=\"ds-s ds-s--acao\"><span class=\"ds-s__ponto\"></span><span class=\"ds-s__texto\">Vencida em 13/08/2026</span></span><span class=\"ds-s ds-s--acao\"><span class=\"ds-s__ponto\"></span><span class=\"ds-s__texto\">Sem cobertura</span></span><span class=\"ds-s\"><span class=\"ds-s__ponto\"></span><span class=\"ds-s__texto\">Não se aplica</span></span></div>",
+      "css": ".ds-semaforo { display: flex; flex-wrap: wrap; gap: 10px; font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-s { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--linha, #e5e8ee); border-radius: 999px; background: var(--superficie-2, #fafbfc); color: var(--texto-2, #5b6474); font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; max-width: 100%; } .ds-s--ok { background: var(--ok-fundo, #ecfdf3); border-color: var(--ok-linha, #abefc6); color: var(--ok, #067647); } .ds-s--atencao { background: var(--atencao-fundo, #FEF0C7); border-color: var(--atencao-linha, #fde68a); color: var(--atencao, #93540A); } .ds-s--acao { background: var(--acao-fundo, #fef3f2); border-color: var(--acao-linha, #fecdca); color: var(--acao, #b42318); } .ds-s__ponto { width: 7px; height: 7px; border-radius: 999px; flex: none; background: currentColor; } .ds-s__texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }"
+    },
+    {
+      "name": "Lista de alertas com teto de 5",
+      "kind": "custom",
+      "refersTo": "selo-acao",
+      "description": "Grade de duas colunas (152px fixos para o selo) e não flex: com selos de larguras diferentes a margem esquerda das mensagens ficaria serrilhada. Cada linha é um botão. Teto de cinco itens visíveis, ordenados por gravidade com ordem estável dentro de cada nível; o resto entra por 'Mostrar os outros N' no rodapé — nada é escondido de vez.",
+      "html": "<ul class=\"ds-alertas\"><li><button class=\"ds-alerta\"><span class=\"ds-selo3 ds-selo3--acao\"><svg class=\"ds-selo3__ic\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z\"/><path d=\"M12 9.5v4\"/><path d=\"M12 17h.01\"/></svg><span class=\"ds-selo3__texto\">Certidão pendente</span></span><span class=\"ds-alerta__msg\">Consórcio BRT Integra: 3 tipos sem certidão válida hoje — CND Estadual, CRF/FGTS, CNDT</span></button></li><li><button class=\"ds-alerta\"><span class=\"ds-selo3 ds-selo3--atencao\"><span class=\"ds-selo3__texto\">Vigência a vencer</span></span><span class=\"ds-alerta__msg\">CT-271-LT-2026 vence em 12/10/2026</span></button></li><li><button class=\"ds-alerta\"><span class=\"ds-selo3\"><span class=\"ds-selo3__texto\">Data-base</span></span><span class=\"ds-alerta__msg\">Data-base do reajuste em 30 dias</span></button></li></ul><div class=\"ds-alertas__rodape\"><button class=\"ds-mais\">Mostrar os outros 3</button></div>",
+      "css": ".ds-alertas { list-style: none; margin: 0; padding: 0; background: var(--superficie, #fff); font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-alertas li + li { border-top: 1px solid var(--linha, #e5e8ee); } .ds-alerta { display: grid; grid-template-columns: 152px minmax(0, 1fr); align-items: center; gap: 12px; width: 100%; padding: 9px 20px; border: 0; border-radius: 0; background: none; font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; } .ds-alerta:hover { background: var(--hover, #f2f4f7); } .ds-alerta:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: -2px; } .ds-alerta__msg { min-width: 0; color: var(--texto, #101828); } .ds-selo3 { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--linha, #e5e8ee); border-radius: 999px; background: var(--superficie-2, #fafbfc); color: var(--texto-2, #5b6474); font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; max-width: 100%; } .ds-selo3--acao { background: var(--acao-fundo, #fef3f2); border-color: var(--acao-linha, #fecdca); color: var(--acao, #b42318); } .ds-selo3--atencao { background: var(--atencao-fundo, #FEF0C7); border-color: var(--atencao-linha, #fde68a); color: var(--atencao, #93540A); } .ds-selo3__texto { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-selo3__ic { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; } .ds-alertas__rodape { padding: 14px 20px; border-top: 1px solid var(--linha, #e5e8ee); background: var(--superficie-2, #fafbfc); } .ds-mais { height: 28px; padding: 0 9px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 12.5px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); } .ds-mais:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); }"
+    },
+    {
+      "name": "Cartão",
+      "kind": "card",
+      "refersTo": "cartao",
+      "description": "Raio de 8px, borda de 1px e o único nível de sombra. Cabeça com título, selo de veredito (que não encolhe) e ações; corpo; rodapé em superfície 2.",
+      "html": "<section class=\"ds-cartao\"><div class=\"ds-cartao__cabeca\"><h3 class=\"ds-cartao__titulo\">Pronto para protocolar?</h3><span class=\"ds-cartao__selo\"><span class=\"ds-cartao__ponto\"></span>Pronto</span><div class=\"ds-cartao__acoes\"><button class=\"ds-cartao__btn\">Ver certidões</button></div></div><div class=\"ds-cartao__corpo\">Todas as certidões exigidas do Consórcio BRT Integra estão valendo hoje. Uma delas vence em breve — renove antes do próximo protocolo.</div><div class=\"ds-cartao__rodape\"><button class=\"ds-cartao__btn\">Nova medição</button></div></section>",
+      "css": ".ds-cartao { background: var(--superficie, #fff); border: 1px solid var(--linha, #e5e8ee); border-radius: var(--raio, 8px); box-shadow: 0 1px 2px rgb(16 24 40 / .06); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 14px; line-height: 1.45; color: var(--texto, #101828); } .ds-cartao__cabeca { display: flex; align-items: center; gap: 12px; padding: 13px 20px; border-bottom: 1px solid var(--linha, #e5e8ee); } .ds-cartao__titulo { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.014em; } .ds-cartao__selo { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border: 1px solid var(--ok-linha, #abefc6); border-radius: 999px; background: var(--ok-fundo, #ecfdf3); color: var(--ok, #067647); font-size: 11.5px; font-weight: 600; } .ds-cartao__ponto { width: 7px; height: 7px; border-radius: 999px; flex: none; background: currentColor; } .ds-cartao__acoes { margin-left: auto; display: flex; align-items: center; gap: 8px; } .ds-cartao__corpo { padding: 14px 20px; max-width: 78ch; } .ds-cartao__rodape { padding: 14px 20px; border-top: 1px solid var(--linha, #e5e8ee); background: var(--superficie-2, #fafbfc); border-radius: 0 0 var(--raio, 8px) var(--raio, 8px); } .ds-cartao__btn { height: 28px; padding: 0 9px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); transition: background .12s ease, border-color .12s ease; } .ds-cartao__btn:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); } .ds-cartao__btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Painel inline sob a linha",
+      "kind": "custom",
+      "refersTo": "painel-linha",
+      "description": "Componente-assinatura: o substituto do prompt()/confirm(). Abre SOB a linha da tabela, em tinta do acento, costurado por um fio claro no topo, com um chip de aviso dizendo o que a ação preserva. Escape fecha. É o único elemento animado do sistema.",
+      "html": "<div class=\"ds-painel\"><p class=\"ds-painel__titulo\">Declarar que CND Estadual não se aplica a Oriundi Construções</p><div class=\"ds-painel__form\"><div class=\"ds-p-campo\"><label class=\"ds-p-rotulo\" for=\"ds-obs\">Motivo (opcional)</label><input class=\"ds-p-entrada\" id=\"ds-obs\" placeholder=\"ex.: entidade sem inscrição estadual\" /></div><p class=\"ds-aviso\"><svg class=\"ds-aviso__ic\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z\"/><path d=\"M12 9.5v4\"/><path d=\"M12 17h.01\"/></svg><span>Nada é apagado: a decisão entra como uma linha nova, com quem declarou e quando.</span></p></div><div class=\"ds-painel__rodape\"><button class=\"ds-p-btn ds-p-btn--primario\">Marcar não se aplica</button><button class=\"ds-p-btn\">Cancelar</button></div></div>",
+      "css": ".ds-painel { padding: 16px 20px; background: var(--acento-fundo, #fff5ed); border-bottom: 1px solid var(--linha, #e5e8ee); box-shadow: inset 0 1px 0 var(--acento-linha, #fed7aa); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 14px; color: var(--texto, #101828); animation: ds-abrir-painel .14s cubic-bezier(.16, 1, .3, 1); } @keyframes ds-abrir-painel { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } } @media (prefers-reduced-motion: reduce) { .ds-painel { animation: none; } } .ds-painel__titulo { font-size: 12.5px; font-weight: 600; margin: 0 0 10px; } .ds-painel__form { display: grid; gap: 10px; justify-items: start; } .ds-p-campo { display: grid; gap: 4px; min-width: 0; } .ds-p-rotulo { font-size: 12px; font-weight: 600; color: var(--texto-2, #5b6474); } .ds-p-entrada { height: 32px; width: 320px; max-width: 100%; min-width: 0; padding: 0 10px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); font: inherit; font-size: 13px; caret-color: var(--acento, #C2410C); } .ds-p-entrada:focus-visible { border-color: var(--acento, #C2410C); outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 1px; } .ds-aviso { display: inline-flex; align-items: flex-start; gap: 6px; max-width: 78ch; margin: 0; padding: 4px 9px; border: 1px solid var(--atencao-linha, #fde68a); border-radius: var(--raio-ctrl, 6px); background: var(--atencao-fundo, #FEF0C7); font-size: 12.5px; color: var(--atencao, #93540A); } .ds-aviso__ic { width: 15px; height: 15px; flex: none; margin-top: 2px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; } .ds-painel__rodape { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; } .ds-p-btn { height: 32px; padding: 0 12px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); transition: background .12s ease, border-color .12s ease; } .ds-p-btn:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); } .ds-p-btn--primario { background: var(--acento, #C2410C); border-color: var(--acento, #C2410C); color: #fff; } .ds-p-btn--primario:hover { background: var(--acento-forte, #9A3412); border-color: var(--acento-forte, #9A3412); } .ds-p-btn:focus-visible { outline: 2px solid color-mix(in srgb, var(--acento, #C2410C) 40%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Bloco de sugestão (retorno de leitura)",
+      "kind": "custom",
+      "refersTo": "aviso",
+      "description": "O retorno da leitura do PDF (role=status). Não é bloco de erro (nada falhou) nem de sucesso (nada foi gravado): é uma PROPOSTA que o humano confere antes de enviar, e por isso não herda .erro nem .resultado. Cada campo reprovado vira um chip de atenção próprio — que é exatamente o que ele é: uma pendência deixada para a pessoa. Fica abaixo da linha de ações do editor.",
+      "html": "<div class=\"ds-editor__acoes\"><button class=\"ds-e-btn\">Preencher a partir do PDF</button><button class=\"ds-e-btn ds-e-btn--primario\">Arquivar certidão</button></div><div class=\"ds-sugestao\" role=\"status\"><p class=\"ds-sug__nota\"><strong>Conferir antes de arquivar</strong> — o que a leitura não garantiu continua por sua conta. Nada foi gravado: quem arquiva a certidão é o botão acima.</p><ul class=\"ds-sug__avisos\"><li><span class=\"ds-aviso2\"><svg class=\"ds-aviso2__ic\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z\"/><path d=\"M12 9.5v4\"/><path d=\"M12 17h.01\"/></svg>Não foi possível ler a data de validade — preencha à mão.</span></li><li><span class=\"ds-aviso2\"><svg class=\"ds-aviso2__ic\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z\"/><path d=\"M12 9.5v4\"/><path d=\"M12 17h.01\"/></svg>O CNPJ do documento não bate com a entidade escolhida.</span></li></ul></div>",
+      "css": ".ds-editor__acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-e-btn { height: 32px; padding: 0 12px; border: 1px solid var(--linha-forte, #d5dae3); border-radius: var(--raio-ctrl, 6px); background: var(--superficie, #fff); color: var(--texto, #101828); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgb(16 24 40 / .06); transition: background .12s ease, border-color .12s ease; } .ds-e-btn:hover { background: var(--hover, #f2f4f7); border-color: var(--linha-hover, #c3cad6); } .ds-e-btn--primario { background: var(--acento, #C2410C); border-color: var(--acento, #C2410C); color: #fff; } .ds-e-btn--primario:hover { background: var(--acento-forte, #9A3412); border-color: var(--acento-forte, #9A3412); } .ds-sugestao { display: grid; gap: 8px; justify-items: start; margin-top: 10px; font-family: \"Hanken Grotesk\", system-ui, sans-serif; } .ds-sug__nota { margin: 0; font-size: 12px; color: var(--texto-2, #5b6474); max-width: 78ch; } .ds-sug__avisos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; justify-items: start; } .ds-aviso2 { display: inline-flex; align-items: flex-start; gap: 6px; max-width: 78ch; padding: 4px 9px; border: 1px solid var(--atencao-linha, #fde68a); border-radius: var(--raio-ctrl, 6px); background: var(--atencao-fundo, #FEF0C7); font-size: 12.5px; color: var(--atencao, #93540A); } .ds-aviso2__ic { width: 15px; height: 15px; flex: none; margin-top: 2px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Vazio instrutivo",
+      "kind": "custom",
+      "refersTo": "vazio",
+      "description": "Nunca uma tela em branco: título mais uma frase que diz o que fazer. A variante curta serve ao vazio que é boa notícia — o painel não gasta meia tela anunciando que não há nada errado. E vazio nunca mente por omissão: quando a leitura falhou, o cartão diz que não conseguiu verificar, nunca que está tudo em dia.",
+      "html": "<div class=\"ds-vazio\"><p class=\"ds-vazio__titulo\">Nenhuma combinação para acompanhar</p><p>Cadastre as entidades do grupo e os tipos de certidão nos cartões abaixo — a matriz é o cruzamento dos dois.</p></div><div class=\"ds-vazio ds-vazio--curto\"><p class=\"ds-vazio__titulo\">Nenhum alerta de calendário</p><p>Vigência, prazo de execução, data-base e medições previstas estão em dia.</p></div>",
+      "css": ".ds-vazio { padding: 32px 20px; text-align: center; color: var(--texto-2, #5b6474); font-family: \"Hanken Grotesk\", system-ui, sans-serif; font-size: 13.5px; line-height: 1.45; background: var(--superficie, #fff); } .ds-vazio--curto { padding: 14px 20px; text-align: left; } .ds-vazio__titulo { color: var(--texto, #101828); font-weight: 600; margin: 0 0 4px; } .ds-vazio p { margin: 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Mesa de Trabalho da Engenharia",
+    "overview": "Um dashboard administrativo canônico, jogado limpo. Nada aqui tenta parecer o assunto que trata: não há carimbo, papel timbrado, textura de processo nem qualquer maquiagem temática de obra pública. O que existe é uma superfície branca, larga, densa e silenciosa onde tabelas financeiras podem ser lidas por uma hora seguida sem cansar — escritório diurno, monitor de mesa, rede interna. O acabamento se mede contra app de banco empresarial com a tensão de produto de Linear/Notion: réguas retas, densidade alta, tipografia pequena mas confortável, zero decoração.\n\nO sistema tem exatamente uma cor com voz. O laranja da Lotufo aparece na logo e num detalhe decorativo; tudo que é interativo usa o mesmo laranja escurecido até passar em contraste. Vermelho, âmbar e verde só existem para dizer o que significam. Todo o resto do desenho — hierarquia, agrupamento, prioridade — é feito com peso, tamanho, linha e distância, nunca com mais cor. É por isso que a tela suporta uma matriz de oito colunas agrupada por entidade sem virar um vitral.\n\nDensidade é uma decisão, não um acidente: linha de tabela de 40px, corpo de 14px, controles de 32px, cartões colados num ritmo de 20px. A tela é feita para mostrar mais linhas, não para respirar mais. O contrapeso da densidade é a disciplina de contraste e de medida: só dois tons de texto legíveis, um único nível de sombra, nenhum cinza fraco fazendo hierarquia, e todo texto de apoio com teto de medida para não correr 170 caracteres numa tela larga.",
+    "keyCharacteristics": [
+      "Modo único claro; sem dark mode nesta fase (color-scheme: light).",
+      "Uma cor de acento (--acento), derivada da marca por contraste, não por gosto.",
+      "Estado nunca é só cor: sempre ponto + rótulo, e o rótulo carrega o TRABALHO ('Vencida em 13/08/2026' e 'Sem cobertura' são o mesmo vermelho, não a mesma frase).",
+      "Densidade de planilha: linha 40px, corpo 14px, tabela 13,5px.",
+      "Um único valor de sombra no arquivo inteiro; profundidade se faz com borda e camada tonal.",
+      "Nenhuma tela declara cor própria — todas consomem tokens.css.",
+      "Fonte servida pelo próprio servidor; nada no HTML aponta para fora.",
+      "Um único momento animado na interface inteira.",
+      "Todo texto de apoio tem teto de medida (78ch); todo dado longo em tabela trunca com reticências de verdade e guarda o inteiro no title."
+    ],
+    "rules": [
+      { "name": "A Regra da Marca Muda", "body": "O laranja puro da marca nunca carrega texto e nunca é fundo de controle. Ele existe na logo e num detalhe decorativo não-textual. Teste: se apagar o laranja puro da folha de estilo, nenhuma palavra da interface fica ilegível.", "section": "colors" },
+      { "name": "A Regra do Acento Derivado", "body": "Tudo que é interativo usa --acento, jamais --marca. Legibilidade vence fidelidade de marca — e a troca é de uma linha: se o laranja for re-amostrado, muda só o token.", "section": "colors" },
+      { "name": "A Regra dos Dois Cinzas", "body": "Só --texto e --texto-2 carregam texto. Um terceiro cinza mais claro reprovaria em contraste; para criar hierarquia use peso e tamanho, nunca um cinza mais fraco.", "section": "colors" },
+      { "name": "A Regra do Significado Exclusivo", "body": "Vermelho, âmbar e verde nunca são decoração. Se um elemento está vermelho, alguma coisa venceu, está sem cobertura ou vai ser destruída.", "section": "colors" },
+      { "name": "A Regra do Chip Âmbar", "body": "Nenhuma semântica ganha fundo sólido no selo: os quatro níveis (neutro, ok, atenção, ação) são chip claro — fundo tênue, borda da própria semântica, texto escuro. A regra nasceu do âmbar, que sólido colidiria com o território laranja do acento, e vale para os quatro por consistência de forma: quando o verde entrou na fase 3, entrou como chip, não como pílula sólida.", "section": "colors" },
+      { "name": "A Regra da Cor Emprestada", "body": "Nenhum .tsx escreve cor literal. Se falta um tom, ele nasce em tokens.css — todas as telas das fases 2 e 3 têm zero style={{}} de cor.", "section": "colors" },
+      { "name": "A Regra do Degrau Existente", "body": "A escala tem nove degraus e eles bastam. Antes de escrever um font-size novo, encontre o degrau cujo TRABALHO é o seu: dado em tabela → 13,5; dentro de um controle → 13; texto de apoio → 12,5; formulário → 12; rótulo em caixa alta → 11,5. Um décimo tamanho não cria hierarquia, só ruído. A fase 3 fechou os dois desvios que a fase 2 tinha registrado (10,5px e 18px): hoje o arquivo não tem nenhum tamanho de uso único fora das exceções nomeadas.", "section": "typography" },
+      { "name": "A Regra do Piso de 11,5px", "body": "Nenhuma superfície de HTML desce abaixo de 11,5px — e agora sem asterisco: o único texto menor no sistema é o rótulo do eixo Y do gráfico (11px), que é SVG desenhado em px reais.", "section": "typography" },
+      { "name": "A Regra da Fonte Local", "body": "A fonte mora no servidor. Nada no HTML ou no CSS pode voltar a apontar para fonts.googleapis.com — numa rede sem saída a fonte simplesmente não chega, e o <link> ainda contaria quem abriu o painel.", "section": "typography" },
+      { "name": "A Regra do Algarismo Tabular", "body": "Toda coluna de dinheiro, todo eixo numérico, toda data em coluna e todo campo numérico levam .num (tabular-nums lining-nums). Sem isso, a coluna alinhada à direita dança a cada centavo — e a coluna de validade dança a cada dia.", "section": "typography" },
+      { "name": "A Regra do Mono Literal", "body": "Monoespaçada só onde o texto é um formato que a pessoa vai digitar exatamente. Nunca como fantasia de 'coisa técnica'.", "section": "typography" },
+      { "name": "A Regra do Peso, Não do Cinza", "body": "Precisa destacar? Suba o peso (600) ou o tamanho. Nunca crie um cinza mais claro.", "section": "typography" },
+      { "name": "A Regra da Medida", "body": "Todo texto de apoio tem teto de medida, senão uma nota de 12px corre ~170 caracteres numa tela de 1440. O teto da casa é 78ch (.campo__nota, .saldo__nota, .aviso); o objeto do contrato, que é prosa longa dentro de uma faixa, usa 72ch. Texto de apoio novo herda 78ch em vez de inventar um teto próprio.", "section": "typography" },
+      { "name": "A Regra da Linha de 40px", "body": "Uma linha de tabela vale uma linha de altura. Nada dentro dela quebra em duas: nome longo trunca em 34ch (.truncar), dado de identificação curto trunca em 12ch (.truncar--curto), e os dois guardam o texto inteiro no title; protocolo, CNPJ e ações não quebram linha.", "section": "layout" },
+      { "name": "A Regra da Rolagem Interna", "body": "Conteúdo largo demais rola na própria caixa (.tabela-wrap, .grafico), nunca na página — e position: relative no wrapper é parte da regra, não enfeite. Sem ele o bloco continente dos descendentes position: absolute (os span.sr-only dentro das células) é o documento: um sr-only lá pelo meio de uma tabela de 1463px estica a rolagem do documento mesmo com a tabela recortada dentro do cartão — medido em Chrome, scrollWidth 678 num viewport de 375 na tela de Certidões. Rolagem interna só é interna se o que está posicionado dentro dela também for. Toda tabela mora dentro de um .tabela-wrap, inclusive as tabelas pequenas de cadastro.", "section": "layout" },
+      { "name": "A Regra do SVG em Tamanho Natural", "body": "O gráfico é desenhado em px reais e rola na horizontal se passar da largura do cartão. Esticar por width: 100% levaria o texto do eixo junto, e os 11px legíveis virariam 4px ou 30px conforme o número de meses.", "section": "layout" },
+      { "name": "A Regra da Coluna Larga Demais", "body": "Antes de ancorar uma coluna, faça a tabela caber: dado repetido em toda linha vira cabeçalho de grupo, dado de identificação vira truncamento curto, rótulo comprido vira texto curto. A matriz de certidões saiu de 10 colunas (~1325px, com VALIDADE escondida) para 8 colunas que cabem em 1440. A ancoragem é rede de segurança, não solução de largura.", "section": "layout" },
+      { "name": "A Regra do Nível Único", "body": "Um valor de sombra no sistema inteiro. Se algo precisa se destacar, ele ganha borda, camada tonal ou o fundo do acento — não uma sombra maior. box-shadow: inset para pintar uma borda que o navegador se recusa a pintar não conta como segundo nível, e o comentário no CSS tem de dizer isso.", "section": "elevation" },
+      { "name": "A Regra do Momento Animado Único", "body": "A interface tem um só momento animado: o painel que se abre sob a linha da tabela (abrir-painel, 140ms, cubic-bezier(.16, 1, .3, 1), opacidade + 3px). Fora dele, só transições de cor de 120ms em hover de botão, borda de campo e fundo de linha. Sob prefers-reduced-motion, a animação some e toda transição cai para 0,01ms.", "section": "elevation" },
+      { "name": "A Regra da Borda Antes da Sombra", "body": "Separação se faz com uma linha de 1px. A sombra existe para dizer 'isto é uma superfície', não para hierarquizar.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do consumir tokens.css para toda cor, raio, sombra e medida. Se faltar um tom, ele nasce lá — nunca no .tsx.",
+      "Do usar --acento para tudo que é interativo e reservar --marca para a logo e o detalhe decorativo não-textual.",
+      "Do marcar dinheiro, data e número com .num e alinhar à direita com .col-num.",
+      "Do dizer estado com forma + rótulo (ponto + texto, ou selo que carrega o tipo). A cor é reforço, nunca o recado — e o rótulo diz o TRABALHO, não só a gravidade.",
+      "Do pôr a explicação longa de um chip como sr-only dentro dele, com o title na célula. Tooltip não existe para teclado nem para leitor de tela.",
+      "Do envolver toda tabela num .tabela-wrap (com position: relative), inclusive as pequenas de cadastro.",
+      "Do fazer a tabela caber antes de ancorar coluna: cabeçalho de grupo (tr.grupo > th[scope=rowgroup], um <tbody> por entidade) elimina o dado que se repete em toda linha.",
+      "Do truncar com .truncar (34ch) ou .truncar--curto (12ch) e guardar o texto inteiro no title.",
+      "Do dar teto de medida (78ch) a todo texto de apoio novo.",
+      "Do abrir formulário inline ou painel sob a linha para pedir dado. Toda entrada tem rótulo, foco, Escape e cancelamento de verdade.",
+      "Do limitar lista longa a ~5 itens visíveis com 'Mostrar os outros N' — nunca esconder de vez.",
+      "Do escrever vazio instrutivo, e distinguir 'verificamos, está tudo em dia' de 'não conseguimos verificar'.",
+      "Do desenhar ícone novo em icones.tsx, na mesma grade 24 e traço 1,6."
+    ],
+    "donts": [
+      "Don't usar --marca (#FF6500) atrás de texto ou como fundo de controle — ele faz 2,96:1 sobre branco.",
+      "Don't inventar um terceiro cinza de texto para hierarquia. Suba o peso ou o tamanho. --texto-fraco só serve para desabilitado e traço de riscado.",
+      "Don't usar vermelho, âmbar ou verde fora do significado, nem dar fundo sólido a um selo semântico — os quatro níveis são chip claro.",
+      "Don't declarar text-overflow: ellipsis num contêiner inline-flex: o rótulo precisa de um filho de bloco com min-width: 0 (.selo__texto).",
+      "Don't deixar um .tabela-wrap estático: um sr-only absoluto lá dentro estica a rolagem do documento inteiro.",
+      "Don't ancorar uma coluna para resolver excesso de largura — resolva a largura; a âncora é rede de segurança.",
+      "Don't chamar prompt(), alert() ou confirm().",
+      "Don't usar emoji ou glifo unicode fazendo as vezes de ícone.",
+      "Don't acrescentar um segundo valor de sombra, nem sombra para hierarquizar.",
+      "Don't zebrar com :nth-child — as linhas de painel expandido entram no meio do tbody e embaralham a contagem. Use .par.",
+      "Don't desenhar barra de altura zero num gráfico: competência sem lançamento é talo no zero.",
+      "Don't esticar o SVG do gráfico com width: 100% — o texto do eixo vai junto e perde a legibilidade.",
+      "Don't apontar fonte, CSS ou script para fora da rede interna.",
+      "Don't introduzir dark mode nesta fase: o sistema declara color-scheme: light."
+    ],
+    "pendingSurfaces": "Contratos.tsx (13 style={{}} inline com #ddd, crimson, 2px solid #333, e tabela montada à mão sem .tabela), Admin.tsx (4) e Login.tsx (2) — fase 1, ainda não passadas por este mundo visual. São dívida conhecida, não regra de design; Contratos é a única tela que ainda aparece no censo de rolagem horizontal das capturas de revisão. O frontend/src/index.css da fase 1 também é resto: tokens.css é importado depois, de propósito, para vencê-lo.",
+    "notCanonized": [
+      { "item": "Cabeçalho AÇÕES desalinhado na matriz de certidões", "leitura": "O th leva .col-num, mas .tabela thead th vence em especificidade e o rótulo fica à esquerda enquanto as células vão à direita (~200px de vão em 1440). Defeito de alinhamento, não estilo da casa.", "encaminhamento": "Um seletor (.tabela thead th.col-num). Parado para T11." },
+      { "item": "Fio da coluna ancorada interrompido em tr.grupo", "leitura": "Com a matriz rolando, o box-shadow: inset da coluna fixa não é pintado na linha de cabeçalho de grupo (th com colSpan, sem célula ancorada).", "encaminhamento": "Cosmético, e só num estado que a matriz normalmente não alcança." },
+      { "item": "border-left: 0 no bloco de 900px", "leitura": "A borda daquela coluna nunca foi border-left — é box-shadow: inset aplicado pela classe --rola. A declaração não faz mal e não faz nada.", "encaminhamento": "Linha morta a remover; não é padrão a imitar." },
+      { "item": "Selo cortado em 375 sem sinal de rolagem", "leitura": "Na matriz em telas estreitas o chip de SITUAÇÃO trunca no meio da palavra ('Sem', 'Venc') e nada indica que há mais tabela à direita — a classe --rola só pinta na coluna ancorada, que em 375 é static.", "encaminhamento": "Herdado. É a única forma em que o sistema hoje admite um estado chegando perto de cor pura." },
+      { "item": "ignoreValues de raio 2px em .impeccable/config.json", "leitura": "Silenciamento de detector para a barra da nav, que já é exceção nomeada no DESIGN.md.", "encaminhamento": "Não é licença para um quinto raio." }
+    ],
+    "normalizadoNaFase3": [
+      { "valor": "font-size: 10.5px", "onde": ".nav__tag", "desfecho": "Removido. Era CSS morto e o único texto abaixo do piso de 11,5px. Se a tag voltar, nasce no degrau Label." },
+      { "valor": "font-size: 18px", "onde": ".resumo__valor strong", "desfecho": "Colapsado em 15px (degrau Número): o valor vigente é uma grandeza entre outras; Display fica com o total do saldo, que mora na mesma página." },
+      { "valor": "border-radius: 3px", "onde": ".legenda__chave", "desfecho": "Normalizado para 4px (degrau Micro)." },
+      { "valor": "box-shadow: 0 1px 2px rgb(16 24 40 / .05)", "onde": "button, .btn", "desfecho": "Colapsado em var(--sombra). Era um segundo nível de sombra escondido no arquivo." }
+    ],
+    "namedExceptions": [
+      { "valor": "font-size: 11px", "onde": ".g-eixo", "justificativa": "Rótulo do eixo Y do gráfico: texto SVG em px reais, que precisa caber entre linhas de grade sem esticar o cartão. O eixo X sobe para 11,5px porque tem espaço horizontal." },
+      { "valor": "border-radius: 0 2px 2px 0", "onde": ".nav__item[aria-current=page]::before", "justificativa": "Barra de 3px × 20px do item ativo, encostada na borda do sidebar: só os cantos da direita arredondam, e 2px é o teto real — num elemento de 3px de largura, 4px passaria de metade e viraria cápsula." }
+    ]
+  }
+}

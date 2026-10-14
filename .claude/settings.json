@@ -1,0 +1,190 @@
+{
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest *)",
+      "Bash(pytest *)",
+      "Bash(.venv/Scripts/python -m pytest *)",
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(backend/.venv/Scripts/python -m pytest *)",
+      "Bash(backend/.venv/Scripts/python.exe -m pytest *)",
+      "Bash(npm test *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run build *)",
+      "Bash(npx tsc *)",
+      "Bash(npx oxlint *)",
+      "Bash(ruff *)",
+      "Bash(python -m ruff *)",
+      "Bash(.venv/Scripts/ruff *)",
+      "Bash(backend/.venv/Scripts/ruff *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git worktree *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)",
+      "Bash(gh run *)",
+      "Bash(gh api *)",
+      "Bash(git pull --ff-only*)",
+      "Bash(git rev-parse *)",
+      "Bash(gh label *)",
+      "Bash(codex exec *)",
+      "PowerShell(cmd /c rmdir *)",
+      "PowerShell(powershell.exe -NoProfile -ExecutionPolicy Bypass -File *preparar-worktree.ps1*)",
+      "PowerShell(python -m pytest *)",
+      "PowerShell(pytest *)",
+      "PowerShell(.venv/Scripts/python -m pytest *)",
+      "PowerShell(.venv/Scripts/python.exe -m pytest *)",
+      "PowerShell(backend/.venv/Scripts/python -m pytest *)",
+      "PowerShell(backend/.venv/Scripts/python.exe -m pytest *)",
+      "PowerShell(npm test *)",
+      "PowerShell(npm run lint *)",
+      "PowerShell(npm run typecheck *)",
+      "PowerShell(npm run build *)",
+      "PowerShell(npx tsc *)",
+      "PowerShell(npx oxlint *)",
+      "PowerShell(ruff *)",
+      "PowerShell(python -m ruff *)",
+      "PowerShell(.venv/Scripts/ruff *)",
+      "PowerShell(backend/.venv/Scripts/ruff *)",
+      "PowerShell(git status *)",
+      "PowerShell(git diff *)",
+      "PowerShell(git log *)",
+      "PowerShell(git branch *)",
+      "PowerShell(git add *)",
+      "PowerShell(git commit *)",
+      "PowerShell(git push *)",
+      "PowerShell(git fetch *)",
+      "PowerShell(git checkout *)",
+      "PowerShell(git switch *)",
+      "PowerShell(git worktree *)",
+      "PowerShell(gh pr *)",
+      "PowerShell(gh issue *)",
+      "PowerShell(gh run *)",
+      "PowerShell(gh api *)",
+      "PowerShell(.\\.venv\\Scripts\\python -m pytest *)",
+      "PowerShell(.\\.venv\\Scripts\\python.exe -m pytest *)",
+      "PowerShell(.\\backend\\.venv\\Scripts\\python -m pytest *)",
+      "PowerShell(.\\backend\\.venv\\Scripts\\python.exe -m pytest *)",
+      "PowerShell(.\\.venv\\Scripts\\ruff *)",
+      "PowerShell(.\\backend\\.venv\\Scripts\\ruff *)"
+    ],
+    "ask": [
+      "Bash(git checkout -- *)",
+      "Bash(git checkout .)",
+      "Bash(git checkout -f *)",
+      "Bash(git switch --discard-changes *)",
+      "Bash(git switch -f *)",
+      "Bash(git branch -D *)",
+      "Bash(git worktree remove --force *)",
+      "Bash(gh api *-X*)",
+      "Bash(gh api *--method*)",
+      "Bash(gh api * -f *)",
+      "Bash(gh api * -F *)",
+      "Bash(gh api *--field*)",
+      "Bash(gh api *--raw-field*)",
+      "Bash(gh api *--input*)",
+      "PowerShell(git checkout -- *)",
+      "PowerShell(git checkout .)",
+      "PowerShell(git checkout -f *)",
+      "PowerShell(git switch --discard-changes *)",
+      "PowerShell(git switch -f *)",
+      "PowerShell(git branch -D *)",
+      "PowerShell(git worktree remove --force *)",
+      "PowerShell(gh api *-X*)",
+      "PowerShell(gh api *--method*)",
+      "PowerShell(gh api * -f *)",
+      "PowerShell(gh api * -F *)",
+      "PowerShell(gh api *--field*)",
+      "PowerShell(gh api *--raw-field*)",
+      "PowerShell(gh api *--input*)",
+      "Bash(gh pr close *)",
+      "Bash(gh issue delete *)",
+      "Bash(gh api -f *)",
+      "Bash(gh api -F *)",
+      "Bash(git checkout --force *)",
+      "Bash(git checkout * -- *)",
+      "Bash(git branch -f *)",
+      "Bash(git branch --force *)",
+      "Bash(git branch --delete --force *)",
+      "PowerShell(gh pr close *)",
+      "PowerShell(gh issue delete *)",
+      "PowerShell(gh api -f *)",
+      "PowerShell(gh api -F *)",
+      "PowerShell(git checkout --force *)",
+      "PowerShell(git checkout * -- *)",
+      "PowerShell(git branch -f *)",
+      "PowerShell(git branch --force *)",
+      "PowerShell(git branch --delete --force *)"
+    ],
+    "deny": [
+      "Bash(git push *--force*)",
+      "Bash(git push -f *)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)",
+      "Bash(git push * +*)",
+      "PowerShell(git push *--force*)",
+      "PowerShell(git push -f *)",
+      "PowerShell(git push * -f)",
+      "PowerShell(git push * -f *)",
+      "PowerShell(git push * +*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/formatar.ps1\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/preparar-worktree.ps1\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/preparar-worktree.ps1\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/desfazer-juncoes.ps1\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

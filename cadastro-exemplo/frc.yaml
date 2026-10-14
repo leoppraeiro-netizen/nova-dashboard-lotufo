@@ -1,0 +1,33 @@
+# FRC (Fatura de Recebimento de Consórcio) do Consórcio Exemplo, formulário A. Fictícia: prestador, tomador,
+# e-mails e CNPJs não existem. O cadastro real tem o mesmo formato, um bloco por consórcio.
+# ultimo_anterior: número da FRC mais recente feita fora do sistema; a dashboard continua dali.
+consorcio-exemplo:
+  formulario: A
+  ultimo_anterior: 40
+  logo: modelos/frc/consorcio-exemplo.jpg
+  rotulo_empresa: RAZÃO SOCIAL
+  prestador:
+    razao_social: CONSÓRCIO EXEMPLO
+    endereco: RUA DE EXEMPLO, 100, SALA 1, BAIRRO EXEMPLO,
+    municipio: CUIABÁ - MT / BRASIL
+    cep: 00000-000
+    cnpj: 31.200.303/0001-81
+    inscricao_municipal: '123456'
+    telefone: (00) 0000-0000
+    email: contato@exemplo.com.br
+  tomador:
+    razao_social: SECRETARIA DE EXEMPLO
+    endereco: AV. DE EXEMPLO
+    municipio: CUIABÁ - MT / BRASIL
+    cep: 00000-001
+    cnpj: 31.300.101/0001-01
+    inscricao_municipal: '654321'
+    telefone: (00) 0000-0001
+    email: fiscal@exemplo.gov.br
+  # Placeholders: {n} (número da medição), {inicio} e {fim} (período, dd/mm/aaaa).
+  descricao:
+    execucao: '{n}ª MEDIÇÃO DE CONTRATO - PERÍODO DE {inicio} A {fim} - OBRAS DE EXEMPLO, CONFORME IC 002/2025.'
+    reajuste: 'REAJUSTE DA {n}ª MEDIÇÃO DE CONTRATO - PERÍODO DE {inicio} A {fim} - OBRAS DE EXEMPLO.'
+  consorciadas:
+    - {chave: lotufo, cnpj: 31.200.101/0001-30, razao_social: CONSTRUTORA EXEMPLO LTDA}
+    - {chave: beta, cnpj: 31.200.202/0001-00, razao_social: ENGENHARIA BETA S.A.}

@@ -1,0 +1,225 @@
+import { useCallback, useEffect, useState } from "react";
+import { api, ApiErro } from "./api";
+import { CartaoPleito, NovoPleito, type Pleito } from "./FluxoOficio";
+import { IconeAlerta } from "./icones";
+import { focarPorId } from "./foco";
+import { reajustePorDataBase, type CicloApi, type InstrumentoCadastro } from "./obra";
+import { Link } from "./rota";
+import { fmtCompetencia as mesAno, fmtDataPura } from "./tempo";
+import { fmtPercentual } from "./formato";
+import Selo from "./Selo";
+import { LinhaPleito, partesDoEnvio, pleitoEmLinha, type DesfechoPleito } from "./Prazos";
+
+// Aba Reajuste da obra (bloco 7; spec §7.2; NAVEGACAO.md › Obra): um grupo por data-base, com ancora
+// (`#db-2023-01`): o cartao do ciclo corrente (situacao, pleito e apostilamento), os oficios do ciclo e os
+// ciclos passados recolhidos. Com mais de uma data-base, um indice no topo leva a cada uma. O calendario mora
+// em `app/reajuste.py`; a tela so' desenha.
+
+type Ciclo = CicloApi & { situacao: "futuro" | "pleito_pendente" | "apostilamento_pendente" | "apostilado" };
+
+// Pleito nao enviado e' a vez da engenharia: nivel "Acao" do D2 (ambar com contorno cheio), o
+// mesmo com que o fato aparece nos avisos. Vermelho fica para o critico.
+const SITUACAO: Record<Ciclo["situacao"], { rotulo: string; classe: string; forte?: boolean }> = {
+  futuro: { rotulo: "ainda não abriu", classe: "" },
+  pleito_pendente: { rotulo: "pleito não enviado", classe: "selo--atencao", forte: true },
+  apostilamento_pendente: { rotulo: "apostilamento pendente", classe: "selo--atencao" },
+  apostilado: { rotulo: "apostilado", classe: "selo--ok" },
+};
+
+// espaco nao separavel: "3 dias" nao quebra no meio da linha do ciclo
+function dias(n: number): string {
+  return `${n}\u00a0${n === 1 ? "dia" : "dias"}`;
+}
+
+/** A linha do ciclo: o ano, o aniversario e, com os dias do servidor, ha quanto tempo ou em quanto tempo. */
+function linhaDoCiclo(c: Ciclo): string {
+  const aniv = fmtDataPura(c.aniversario);
+  const quando = c.dias === null ? `aniversário em ${aniv}`
+    : c.situacao === "apostilamento_pendente" ? `aniversário em ${aniv} · pleito enviado há ${dias(c.dias)}`
+    : c.dias >= 0 ? `faz aniversário em ${aniv} (faltam ${dias(c.dias)})`
+    : `fez aniversário em ${aniv} (há ${dias(-c.dias)})`;
+  return `Ciclo de ${c.ciclo} · ${quando}`;
+}
+
+function textoApostilamento(i: InstrumentoCadastro): string {
+  const pct = i.dados.percentual;
+  const eficacia = typeof i.dados.eficacia === "string" ? i.dados.eficacia : null;
+  return [`${i.numero ?? "s/n"}, de ${fmtDataPura(i.data)}`,
+          pct !== undefined && pct !== null ? fmtPercentual(Number(pct) / 100) : "",
+          eficacia ? `eficácia ${fmtDataPura(eficacia.slice(0, 10))}` : ""].filter(Boolean).join(" · ");
+}
+
+/** O desfecho de um pleito enviado (F-71): com o ciclo corrente, o selo diz se o apostilamento veio (Em dia) ou
+ *  se falta (Atencao, com os dias que o servidor conta); a data do envio e' texto de apoio. Sem o ciclo (ciclo
+ *  anterior, data-base que saiu do cadastro), o dado nao diz o desfecho: selo neutro. */
+function desfechoDoPleito(p: Pleito, c?: Ciclo): DesfechoPleito {
+  const envio = partesDoEnvio(p);
+  const neutro = { classe: "", texto: p.situacao, partes: envio };
+  if (!c || p.situacao !== "enviado") return neutro;
+  if (c.situacao === "apostilamento_pendente") {
+    return { classe: "selo--atencao", partes: envio,
+      texto: c.dias !== null && c.dias >= 0 ? `sem apostilamento há ${dias(c.dias)}` : "sem apostilamento ainda" };
+  }
+  if (c.situacao === "apostilado" && c.apostilamento) {
+    return { classe: "selo--ok", texto: `atendido pelo apostilamento ${c.apostilamento.numero ?? "s/n"}`,
+      partes: [...envio, `apostilamento de ${fmtDataPura(c.apostilamento.data)}`] };
+  }
+  return neutro;
+}
+
+// pleito que ainda se trabalha: feito no sistema, nem enviado nem descartado (o mesmo corte do CartaoPleito)
+const emAberto = (p: Pleito) => p.origem === "sistema" && p.situacao !== "enviado" && p.situacao !== "descartado";
+
+export default function Reajuste({ contratoId, podeEditar }: { contratoId: number; podeEditar: boolean }) {
+  const [dados, setDados] = useState<{ ciclos: Ciclo[]; pleitos: Pleito[] } | null>(null);
+  const [apostilamentos, setApostilamentos] = useState<InstrumentoCadastro[]>([]);
+  const [erro, setErro] = useState("");
+  const [novo, setNovo] = useState<string | null>(null);            // data-base do pleito sendo criado
+  // para onde o foco vai quando o formulario fecha: o botao que o abriu (cancelar) ou o pleito criado
+  const [foco, setFoco] = useState<string | null>(null);
+
+  const carregar = useCallback(async () => {
+    try {
+      setDados(await api(`/api/contratos/${contratoId}/reajuste`));
+      const cad = await api<{ instrumentos: InstrumentoCadastro[] }>(`/api/contratos/${contratoId}/cadastro`);
+      setApostilamentos(cad.instrumentos.filter(i => i.tipo === "apostilamento_reajuste"));
+    } catch (e) { setErro(e instanceof ApiErro ? e.message : String(e)); }
+  }, [contratoId]);
+  useEffect(() => { void carregar(); }, [carregar]);
+  // o pleito criado so' existe depois que a lista recarrega: tenta de novo a cada leitura
+  useEffect(() => { if (foco && focarPorId(foco)) setFoco(null); }, [foco, dados]);
+
+  if (erro) return <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erro}</p>;
+  if (!dados) return <section className="cartao"><div className="vazio"><p>Carregando…</p></div></section>;
+  if (dados.ciclos.length === 0 && dados.pleitos.length === 0 && apostilamentos.length === 0) {
+    return <section className="cartao"><div className="vazio vazio--curto"><p>Sem data-base no cadastro, ou contrato sem reajuste.</p></div></section>;
+  }
+  const { dataBases, semDataBase, outrosPleitos } = reajustePorDataBase(dados.ciclos, dados.pleitos, apostilamentos);
+  const aqui = { tela: "obra" as const, id: contratoId, aba: "reajuste" as const };
+  const contrato = { tela: "obra" as const, id: contratoId, aba: "contrato" as const };
+  // cada pleito e' uma secao do cartao pai (F-74): o enviado vira linha com o desfecho no selo; o que ainda se
+  // trabalha segue no CartaoPleito, que traz o formulario
+  const cartoes = (ps: Pleito[], ciclo?: Ciclo) => ps.map(p => {
+    const contexto = p.ciclo ? `ciclo de ${p.ciclo}` : undefined;
+    return pleitoEmLinha(p)
+      ? <LinhaPleito key={p.id} p={p} desfecho={desfechoDoPleito(p, ciclo)} contexto={contexto} />
+      : <CartaoPleito key={p.id} p={p} podeEditar={podeEditar} aoMudar={() => void carregar()} contexto={contexto} />;
+  });
+  const nota = "O reajuste vale a partir do mês do aniversário da data-base; o aviso começa 30 dias antes.";
+
+  return (
+    <div className="pilha">
+      {/* com mais de uma data-base, o indice leva a cada uma sem rolar a aba inteira */}
+      {dataBases.length > 1 ? (
+        <section className="cartao" aria-labelledby="titulo-databases">
+          <div className="cartao__cabeca">
+            <h2 className="cartao__titulo" id="titulo-databases">Data-bases</h2>
+            <span className="cartao__dica">{nota}</span>
+          </div>
+          <ul className="lista-simples cartao__corpo indice-db">
+            {dataBases.map(db => {
+              const s = SITUACAO[db.atual.situacao] ?? { rotulo: db.atual.situacao, classe: "" };
+              return (
+                <li key={db.data_base_mes}>
+                  <Link para={aqui} secao={`db-${db.data_base_mes}`}>{mesAno(db.data_base_mes)}{db.atual.indice ? ` · ${db.atual.indice}` : ""}</Link>
+                  <Selo classe={s.classe} forte={s.forte}>{s.rotulo}</Selo>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : <p className="campo__nota">{nota}</p>}
+
+      {dataBases.map(db => {
+        const c = db.atual;
+        const s = SITUACAO[c.situacao] ?? { rotulo: c.situacao, classe: "" };
+        const titulo = `titulo-db-${db.data_base_mes}`;
+        const outrosAp = db.apostilamentos.filter(i => i.id !== c.apostilamento?.id);
+        const anteriores = db.pleitosAnteriores.length + outrosAp.length;
+        const aberto = db.pleitosDoCiclo.find(emAberto);
+        return (
+          // o cartao e' a data-base: o ciclo, e embaixo, como secoes, os oficios dele e os ciclos anteriores; o
+          // aviso de reajuste cai na ancora dele
+          <section className="cartao" id={`db-${db.data_base_mes}`} key={db.data_base_mes} aria-labelledby={titulo}>
+            <div className="cartao__cabeca">
+              <h2 className="cartao__titulo" id={titulo}>Data-base {mesAno(db.data_base_mes)}{c.indice ? ` · ${c.indice}` : ""}</h2>
+              <Selo classe={s.classe} forte={s.forte}>{s.rotulo}</Selo>
+              {/* com um pleito em aberto no ciclo, o caminho e' continuar nele, nao abrir outro oficio */}
+              {podeEditar && aberto && (
+                <div className="cartao__acoes">
+                  <Link className="btn btn--pequeno" para={aqui} secao={`oficio-${aberto.id}`}>
+                    Continuar o pleito{aberto.numero_oficio ? ` ${aberto.numero_oficio}` : ""}
+                  </Link>
+                </div>
+              )}
+              {podeEditar && !aberto && c.situacao !== "futuro" && c.situacao !== "apostilado" && novo !== db.data_base_mes && (
+                <div className="cartao__acoes">
+                  <button type="button" className="btn btn--pequeno" id={`enviar-pleito-${db.data_base_mes}`} onClick={() => setNovo(db.data_base_mes)}>
+                    {c.situacao === "pleito_pendente" ? "Enviar pleito" : "Reenviar pleito"}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="cartao__corpo linhas">
+              <p className="num">{linhaDoCiclo(c)}</p>
+              {c.apostilamento && (
+                <p><span className="resumo__rotulo">Apostilamento</span>{" "}{textoApostilamento(c.apostilamento)}
+                  {" · "}<Link para={contrato} secao="instrumentos">ver em Contrato › Instrumentos</Link></p>
+              )}
+              {c.situacao === "apostilamento_pendente" && <p className="campo__nota">Pleito enviado; falta o apostilamento, que entra pelo cadastro.</p>}
+            </div>
+            {(novo === db.data_base_mes || db.pleitosDoCiclo.length > 0 || anteriores > 0) && (
+              <div className="secoes-pleito">
+                {novo === db.data_base_mes && (
+                  <section className="cartao" aria-labelledby={`titulo-novo-${db.data_base_mes}`}>
+                    <div className="cartao__cabeca">
+                      <h3 className="cartao__titulo" id={`titulo-novo-${db.data_base_mes}`}>Novo pleito da data-base {mesAno(db.data_base_mes)}</h3>
+                    </div>
+                    <NovoPleito contratoId={contratoId} tipo="reajuste" dataBase={db.data_base_mes}
+                      aoCriar={p => { setNovo(null); setFoco(`oficio-${p.id}`); void carregar(); }}
+                      aoCancelar={() => { setNovo(null); setFoco(`enviar-pleito-${db.data_base_mes}`); }} />
+                  </section>
+                )}
+                {cartoes(db.pleitosDoCiclo, c)}
+                {anteriores > 0 && (
+                  <details className="detalhes pleito-anteriores">
+                    <summary>Ciclos anteriores: {[
+                      db.pleitosAnteriores.length ? `${db.pleitosAnteriores.length} ${db.pleitosAnteriores.length === 1 ? "pleito" : "pleitos"}` : "",
+                      outrosAp.length ? `${outrosAp.length} ${outrosAp.length === 1 ? "apostilamento" : "apostilamentos"}` : ""].filter(Boolean).join(" e ")}</summary>
+                    <div className="secoes-pleito">
+                      {outrosAp.length > 0 && (
+                        <section className="cartao__corpo" aria-label={`Apostilamentos anteriores da data-base ${mesAno(db.data_base_mes)}`}>
+                          <ul className="lista-simples">{outrosAp.map(i => <li key={i.id} className="num">{textoApostilamento(i)}</li>)}</ul>
+                        </section>
+                      )}
+                      {cartoes(db.pleitosAnteriores)}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      {semDataBase.length > 0 && (
+        <section className="cartao" aria-labelledby="titulo-apostilamentos-sem-base">
+          <div className="cartao__cabeca">
+            <h2 className="cartao__titulo" id="titulo-apostilamentos-sem-base">Apostilamentos sem data-base no cadastro</h2>
+            <span className="cartao__dica">Aparecem na data-base deles quando o cadastro trouxer a data-base.</span>
+          </div>
+          <ul className="lista-simples cartao__corpo">{semDataBase.map(i => <li key={i.id} className="num">{textoApostilamento(i)}</li>)}</ul>
+        </section>
+      )}
+
+      {outrosPleitos.length > 0 && (
+        <section className="cartao" aria-labelledby="titulo-outros-pleitos">
+          <div className="cartao__cabeca">
+            <h2 className="cartao__titulo" id="titulo-outros-pleitos">Pleitos de data-base que o cadastro não tem mais</h2>
+          </div>
+          <div className="secoes-pleito">{cartoes(outrosPleitos)}</div>
+        </section>
+      )}
+    </div>
+  );
+}

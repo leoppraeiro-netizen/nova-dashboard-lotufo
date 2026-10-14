@@ -1,0 +1,43 @@
+# Excecoes de scripts/vazamento.py (issue #106). Uma entrada por linha; `#` comenta.
+#
+# Ficticios de proposito: CNPJ/CPF com digito valido (so' digitos contam, a formatacao e' livre), chave de acesso
+# de NFS-e/NF-e (44 ou 50 digitos) e e-mails de teste. Dado real NUNCA entra aqui, nem disfarçado (hash).
+# CNPJ em claro so' com raiz ficticia (31.2xx ou 31.3xx); os tres CNPJs de exemplo de geradores publicos ja' estao
+# no script. Mudar este arquivo exige merge do Leo: o job `vazamento` falha na PR que o altera.
+
+
+# --- ficticios: CNPJs de backend/tests/ficticios.py, fixtures e cadastro-exemplo/ ---
+31.200.101/0001-30
+31.200.202/0001-00
+31.200.303/0001-81
+31.200.404/0001-52
+31.200.505/0001-23
+31.200.606/0001-02
+31.200.707/0001-75
+31.200.808/0001-46
+31.200.909/0001-17
+31.201.010/0001-19
+31.201.111/0001-90
+31.300.101/0001-01
+31.300.202/0001-82
+31.300.303/0001-53
+31.300.404/0001-24
+
+# Numero de certidao de divida ativa que, por acaso, tem digito de CPF valido (estadual-beta-cpd.txt)
+20269900004
+
+# --- chaves de acesso de NFS-e ficticias (fixtures de backend/tests/ e exemplo do plano do bloco 3) ---
+51034031200000000000100000000000227426081787324824
+51034031231200101000130000000000310126064979606599
+51034031231200101000130000000000310226073518111234
+51034031231200101000130000000000310326082619988088
+51034031231200101000130000000000310426085703101598
+51034031231200101000130000000000310526084934182525
+51034031231200101000130000000000310626096669060361
+51034031231200101000130000000000310726088651522124
+51079581231200202000100002026000081226067940387245
+51079581231200202000100002026000091326104415493428
+
+# --- e-mails ficticios de teste ---
+bruna@orgao.gov.br
+x@orgao.gov.br

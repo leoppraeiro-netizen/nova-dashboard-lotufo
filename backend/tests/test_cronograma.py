@@ -1,0 +1,196 @@
+import pytest
+from app import auditoria, auth, contratos, cronograma, db
+
+@pytest.fixture
+def conn(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    c = db.get_conn(); db.migrate(c)
+    auth.criar_usuario(c, "U", "u@l.com", "senha-forte-123", "engenharia")
+    yield c
+    c.close()
+
+@pytest.fixture
+def cid(conn):
+    return contratos.criar(conn, 1, {"orgao": "SINFRA", "numero_instrumento": "IC 1",
+                                     "objeto": "X", "valor_original_centavos": 100_00})
+
+def test_versao_e_vigente(conn, cid):
+    v1 = cronograma.nova_versao(conn, 1, cid, [("2026-09", 10_00), ("2026-10", 20_00)], "manual")
+    assert cronograma.vigente(conn, cid)["numero"] == 1
+    cronograma.nova_versao(conn, 1, cid, [("2026-09", 15_00), ("2026-10", 25_00)], "manual")
+    vig = cronograma.vigente(conn, cid)
+    assert vig["numero"] == 2
+    assert vig["itens"][0]["valor_previsto_centavos"] == 15_00
+    assert v1 == 1 or v1 > 0  # id retornado
+
+def test_competencia_duplicada_na_versao(conn, cid):
+    with pytest.raises(ValueError, match="duplicada"):
+        cronograma.nova_versao(conn, 1, cid, [("2026-09", 1), ("2026-09", 2)], "manual")
+
+def test_previsto_efetivo_congela_passado(conn, cid):
+    # v1 criada "agora"; efetivo de competencias futuras segue a versao vigente,
+    # mas uma competencia ANTERIOR ao mes de criacao da v2 mantem o valor da v1.
+    cronograma.nova_versao(conn, 1, cid, [("2020-01", 10_00), ("2099-01", 20_00)], "manual")
+    cronograma.nova_versao(conn, 1, cid, [("2020-01", 99_00), ("2099-01", 30_00)], "manual")
+    ef = cronograma.previsto_efetivo(conn, cid)
+    assert ef["2020-01"] == 10_00   # passado congelado (2020-01 < mes de criacao da v2)
+    assert ef["2099-01"] == 30_00   # futuro pela vigente
+
+def test_sem_cronograma(conn, cid):
+    assert cronograma.vigente(conn, cid) is None
+    assert cronograma.previsto_efetivo(conn, cid) == {}
+
+
+# --- guardas adicionais ---
+
+def test_versao_vazia_rejeita(conn, cid):
+    """Versao sem item nenhum nao e' cronograma: viraria uma versao vigente que
+    apaga o futuro inteiro em previsto_efetivo sem substituir por nada."""
+    with pytest.raises(ValueError, match="vazi"):
+        cronograma.nova_versao(conn, 1, cid, [], "manual")
+
+def test_competencia_nova_em_versao_posterior_e_semeada(conn, cid):
+    """Competencia PASSADA que nunca teve valor entra pela versao que a introduziu.
+
+    Sem a excecao `comp not in efetivo`, um cronograma cadastrado hoje para uma obra
+    ja em andamento perderia todos os meses ja decorridos (previsto = 0 no painel)."""
+    cronograma.nova_versao(conn, 1, cid, [("2099-01", 10_00)], "manual")
+    cronograma.nova_versao(conn, 1, cid, [("2020-05", 77_00), ("2099-01", 11_00)], "manual")
+    ef = cronograma.previsto_efetivo(conn, cid)
+    assert ef == {"2020-05": 77_00, "2099-01": 11_00}
+
+def test_congelamento_com_datas_explicitas(conn, cid):
+    """A regra pinada em datas fixas (nao depende de quando o teste roda).
+
+    v1 nasce em jan/2026, v2 em jun/2026. Cada versao so reescreve competencias a
+    partir do mes em que nasceu: mar/2026 (ja decorrido quando a v2 apareceu)
+    continua valendo pela v1; jun/2026 (mes da propria v2) e set/2026 vao pela v2.
+    """
+    itens = [("2026-03", 10_00), ("2026-06", 20_00), ("2026-09", 30_00)]
+    cronograma.nova_versao(conn, 1, cid, itens, "manual")
+    cronograma.nova_versao(conn, 1, cid, [(c, v * 9) for c, v in itens], "manual")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-01-15 10:00:00' WHERE numero=1")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-06-10 10:00:00' WHERE numero=2")
+    conn.commit()
+    assert cronograma.previsto_efetivo(conn, cid) == {
+        "2026-03": 10_00,    # passado congelado pela v1
+        "2026-06": 180_00,   # mes da criacao da v2 ainda nao e' passado
+        "2026-09": 270_00,   # futuro pela vigente
+    }
+
+def test_versoes_de_contratos_diferentes_nao_se_misturam(conn, cid):
+    outro = contratos.criar(conn, 1, {"orgao": "SINFRA", "numero_instrumento": "IC 2",
+                                      "objeto": "Y", "valor_original_centavos": 100_00})
+    cronograma.nova_versao(conn, 1, cid, [("2099-01", 10_00)], "manual")
+    cronograma.nova_versao(conn, 1, outro, [("2099-01", 20_00)], "manual")
+    # numeracao e' por contrato: o segundo contrato tambem comeca na versao 1
+    assert cronograma.vigente(conn, outro)["numero"] == 1
+    assert cronograma.previsto_efetivo(conn, cid) == {"2099-01": 10_00}
+    assert cronograma.previsto_efetivo(conn, outro) == {"2099-01": 20_00}
+
+class _CursorMaterializado:
+    """Cursor ja lido: devolve as linhas capturadas antes da corrida."""
+    def __init__(self, linhas):
+        self._linhas = linhas
+    def fetchone(self):
+        return self._linhas[0] if self._linhas else None
+    def fetchall(self):
+        return self._linhas
+
+class _ConexaoComCorrida:
+    """Devolve o SELECT MAX(numero) JA OBSOLETO (tirado antes da corrida).
+
+    Desde a fase 3 nova_versao roda inteira sob BEGIN IMMEDIATE (db.mutacao), entao a
+    outra conexao nao consegue mais inserir NO MEIO dela -- ficaria travada ate o
+    busy_timeout. A interferencia commita antes da chamada sob teste e aqui se injeta
+    a leitura antiga: a corrida provada (numero calculado sobre leitura obsoleta) e' a
+    mesma.
+    """
+    def __init__(self, real, linhas_antigas):
+        self._real, self._linhas, self._armada = real, linhas_antigas, True
+    def execute(self, sql, params=()):
+        if self._armada and "MAX(NUMERO)" in sql.upper():
+            self._armada = False
+            return _CursorMaterializado(self._linhas)
+        return self._real.execute(sql, params)
+    def __getattr__(self, nome):
+        return getattr(self._real, nome)
+
+def test_numero_duplicado_por_corrida_vira_erro_de_dominio(conn, cid):
+    """SELECT MAX(numero) + INSERT nao e' atomico entre requisicoes: quem perde a
+    corrida colide no UNIQUE (contrato_id, numero). Tem que virar ValueError (422),
+    nao IntegrityError crua dentro do handler (500)."""
+    antigas = conn.execute("SELECT MAX(numero) AS n, MAX(criado_em) AS c FROM cronograma_versoes "
+                           "WHERE contrato_id=?", (cid,)).fetchall()  # ainda sem versao nenhuma
+    outro = db.get_conn()
+    outro.execute("INSERT INTO cronograma_versoes (contrato_id, numero, origem) "
+                  "VALUES (?,1,'manual')", (cid,))
+    outro.commit()
+    with pytest.raises(ValueError, match="concorrentemente"):
+        cronograma.nova_versao(_ConexaoComCorrida(conn, antigas), 1, cid,
+                               [("2099-01", 10_00)], "manual")
+    conn.rollback()
+    # so a versao do vencedor ficou, e sem itens orfaos da tentativa perdida
+    vig = cronograma.vigente(conn, cid)
+    assert vig["numero"] == 1 and vig["itens"] == []
+    assert conn.execute("SELECT COUNT(*) FROM cronograma_versoes").fetchone()[0] == 1
+    outro.close()
+
+# --- endurecimento (gate 2 da fase) ---
+
+def test_versao_nova_e_snapshot_do_futuro_nao_patch(conn, cid):
+    """A versao vigente DEFINE o futuro inteiro; nao remenda o da anterior.
+
+    Se a v2 omite uma competencia futura que a v1 previa, aquela previsao foi
+    RETIRADA do cronograma. Tratar a versao como patch conservaria a previsao
+    obsoleta no painel, contrariando "futuro pela versao vigente" (spec §5).
+    """
+    cronograma.nova_versao(conn, 1, cid, [("2026-03", 10_00), ("2026-09", 30_00),
+                                          ("2026-12", 40_00)], "manual")
+    cronograma.nova_versao(conn, 1, cid, [("2026-09", 35_00)], "manual")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-01-15 10:00:00' WHERE numero=1")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-06-10 10:00:00' WHERE numero=2")
+    conn.commit()
+    assert cronograma.previsto_efetivo(conn, cid) == {
+        "2026-03": 10_00,   # passado congelado pela v1: a v2 nao o toca
+        "2026-09": 35_00,   # futuro pela vigente
+        # 2026-12 sumiu: a v2 nao preve mais aquele mes
+    }
+
+def test_mes_de_criacao_e_o_de_cuiaba_nao_o_de_utc(conn, cid):
+    """A versao publicada as 21h30 do dia 31 nasce no mes que ainda esta correndo.
+
+    criado_em='2026-09-01 01:30:00' e' UTC; em Cuiaba (UTC-4) isso e' 31/08 21:30,
+    ou seja mes de criacao 2026-08. Lendo a string crua (criado_em[:7]) o mes seria
+    2026-09 e agosto ja apareceria congelado pela v1 -- um mes inteiro deixaria de
+    ser reescrito quatro horas antes da hora.
+    """
+    itens = [("2026-08", 10_00), ("2026-09", 30_00)]
+    cronograma.nova_versao(conn, 1, cid, itens, "manual")
+    cronograma.nova_versao(conn, 1, cid, [(c, v * 9) for c, v in itens], "manual")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-01-15 10:00:00' WHERE numero=1")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2026-09-01 01:30:00' WHERE numero=2")
+    conn.commit()
+    assert cronograma.previsto_efetivo(conn, cid) == {
+        "2026-08": 90_00,    # mes ainda corrente em Cuiaba: a v2 reescreve
+        "2026-09": 270_00,
+    }
+
+def test_criado_em_nunca_retrocede(conn, cid):
+    """Relogio regressivo (acerto de NTP, fuso trocado) nao pode reescrever passado.
+
+    Se a versao nova nascesse com criado_em ANTERIOR ao da anterior, ela passaria a
+    valer para competencias que a anterior ja havia congelado."""
+    cronograma.nova_versao(conn, 1, cid, [("2099-01", 10_00)], "manual")
+    conn.execute("UPDATE cronograma_versoes SET criado_em='2099-06-10 10:00:00' WHERE numero=1")
+    conn.commit()
+    cronograma.nova_versao(conn, 1, cid, [("2099-01", 20_00)], "manual")
+    vig = cronograma.vigente(conn, cid)
+    assert vig["numero"] == 2
+    assert vig["criado_em"] >= "2099-06-10 10:00:00"  # herdou o da anterior, nao o relogio
+
+def test_auditoria_registrada(conn, cid):
+    cronograma.nova_versao(conn, 1, cid, [("2099-01", 10_00)], "manual")
+    acoes = [r["acao"] for r in conn.execute("SELECT acao FROM audit_log")]
+    assert "cronograma.nova_versao" in acoes
+    assert auditoria.verificar_cadeia(conn)

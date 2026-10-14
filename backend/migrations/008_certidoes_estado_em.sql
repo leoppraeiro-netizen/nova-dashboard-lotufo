@@ -1,0 +1,25 @@
+-- QUANDO a certidao deixou de valer (gate 2, item 1).
+--
+-- O PROBLEMA QUE ISTO CONSERTA. `estado='revogada'` era atemporal: a certidao sumia de
+-- `vigente()` em TODA data, inclusive nas que ela cobria de verdade. Uma CND revogada
+-- pelo orgao em setembro passava a responder "nada valia" para 15 de julho -- o dia em
+-- que ela foi protocolada e aceita. O historico append-only existe justamente para
+-- responder "o que valia no dia X"; sem esta coluna, a revogacao apagava o passado.
+--
+-- SEMANTICA (ruling do controller): a marcacao de estado vale A PARTIR do dia em que
+-- foi registrada. `vigente(na_data)` aceita a linha marcada enquanto
+-- `estado_em > na_data`. Vale para OS DOIS estados marcaveis -- 'revogada' e
+-- 'nao_se_aplica' (revisao final da fase 3, I1): marcar "nao se aplica" numa certidao
+-- que existe, tem PDF e datas reais tambem nao pode apagar o passado dela.
+--
+-- NULLABLE de proposito. Linha 'vigente' nunca teve mudanca de estado (nao ha data a
+-- gravar), e linha marcada ANTES desta migracao nao tem como saber quando foi -- fica
+-- NULL, e `NULL > '2026-07-15'` e' NULL (falso) no SQLite, ou seja: o comportamento
+-- antigo (some de toda data) continua valendo so' para o passado que nao da para datar.
+-- Nao ha backfill honesto possivel; inventar uma data seria pior que admitir o buraco.
+--
+-- ALTER TABLE GUARDADO: o runner (app/db.py) pula `ALTER TABLE ... ADD COLUMN` cuja
+-- coluna ja existe (PRAGMA table_info), porque `executescript` nao e' transacional e
+-- uma migracao interrompida no meio pode ser reaplicada inteira. Ver o comentario em
+-- `db.migrate`.
+ALTER TABLE certidoes ADD COLUMN estado_em TEXT;

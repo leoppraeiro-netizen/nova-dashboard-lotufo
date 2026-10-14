@@ -1,0 +1,14 @@
+-- Cota da Lotufo no contrato (spec §3 decisão 14, nunca implementada até aqui).
+--
+-- Cinco obras da carteira são de consórcio e o contrato está no nome do consórcio: o
+-- valor cheio é do consórcio, e só uma fração é receita da Lotufo (Atalaia 80%, Leblon
+-- 50%, BRT 49%, Deciolândia 33,3%, Rota Oeste 18%). Somar valor cheio no consolidado
+-- infla a carteira -- é o que a dashboard antiga já separava chamando de "cota".
+--
+-- A regra da spec: a PÁGINA DA OBRA mostra o valor cheio (é o contrato que existe); o
+-- CONSOLIDADO da diretoria soma pela participação da Lotufo. Nunca somar bases distintas.
+--
+-- Guardado em pontos-base (10000 = 100,00%) e não em fração decimal: 33,3% vira 3330
+-- exato, sem float. O cálculo da cota arredonda uma vez, meio para cima, como todo
+-- dinheiro deste projeto.
+ALTER TABLE contratos ADD COLUMN percentual_direito_bp INTEGER NOT NULL DEFAULT 10000;

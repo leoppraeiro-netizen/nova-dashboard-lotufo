@@ -1,0 +1,256 @@
+def test_criar_usuario_e_listar(client_admin):
+    r = client_admin.post("/api/admin/usuarios", json={
+        "nome": "Maria", "email": "maria@lotufo.com",
+        "senha": "outra-senha-123", "perfil": "engenharia"})
+    assert r.status_code == 201
+    lista = client_admin.get("/api/admin/usuarios").json()
+    assert any(u["email"] == "maria@lotufo.com" for u in lista)
+    assert all("senha_hash" not in u for u in lista)
+
+def test_nao_admin_negado(client_admin, client):
+    client_admin.post("/api/admin/usuarios", json={
+        "nome": "Eng", "email": "eng@lotufo.com", "senha": "senha-eng-123", "perfil": "engenharia"})
+    r = client.post("/api/auth/login", json={"email": "eng@lotufo.com", "senha": "senha-eng-123"})
+    # ADAPTACAO ao brief: `client_admin` devolve o MESMO TestClient de `client`, e o
+    # cookie secure=True do login nao volta sozinho em http://testserver. Sem injetar
+    # a sessao da engenharia na jar, a requisicao abaixo seguiria com o cookie do
+    # admin e daria 200 -- o teste passaria pelo motivo errado. Mesmo tratamento
+    # usado em test_permissoes.py e test_api_contratos.py.
+    client.cookies.set("sessao", r.cookies["sessao"])
+    client.headers["X-CSRF-Token"] = r.json()["csrf"]
+    assert client.get("/api/admin/usuarios").status_code == 403
+
+
+# --- erros tratados (fix round 1) --------------------------------------------
+
+NOVO = {"nome": "Maria", "email": "maria@lotufo.com",
+        "senha": "outra-senha-123", "perfil": "engenharia"}
+
+def test_email_duplicado_409(client_admin):
+    assert client_admin.post("/api/admin/usuarios", json=NOVO).status_code == 201
+    r = client_admin.post("/api/admin/usuarios", json={**NOVO, "nome": "Outra"})
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "E-mail já cadastrado"
+
+def test_email_duplicado_nao_audita_nem_quebra_cadeia(client_admin):
+    client_admin.post("/api/admin/usuarios", json=NOVO)
+    client_admin.post("/api/admin/usuarios", json={**NOVO, "nome": "Outra"})
+    a = client_admin.get("/api/admin/auditoria").json()
+    assert a["cadeia_integra"] is True
+    # a tentativa recusada nao pode deixar rastro de criacao no log
+    assert len([e for e in a["eventos"] if e["acao"] == "usuario.criar"]) == 1
+
+def test_put_perfil_invalido_422(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    r = client_admin.put(f"/api/admin/usuarios/{uid}", json={"perfil": "faxineiro"})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == "Perfil inválido"
+    # perfil intacto no banco
+    lista = client_admin.get("/api/admin/usuarios").json()
+    assert next(u for u in lista if u["id"] == uid)["perfil"] == "engenharia"
+
+def test_put_perfil_valido_muda(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    assert client_admin.put(f"/api/admin/usuarios/{uid}",
+                            json={"perfil": "diretoria"}).status_code == 200
+    lista = client_admin.get("/api/admin/usuarios").json()
+    assert next(u for u in lista if u["id"] == uid)["perfil"] == "diretoria"
+
+def test_admin_nao_se_desativa_nem_tira_o_proprio_perfil(client_admin):
+    eu = client_admin.get("/api/auth/eu").json()["id"]
+    for corpo in ({"ativo": False}, {"perfil": "engenharia"}):
+        r = client_admin.put(f"/api/admin/usuarios/{eu}", json=corpo)
+        assert r.status_code == 409, r.text
+    u = next(u for u in client_admin.get("/api/admin/usuarios").json() if u["id"] == eu)
+    assert (u["ativo"], u["perfil"]) == (1, "admin")
+
+def test_put_usuario_inexistente_404(client_admin):
+    r = client_admin.put("/api/admin/usuarios/99999", json={"perfil": "diretoria"})
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Usuário não encontrado"
+
+
+# --- fix round 1: a linha some ENTRE o 404 externo e o BEGIN IMMEDIATE --------
+
+import pytest
+from fastapi import HTTPException
+
+from app import api_usuarios, auth, db
+
+
+class _CursorVazio:
+    def fetchone(self):
+        return None
+    def fetchall(self):
+        return []
+
+
+class _SumiuNoMeio:
+    """Passa pelo 404 externo e devolve None na leitura de DENTRO do envelope."""
+    def __init__(self, real):
+        self._real, self._armada = real, True
+    def execute(self, sql, params=()):
+        if self._armada and sql.lstrip().upper().startswith("SELECT PERFIL, ATIVO"):
+            self._armada = False
+            return _CursorVazio()
+        return self._real.execute(sql, params)
+    def __getattr__(self, nome):
+        return getattr(self._real, nome)
+
+
+def test_put_usuario_apagado_no_meio_vira_404_e_nao_500(tmp_path, monkeypatch):
+    """`dict(None)` daria TypeError dentro do handler -> 500 sem mensagem nenhuma."""
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    conn = db.get_conn(); db.migrate(conn)
+    uid = auth.criar_usuario(conn, "Alvo", "alvo@l.com", "senha-forte-123", "engenharia")
+    try:
+        with pytest.raises(HTTPException) as e:
+            # quem pede e' outro admin: o proprio alvo cairia na trava do auto-desativar (409)
+            api_usuarios.atualizar(uid, api_usuarios.UsuarioPatch(perfil="diretoria"),
+                                   {"id": uid + 1}, _SumiuNoMeio(conn))
+        assert e.value.status_code == 404
+        assert e.value.detail == "Usuário não encontrado"
+        assert not conn.in_transaction  # envelope desfeito, sem lock pendurado
+        assert conn.execute("SELECT perfil FROM usuarios WHERE id=?",
+                            (uid,)).fetchone()["perfil"] == "engenharia"
+    finally:
+        conn.close()
+
+
+def test_rota_com_banco_travado_vira_503(client_admin, monkeypatch):
+    """Lock alem do busy_timeout: 503 pt-BR em vez de OperationalError crua (500).
+
+    Com a mutacao inteira sob BEGIN IMMEDIATE, este erro passou a ser possivel de
+    verdade -- o segundo escritor espera o lock. A resposta tem que dizer que nada foi
+    gravado e que da para repetir.
+    """
+    real = db.get_conn
+    def com_espera_curta():
+        c = real()
+        c.execute("PRAGMA busy_timeout=100")  # nao segurar o teste por 5s
+        return c
+    monkeypatch.setattr(db, "get_conn", com_espera_curta)
+
+    travadora = real()
+    travadora.execute("BEGIN IMMEDIATE")  # segura o lock de escrita
+    try:
+        r = client_admin.post("/api/admin/usuarios", json=NOVO)
+        assert r.status_code == 503, r.text
+        assert r.json()["detail"] == "Banco de dados ocupado — tente novamente em instantes."
+        assert r.headers["Retry-After"] == "1"
+    finally:
+        travadora.rollback()
+        travadora.close()
+
+
+# --- A-05 + B-10 (testes de quebra 10/10/2026): desbloquear, redefinir e trocar senha ------
+
+def _entrar(client, email, senha):
+    """Loga e devolve (token, csrf), deixando o client com essa sessao."""
+    r = client.post("/api/auth/login", json={"email": email, "senha": senha})
+    assert r.status_code == 200, r.text
+    token, csrf = r.cookies["sessao"], r.json()["csrf"]
+    _como(client, token, csrf)
+    return token, csrf
+
+def _como(client, token, csrf):
+    # a jar guarda tambem o cookie da resposta do login (dominio proprio): limpar antes evita
+    # dois "sessao" e o CookieConflict do httpx
+    client.cookies.clear()
+    client.cookies.set("sessao", token)
+    client.headers["X-CSRF-Token"] = csrf
+
+def _bloquear(email):
+    for _ in range(5):
+        conn = db.get_conn()
+        try:
+            auth.autenticar(conn, email, "senha-errada-xx")
+        finally:
+            conn.close()
+
+def test_listar_devolve_bloqueio_e_tentativas(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    u = next(u for u in client_admin.get("/api/admin/usuarios").json() if u["id"] == uid)
+    assert (u["bloqueado_ate"], u["tentativas_falhas"]) == (None, 0)
+    _bloquear(NOVO["email"])
+    u = next(u for u in client_admin.get("/api/admin/usuarios").json() if u["id"] == uid)
+    assert u["bloqueado_ate"] is not None and u["bloqueado_ate"].endswith("-04:00")  # hora de Cuiaba
+    assert u["tentativas_falhas"] == 0
+
+def test_desbloquear_volta_o_login(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    admin = _entrar(client_admin, "admin@lotufo.com", "senha-forte-123")
+    _bloquear(NOVO["email"])
+    assert client_admin.post("/api/auth/login", json={"email": NOVO["email"], "senha": NOVO["senha"]}).status_code == 401
+    _como(client_admin, *admin)
+    r = client_admin.post(f"/api/admin/usuarios/{uid}/desbloquear")
+    assert r.status_code == 200, r.text
+    assert client_admin.post("/api/auth/login", json={"email": NOVO["email"], "senha": NOVO["senha"]}).status_code == 200
+    _como(client_admin, *admin)
+    acoes = [e["acao"] for e in client_admin.get("/api/admin/auditoria").json()["eventos"]]
+    assert "usuario.desbloquear" in acoes
+
+def test_desbloquear_inexistente_404(client_admin):
+    assert client_admin.post("/api/admin/usuarios/99999/desbloquear").status_code == 404
+
+def test_redefinir_senha_derruba_sessoes_e_a_nova_entra(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    admin = _entrar(client_admin, "admin@lotufo.com", "senha-forte-123")
+    antiga1 = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    antiga2 = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    _como(client_admin, *admin)
+    assert client_admin.post(f"/api/admin/usuarios/{uid}/senha", json={"senha": "curta"}).status_code == 422
+    r = client_admin.post(f"/api/admin/usuarios/{uid}/senha", json={"senha": "senha-nova-456"})
+    assert r.status_code == 200, r.text
+    for s in (antiga1, antiga2):
+        _como(client_admin, *s)
+        assert client_admin.get("/api/auth/eu").status_code == 401
+    assert client_admin.post("/api/auth/login", json={"email": NOVO["email"], "senha": NOVO["senha"]}).status_code == 401
+    _entrar(client_admin, NOVO["email"], "senha-nova-456")
+    _como(client_admin, *admin)
+    eventos = [e for e in client_admin.get("/api/admin/auditoria").json()["eventos"] if e["acao"] == "usuario.senha_redefinida"]
+    assert len(eventos) == 1 and "senha-nova-456" not in str(eventos[0])
+
+def test_redefinir_senha_zera_bloqueio(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    _bloquear(NOVO["email"])
+    assert client_admin.post(f"/api/admin/usuarios/{uid}/senha", json={"senha": "senha-nova-456"}).status_code == 200
+    assert client_admin.post("/api/auth/login", json={"email": NOVO["email"], "senha": "senha-nova-456"}).status_code == 200
+
+def test_rotas_novas_de_admin_negadas_a_diretoria_e_engenharia(client_admin):
+    alvo = client_admin.post("/api/admin/usuarios", json=NOVO).json()["id"]
+    for perfil in ("diretoria", "engenharia"):
+        email = f"{perfil}@lotufo.com"
+        client_admin.post("/api/admin/usuarios", json={"nome": perfil, "email": email,
+                                                       "senha": "senha-forte-123", "perfil": perfil})
+        admin = _entrar(client_admin, "admin@lotufo.com", "senha-forte-123")
+        _entrar(client_admin, email, "senha-forte-123")
+        assert client_admin.post(f"/api/admin/usuarios/{alvo}/desbloquear").status_code == 403
+        assert client_admin.post(f"/api/admin/usuarios/{alvo}/senha", json={"senha": "senha-nova-456"}).status_code == 403
+        assert client_admin.put(f"/api/admin/usuarios/{alvo}", json={"perfil": "admin"}).status_code == 403
+        _como(client_admin, *admin)
+
+def test_trocar_a_propria_senha(client_admin):
+    client_admin.post("/api/admin/usuarios", json=NOVO)
+    outra = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    atual = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    r = client_admin.post("/api/auth/senha", json={"senha_atual": "errada-errada", "senha_nova": "senha-nova-456"})
+    assert r.status_code == 422, r.text
+    r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": "curta"})
+    assert r.status_code == 422, r.text
+    r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": NOVO["senha"]})
+    assert r.status_code == 422, r.text
+    r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": "senha-nova-456"})
+    assert r.status_code == 200, r.text
+    assert client_admin.get("/api/auth/eu").status_code == 200  # a sessao atual continua
+    _como(client_admin, *outra)
+    assert client_admin.get("/api/auth/eu").status_code == 401  # as outras caem
+    assert client_admin.post("/api/auth/login", json={"email": NOVO["email"], "senha": NOVO["senha"]}).status_code == 401
+    _entrar(client_admin, NOVO["email"], "senha-nova-456")
+
+def test_trocar_senha_exige_csrf(client_admin):
+    client_admin.post("/api/admin/usuarios", json=NOVO)
+    _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    del client_admin.headers["X-CSRF-Token"]
+    r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": "senha-nova-456"})
+    assert r.status_code == 403

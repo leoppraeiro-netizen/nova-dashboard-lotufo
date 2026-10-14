@@ -1,0 +1,102 @@
+"""Cronograma versionado: passado congelado, futuro pela versao vigente (spec §5).
+
+Operacionalizacao do congelamento: cada versao vale a partir do MES em que foi
+criada (criado_em). O previsto efetivo de uma competencia e o valor da versao
+mais recente criada ate aquela competencia -- revisar o cronograma nunca
+reescreve meses ja decorridos.
+
+O mes de criacao e o de CUIABA (app/tempo.py), nao o da string UTC gravada:
+uma versao publicada as 21h do dia 31 nasceria no mes seguinte se lida como
+UTC, e congelaria o mes corrente antes da hora.
+"""
+import sqlite3
+
+from app import auditoria, db, tempo
+
+
+def nova_versao(conn: sqlite3.Connection, usuario_id: int, contrato_id: int,
+                itens: list[tuple[str, int]], origem: str) -> int:
+    if not itens:
+        raise ValueError("Versão de cronograma vazia: informe ao menos uma competência")
+    comps = [c for c, _ in itens]
+    if len(comps) != len(set(comps)):
+        raise ValueError("Competência duplicada na versão do cronograma")
+    with db.mutacao(conn):
+        r = conn.execute("SELECT MAX(numero) AS n, MAX(criado_em) AS c FROM cronograma_versoes "
+                         "WHERE contrato_id=?", (contrato_id,)).fetchone()
+        ultimo = r["n"] or 0
+        # CLAMP MONOTONICO do criado_em: e' ele que decide, na leitura, a partir de que mes a
+        # versao passa a valer. Com o relogio andando para tras (acerto de NTP, fuso trocado),
+        # uma versao NOVA nasceria com criado_em anterior ao da anterior e passaria a reescrever
+        # competencias que ja estavam congeladas -- passado alterado por acidente. Nunca antes
+        # da ultima versao do contrato; a coluna aceita valor explicito (o DEFAULT so vale
+        # quando a coluna e' omitida).
+        # O clamp compara STRING UTC contra STRING UTC de proposito: e' a mesma escala em
+        # que a coluna e' gravada, e a conversao para Cuiaba (deslocamento fixo) preserva
+        # a ordem — converter aqui so trocaria a unidade sem mudar a decisao. Quem converte
+        # e' a LEITURA (previsto_efetivo), onde a fronteira de mes e' que importa.
+        agora = conn.execute("SELECT datetime('now')").fetchone()[0]
+        criado_em = max(agora, r["c"] or agora)
+        # O SELECT acima e' uma leitura; entre ela e o INSERT outra requisicao pode criar a
+        # mesma versao. Quem de fato decide e' o UNIQUE (contrato_id, numero) do schema --
+        # sem este catch o perdedor da corrida recebia IntegrityError crua no handler (500).
+        try:
+            cur = conn.execute("INSERT INTO cronograma_versoes (contrato_id, numero, origem, criado_em) "
+                               "VALUES (?,?,?,?)", (contrato_id, ultimo + 1, origem, criado_em))
+        except sqlite3.IntegrityError as e:
+            # So a violacao de unicidade vira erro de dominio: FK/CHECK quebrados sao bug
+            # nosso e devem continuar subindo como 500.
+            if "UNIQUE" not in str(e).upper():
+                raise
+            raise ValueError("Cronograma versionado concorrentemente; tente novamente") from e
+        vid = cur.lastrowid
+        conn.executemany("INSERT INTO cronograma_itens (versao_id, competencia, valor_previsto_centavos) VALUES (?,?,?)",
+                         [(vid, c, v) for c, v in itens])
+        auditoria.registrar(conn, usuario_id, "cronograma.nova_versao", "contrato", contrato_id,
+                            None, {"versao": ultimo + 1, "itens": len(itens)})
+    return ultimo + 1
+
+
+def _versoes(conn, contrato_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM cronograma_versoes WHERE contrato_id=? ORDER BY numero", (contrato_id,))]
+
+
+def _itens(conn, versao_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT competencia, valor_previsto_centavos FROM cronograma_itens "
+        "WHERE versao_id=? ORDER BY competencia", (versao_id,))]
+
+
+def vigente(conn: sqlite3.Connection, contrato_id: int) -> dict | None:
+    vs = _versoes(conn, contrato_id)
+    if not vs:
+        return None
+    v = vs[-1]
+    return {"numero": v["numero"], "criado_em": v["criado_em"], "origem": v["origem"],
+            "itens": _itens(conn, v["id"])}
+
+
+def previsto_efetivo(conn: sqlite3.Connection, contrato_id: int) -> dict[str, int]:
+    efetivo: dict[str, int] = {}
+    for v in _versoes(conn, contrato_id):        # ordem crescente de numero
+        # 'AAAA-MM' do criado_em (UTC no banco) convertido para Cuiaba: e' a
+        # fronteira de mes do NEGOCIO que decide o congelamento, nao a de UTC.
+        mes_criacao = tempo.mes_local(v["criado_em"])
+        # A versao e' um SNAPSHOT do futuro, nao um patch sobre a anterior: o que ela
+        # NAO preve a partir do mes em que nasceu deixou de estar previsto. Sem limpar
+        # antes de aplicar, uma competencia futura omitida na versao nova conservaria o
+        # valor da antiga e o painel exibiria previsao ja retirada do cronograma
+        # (contraria "futuro pela versao vigente", spec §5). O passado (< mes_criacao)
+        # nao e' tocado -- e' justamente o que fica congelado.
+        for comp in [c for c in efetivo if c >= mes_criacao]:
+            del efetivo[comp]
+        for item in _itens(conn, v["id"]):
+            comp = item["competencia"]
+            # a versao so pode reescrever competencias >= mes em que nasceu;
+            # excecao: se a competencia nunca teve valor, qualquer versao semeia
+            # (cronograma cadastrado com a obra ja em andamento precisa dos meses
+            # ja decorridos -- sem a excecao eles ficariam previstos zero).
+            if comp >= mes_criacao or comp not in efetivo:
+                efetivo[comp] = item["valor_previsto_centavos"]
+    return efetivo

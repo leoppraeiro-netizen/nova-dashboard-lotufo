@@ -1,0 +1,27 @@
+# Obra Consórcio (IC 002/2025, Consórcio Exemplo): 4 notas por medição, a empresa própria e a Engenharia Beta
+# em dois municípios. O valor digitado é o CHEIO do consórcio. Alíquotas de retenção são as de lei
+# (ISS/IRRF/INSS), de propósito; obra, rateio, chaves e valores são fictícios: o município A fica com 6/10 do
+# total (trunca), o B com o resto; em cada um, a empresa própria e a Beta ficam com metade (a própria
+# arredonda, a Beta fica com o resto).
+contrato: Obra Consórcio
+situacao: ativa
+entradas:
+  - {natureza: medicao, chave: medicao, rotulo: Valor cheio do consórcio na execução}
+parcelas:
+  - {chave: mun-a, de: medicao, fracao: [6, 10], arredondamento: trunc}
+  - {chave: mun-b, de: medicao, resto_de: [mun-a]}
+  - {chave: a-propria, de: mun-a, fator: '0,5', arredondamento: round}
+  - {chave: a-beta, de: mun-a, resto_de: [a-propria]}
+  - {chave: b-propria, de: mun-b, fator: '0,5', arredondamento: round}
+  - {chave: b-beta, de: mun-b, resto_de: [b-propria]}
+retencoes:
+  mao_de_obra: {arredondamento: trunc, percentual: '40'}
+  material: {modo: diferenca}
+  inss: {arredondamento: trunc, percentual: '11', base: mao_de_obra}
+  iss: {arredondamento: trunc, percentual: '5', base: mao_de_obra}
+  irrf: {arredondamento: trunc, percentual: '1,2', base: total}
+saidas:
+  - {chave: exec-a-propria, natureza: medicao, valor: a-propria, emissor: lotufo, municipio: Cuiabá, modelo: exec-a-propria.docx}
+  - {chave: exec-a-beta, natureza: medicao, valor: a-beta, emissor: beta, municipio: Cuiabá, modelo: exec-a-beta.docx}
+  - {chave: exec-b-propria, natureza: medicao, valor: b-propria, emissor: lotufo, municipio: Várzea Grande, modelo: exec-b-propria.docx}
+  - {chave: exec-b-beta, natureza: medicao, valor: b-beta, emissor: beta, municipio: Várzea Grande, modelo: exec-b-beta.docx}

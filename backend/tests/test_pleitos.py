@@ -1,0 +1,111 @@
+"""Pleitos de reajuste, prazo e conclusao (bloco 7): criar, carta, assinado, envio."""
+import datetime
+import pathlib
+
+import pytest
+import yaml
+
+from app import arquivos, auth, cadastro_aplicar, correio, db, graph, leitura_pdf, medicoes, pleitos, reajuste, tempo
+from tests.test_protocolo import _assinar, _contrato
+
+D = datetime.date
+CARTAS = yaml.safe_load((pathlib.Path(__file__).parents[2] / "cadastro-exemplo" / "cartas.yaml").read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def cenario(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    monkeypatch.setattr(tempo, "hoje_local", lambda: D(2026, 6, 15))
+    c = db.get_conn(); db.migrate(c)
+    uid = auth.criar_usuario(c, "Maria", "maria@l.com", "senha-forte-123", "admin")
+    obra = {**_contrato("Obra SINFRA", "sinfra-x", "IC 1/2026"), "datas_base": [{"mes": "2024-06", "indice": "INCC-DI"}],
+            "execucao_fim": "2026-10-20", "vigencia_fim": "2027-01-20"}
+    cadastro_aplicar.aplicar(c, uid, {
+        "orgaos": [{"chave": "sinfra-x", "nome": "SINFRA - X", "familia": "sinfra", "cnpj": None,
+                    "regras": {"protocolo_para": ["sinfra@orgao-a.exemplo.com.br"], "protocolo_copia": ["leo@l.com"],
+                               "documentos_medicao": [], "documentos_reajuste": []}}],
+        "entidades": [{"chave": "lotufo", "nome": "Lotufo Engenharia e Construções Ltda", "cnpj": "31200101000130",
+                       "papel": "lotufo", "coligada_rm": 1, "sigla_oficio": "LT", "nome_curto": "Lotufo"}],
+        "contratos": [obra], "avisos": [], "geral": {"cartas": CARTAS}})
+    cid = c.execute("SELECT id FROM contratos").fetchone()[0]
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?, 12, 'execucao', '2026-05', 'protocolada')", (cid,))
+    c.commit()
+    yield c, {"uid": uid, "usuario": {"id": uid, "email": "maria@l.com"}, "contrato": cid,
+              "medicao": c.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]}
+    c.close()
+
+
+def test_reajuste_so_para_data_base_do_contrato_e_ciclo_corrente(cenario):
+    c, ids = cenario
+    with pytest.raises(ValueError, match="Data-base"):
+        pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122", data_base_mes="2023-01")
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122", data_base_mes="2024-06")
+    p = pleitos.detalhe(c, pid)
+    assert (p["ciclo"], p["numero_oficio"]) == (2026, "CT-122-LT-2026")
+
+
+def test_prazo_exige_dias_e_justificativa_e_chuva_vira_pendencia(cenario):
+    c, ids = cenario
+    with pytest.raises(ValueError, match="dias"):
+        pleitos.criar(c, ids["uid"], ids["contrato"], "prazo", "310", justificativa="atraso")
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "prazo", "310", dias=120,
+                        justificativa="Chuvas acima da média no período")
+    assert "chuva" in [x["codigo"] for x in pleitos.detalhe(c, pid)["pendencias"]]
+
+
+def test_conclusao_so_em_encerramento(cenario):
+    c, ids = cenario
+    with pytest.raises(ValueError, match="encerramento"):
+        pleitos.criar(c, ids["uid"], ids["contrato"], "conclusao", "400")
+    medicoes.marcar_final(c, ids["uid"], ids["medicao"], "2026-06-10")
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "conclusao", "400")
+    assert "12ª Medição (10/06/2026)" in pleitos.corpo_padrao(c, pid)
+
+
+def test_carta_de_prazo_traz_historico_e_novo_fim(cenario):
+    c, ids = cenario
+    c.execute("INSERT INTO aditivos (contrato_id, tipo, delta_valor_centavos, nova_execucao_fim, status, "
+              "data_assinatura, numero, forma) VALUES (?, 'prazo', 0, '2026-10-20', 'assinado', '2026-03-10', "
+              "'001/2026', 'termo_aditivo')", (ids["contrato"],))
+    c.execute("UPDATE contratos SET execucao_fim='2026-04-20'"); c.commit()
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "prazo", "310", dias=100, justificativa="Interferências na via")
+    r = pleitos.montar(c, ids["uid"], pid)
+    paginas = leitura_pdf.textos_por_pagina_com_limite(arquivos.caminho_seguro(r["arquivo"]).read_bytes())
+    texto = " ".join(" ".join(paginas).split())                 # a quebra de linha do PDF vira espaco
+    assert "1. HISTÓRICO" in texto and "O 1º termo aditivo" in texto
+    assert "de 20/10/2026 para 28/01/2027" in texto
+
+
+def test_enviar_reajuste_fecha_o_aviso_de_pleito(cenario):
+    c, ids = cenario
+    assert "reajuste_pleito" in {a["tipo"] for a in reajuste.avisos(c, D(2026, 6, 15))}
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122")
+    pleitos.adicionar_anexo(c, ids["uid"], pid, "planilha_calculo", "memoria.xlsx", b"PK\x03\x04memoria", "xlsx")
+    pleitos.adicionar_anexo(c, ids["uid"], pid, "cronograma", "cronograma.pdf", b"%PDF-1.4 cronograma", "pdf")
+    r = pleitos.montar(c, ids["uid"], pid)
+    pleitos.receber_assinado(c, ids["uid"], pid, _assinar(arquivos.caminho_seguro(r["arquivo"]).read_bytes()))
+    pv = pleitos.previa_envio(c, pid)
+    assert pv["pendencias"] == [] and len(pv["anexos"]) == 3
+    eid = pleitos.enviar(c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"])
+    assert c.execute("SELECT tipo FROM envios WHERE id=?", (eid,)).fetchone()[0] == "pleito_reajuste"
+    assert reajuste.ciclos(c, ids["contrato"], D(2026, 6, 15))[0]["situacao"] == "apostilamento_pendente"
+    assert "reajuste_pleito" not in {a["tipo"] for a in reajuste.avisos(c, D(2026, 6, 15))}
+
+
+def test_falha_do_graph_nao_muda_o_pleito(cenario, monkeypatch):
+    c, ids = cenario
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122")
+    pleitos.montar(c, ids["uid"], pid)
+    pv = pleitos.previa_envio(c, pid)
+
+    def falha(*a, **k):
+        raise graph.ErroGraph("fora do ar")
+
+    monkeypatch.setattr(correio, "enviar_e_registrar", falha)
+    with pytest.raises(graph.ErroGraph):
+        pleitos.enviar(c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                       justificativa="teste de falha do Graph")
+    assert pleitos.detalhe(c, pid)["situacao"] == "montado"
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0

@@ -1,0 +1,8 @@
+# Entram no git: relatorios (*.md) e scripts (fuzz/*.py, verificacao/api/*.py e *.sh, verificacao/tela/*.mjs).
+# Ficam fora: evidencias brutas (saidas, capturas, JSON do simulador com e-mails reais) e caches.
+__pycache__/
+fuzz/saidas/
+verificacao/api/saida-*.txt
+verificacao/tela/*.png
+verificacao/tela/*.json
+verificacao/tela/correio-simulado/

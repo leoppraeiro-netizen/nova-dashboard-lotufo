@@ -1,0 +1,68 @@
+Prefeitura Municipal de Cuiabá 
+Secretaria Municipal de Economia 
+Prefeitura Municipal de Cuiabá MT 
+Série do Documento
+Nota Fiscal de Serviço
+Eletrônica - NFS-e
+Número da Nota Fiscal
+3102
+Data de Geração da NFS-e Data de Competência Código de Autenticidade
+15/07/2026 17:43:46 15/07/2026 51034031231200101000130000000000310226073518111234 
+Emitente da NFS-e Número da DPS Data Emissão da DPS Série da DPS
+Prestador    
+Consulte a autenticidade desta nota lendo o QRcode ou acessando o site: https://onlinecba.issnetonline.com.br/cuiaba/
+IDENTIFICAÇÃO DO PRESTADOR
+CNPJ/CPF/NIF: 31.200.101/0001-30 Inscrição Municipal: 40123 Telefone: 6565-0000
+Nome/Razão Social: CONSTRUTORA ALFA LTDA
+Nome Fantasia: CONSTRUTORA ALFA
+Endereço: RUA DAS PALMEIRAS, 100 CEP: 78000-000
+Cidade: Cuiabá   Estado/Prov./Reg.: Mato Grosso   País: Brasil
+E-mail: contabilidade@exemplo.com.br
+Situação Simples Nacional: Não Optante   Regime Apuração: -   Regime Especial: Nenhum
+IDENTIFICAÇÃO DO TOMADOR
+CNPJ/CPF/NIF: 31.300.101/0001-01 Inscrição Municipal: 300100 Telefone: (65)3000-0001 
+Nome/Razão Social: SECRETARIA DE ESTADO DE INFRAESTRUTURA E LOGISTICA DE MATO GROSSO 
+Nome Fantasia: SINFRA 
+Endereço: Avenida Exemplo, S/N - EDIF EXEMPLO CEP: 78000-100
+Cidade: Cuiabá   Estado/Prov./Reg.: Mato Grosso   País: Brasil 
+E-mail: gabinete@orgao-a.exemplo.com.br 
+INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-E
+DESTINATÁRIO É O PRÓPRIO TOMADOR IDENTIFICADO NA NFS-E
+DADOS DO SERVIÇO PRESTADO
+Cód. Trib. Nacional: 07.02.01 NBS: 1.0102.90.00 Atividade Municipal: [4299-5/99] Outras obras de engenharia civil não e...
+Local da Prestação: Várzea Grande - MT País Resultado da Prestação do Serviço: - 
+Vl. do Serviço: R$846.788,31 Vl. do Desc. Incondicionado: - Vl. do Desc. Condicionado: - 
+Descrição do Serviço: CONSÓRCIO GAMA VALOR REFERENTE A 12ª MEDIÇÃO DEFINITIVA DA EXECUÇÃO DAS OBRAS DE
+INFRAESTRUTURA EM ÁREA URBANA PARA IMPLANTAÇÃO DO CORREDOR DE TRANSPORTE PÚBLICO INTEGRADO POR MEIO DO
+BUS RAPID TRANSPORTE (BRT) NA CIDADES DE CUIABÁ E VÁRZEA GRANDE NO ESTADO DO MATO GROSSO – MT, CONFORME IC –
+041/2025/00/00 - CNO 90.000.00001/01. PERÍODO DE 01/06/2026 A 30/06/2026. SERVIÇOS REALIZADOS COM FORNECIMENTO DE
+MATERIAIS, MÃO DE OBRA E EQUIPAMENTOS NO MUNICÍPIO DE VÁRZEA GRANDE-MT. VALOR DA MEDIÇÃO: R$ 846.788,31
+(OITOCENTOS E QUARENTA E SEIS MIL, SETECENTOS E OITENTA E OITO REAIS E TRINTA E UM CENTAVOS) MÃO DE OBRA 40%: R$
+338.715,32 / MATERIAIS 60%: R$ 508.072,99 RETENÇÃO INSS (11%) SOBRE VALOR DA MÃO DE OBRA – R$ 37.258,68 VALOR ISSQN (5%)
+SOBRE 40% DO VALOR DA NF – R$ 16.935,77 VALOR IRRF (1,20%) SOBRE O VALOR TOTAL DA NF – R$ 10.161,45 CONTA PARA
+DEPOSITO BANCO SANTANDER (033) AG: 1234 CONTA CORRENTE: 12345678-9 FAVORECIDO: CONSÓRCIO GAMA
+IMPOSTO SOBRE SERVIÇO DE QUALQUER NATUREZA - ISSQN
+Tipo Tributação: Operação tributável Tipo Susp. Exig.: - Nº Proc. Susp.: - 
+Município de Incidência: Várzea Grande - MT   Tipo de Retenção: Retido pelo Tomador   Valor Dedução: R$508.072,99 
+Base de Cálculo: R$338.715,32 Alíquota: 5% Vl. ISSQN: R$16.935,77 
+TRIBUTAÇÃO NACIONAL
+CST: Operação Tributável com Alíquota Básica 
+Tipo de Retenção: PIS/COFINS/CSLL Não Retidos Vl. PIS: R$5.504,12 Vl. COFINS: R$25.403,65 
+Vl. CSLL: - Vl. IRRF: R$10.161,45 Vl. CP Retido: R$37.258,68 
+IMPOSTO E CONTRIBUIÇÃO SOBRE BENS E SERVIÇOS - IBS/CBS
+Cód. Ind. Op.: 020201 Classif. Tributária: 200045 Situação Tributária: Alíquota reduzida 
+Município de Incidência: Várzea Grande - MT Tipo de Operação: Fornecimento com pagamento posterior 
+Tipo de Ente Governamental: Estado Perc. Red. Compra Gov.: 0% Base de Cálculo: R$798.944,77 
+Alíq. CBS: 0,9% Perc. Red. Alíq. CBS: 60% Alíq. Efet. CBS: 0,36% Valor CBS: R$2.876,20 
+Alíq. IBS Est.: 0,1% Perc. Red. Alíq. IBS Est.: 60% Alíq. Efet. IBS Est.: 0,04% Valor IBS Est.: R$319,58 
+Alíq. IBS Mun.: 0% Perc. Red. Alíq. IBS Mun.: 60% Alíq. Efet. IBS Mun.: 0% Valor IBS Mun.: R$0,00 
+Cód. Créd. Pres.:  Alíq. do Créd. Pres. (CBS): - Alíq. do Créd. Pres. (IBS): - 
+Vl. do Créd. Pres. (CBS): - Vl. do Créd. Pres. (IBS): - 
+Classif. Tributária Regular: - Situação Tributária Regular: - 
+Aliq. Efet. Regular - CBS: - Alíq. Efet. Regular - IBS Estadual: - Alíq. Efet. Regular - IBS Municipal: - 
+Valor CBS: - Vl. IBS Regular Estadual: - Vl. IBS Regular Municipal: - 
+Total de Retenção Valor Total do CBS Valor Total do IBS Valor Total Líquido Valor Total da Nota Fiscal - IBS/CBS
+R$64.355,90 R$2.876,20 R$319,58 R$782.432,41 R$782.432,41 
+INFORMAÇÕES COMPLEMENTARES
+• PROCON Municipal Cuiabá - Endereço: R. Joaquim Murtinho, 554 - Centro, Cuiabá - MT, 78020-290 Telefone: (65) 3632-6400 PROCON
+Estadual - MT - Endereço: Av. Gen. Ramiro de Noronha, 294 - 1º andar - Jardim Cuiaba, Cuiabá - MT, 78043-180 Telefone: (65) 3613-2100/151

@@ -1,0 +1,217 @@
+"""Rotas de medicoes (fase 2): criar, valores, protocolo e estados.
+
+Toda escrita desta fase grava origem "manual" -- a deteccao automatica
+(origem "detectado"/"aceito") entra nas fases 5-6.
+"""
+import datetime
+import sqlite3
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel, Field
+
+from app import espelhos, medicoes, tempo
+from app.api_auth import conexao
+from app.dinheiro import parse_brl
+from app.permissoes import exigir
+
+router = APIRouter()
+
+# Competencia e' o mes de referencia "AAAA-MM": o mesmo formato que o CHECK
+# (GLOB) da tabela medicoes exige. Validar aqui devolve 422 em vez de deixar
+# o CHECK do SQLite estourar como 500.
+# [0-9] em vez de \d de proposito: o \d do Python casa DIGITO UNICODE (arabe-indico,
+# devanagari...). "٢٠٢٦-07" passaria por aqui e so morreria no GLOB '[0-9]...' do
+# SQLite, como IntegrityError dentro do handler -> 500.
+COMPETENCIA = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
+
+# Maior inteiro que o SQLite grava numa coluna INTEGER (int64). Acima disso o driver
+# levanta OverflowError DENTRO do handler -> 500. Mesmo teto de api_contratos.py.
+MAX_INT64 = 9223372036854775807
+# A-07 (testes de quebra 10/10/2026): id de caminho acima de int64 dava 500 (OverflowError) em 31 rotas.
+# Todo parametro inteiro de caminho dos api_*.py usa este tipo: fora da faixa e' 422 na entrada.
+ID = Annotated[int, Path(ge=1, le=MAX_INT64)]
+
+
+class MedicaoIn(BaseModel):
+    numero: int = Field(ge=1, le=999)
+    tipo: Literal["execucao", "projeto", "reajuste"]
+    competencia: str = Field(pattern=COMPETENCIA)
+
+
+class ValorIn(BaseModel):
+    campo: Literal["protocolado", "atestado"]
+    # max_length: parse_brl aceita qualquer quantidade de digitos (int do Python nao
+    # estoura), entao um texto de megabytes seria convertido antes de qualquer teto.
+    # 40 caracteres cobrem qualquer contrato real com folga.
+    valor: str = Field(max_length=40)  # BRL "50.000,00"
+    # Dia do atesto (fase 3,5, spec §6). So' vale com campo=atestado; o servidor
+    # recusa a combinacao com protocolado (422), que tem a data no protocolo.
+    data: datetime.date | None = None
+
+
+class ProtocoloIn(BaseModel):
+    data: datetime.date
+    # Tetos nos textos que vao para o audit_log: a cadeia e' append-only (nao da para
+    # apagar um registro gigante depois) e estes campos sao numeros de oficio/processo.
+    numero_oficio: str | None = Field(default=None, max_length=100)
+    numero_processo: str | None = Field(default=None, max_length=100)
+    # Fase 3,5: o checklist "pronto para protocolar" (fase 3) passa a TRAVAR o ato.
+    # Com pendencia de certidao o protocolo e' recusado, salvo se o operador assumir
+    # -- e ai a justificativa e' obrigatoria e vai para a auditoria.
+    apesar_das_pendencias: bool = False
+    justificativa: str | None = Field(default=None, max_length=500)
+
+
+class EstadoIn(BaseModel):
+    # `protocolada` fica FORA: prevista -> protocolada e' exclusividade de
+    # POST /protocolo, que cria a linha de protocolo e congela o valor (spec §5).
+    # `nota_emitida` entra por api_notas (nota lida ou declarada); `nf_emitida` saiu no
+    # bloco 3. Ver o comentario de TRANSICOES em medicoes.py.
+    estado: Literal["recebida", "cancelada", "desistida"]
+    motivo: str | None = Field(default=None, max_length=1000)  # tambem vai ao audit_log
+    # Data do marco (emissao da NF / baixa), spec §6. Opcional: quem registra depois
+    # do fato pode nao ter a data a mao, e o painel diz "sem data" em vez de inventar.
+    data: datetime.date | None = None
+
+
+def _medicao_existe(conn: sqlite3.Connection, medicao_id: int) -> None:
+    """404 antes de tocar no repositorio.
+
+    definir_valor/registrar_protocolo/mudar_estado fazem `detalhe(...)[...]` e
+    estouram TypeError (500) com id inexistente -- a rota tem que barrar antes.
+    """
+    if conn.execute("SELECT id FROM medicoes WHERE id=?", (medicao_id,)).fetchone() is None:
+        raise HTTPException(404, "Medição não encontrada")
+
+
+def _contrato_existe(conn: sqlite3.Connection, contrato_id: int) -> None:
+    if conn.execute("SELECT id FROM contratos WHERE id=?", (contrato_id,)).fetchone() is None:
+        raise HTTPException(404, "Contrato não encontrado")
+
+
+def _erro_do_cliente(conn: sqlite3.Connection, e: ValueError) -> HTTPException:
+    """ValueError do repositorio -> 422, com a transacao desfeita.
+
+    Desde a fase 3 quem desfaz e' o proprio `db.mutacao` do repositorio, e este
+    rollback e' no-op. Fica como defesa: garante que a conexao nunca volte ao pool
+    de dependencias com transacao aberta, segurando o lock de escrita ate o fim da
+    requisicao. Mesmo padrao de api_usuarios.py.
+    """
+    conn.rollback()
+    return HTTPException(422, str(e))
+
+
+@router.get("/api/contratos/{contrato_id}/medicoes")
+def listar(contrato_id: ID, usuario: dict = Depends(exigir("ver_paineis", com_csrf=False)),
+           conn: sqlite3.Connection = Depends(conexao)):
+    _contrato_existe(conn, contrato_id)
+    lista = medicoes.listar(conn, contrato_id)
+    edicoes = medicoes.edicoes_valor(conn, [m["id"] for m in lista])   # B-02 (10/10/2026): a pagina da medicao le daqui
+    return [{**m, "edicoes_valor": edicoes[m["id"]]} for m in lista]
+
+
+@router.post("/api/contratos/{contrato_id}/medicoes", status_code=201)
+def criar(contrato_id: ID, dados: MedicaoIn,
+          usuario: dict = Depends(exigir("editar_cadastros")),
+          conn: sqlite3.Connection = Depends(conexao)):
+    _contrato_existe(conn, contrato_id)
+    # Issue #12: obra com regra ativa gera a medicao pelo espelho (valor com a regra fiscal). A trava
+    # fica na rota, nao em medicoes.criar, porque a carga do legado e o ledger criam medicao historica.
+    # Vale para qualquer tipo, como a issue pede: a tela tambem nao oferece a manual nessas obras.
+    regra = espelhos.regra_do_contrato(conn, contrato_id)
+    if regra is not None and regra["situacao"] == "ativa":
+        raise HTTPException(422, "Esta obra gera a medição pelo espelho: use “Gerar espelho” na página da obra")
+    try:
+        mid = medicoes.criar(conn, usuario["id"], {"contrato_id": contrato_id, **dados.model_dump()})
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"id": mid}
+
+
+@router.get("/api/medicoes/{medicao_id}")
+def detalhe(medicao_id: ID, usuario: dict = Depends(exigir("ver_paineis", com_csrf=False)),
+            conn: sqlite3.Connection = Depends(conexao)):
+    d = medicoes.detalhe(conn, medicao_id)
+    if d is None:
+        raise HTTPException(404, "Medição não encontrada")
+    d["edicoes_valor"] = medicoes.edicoes_valor(conn, [medicao_id])[medicao_id]   # B-02 (10/10/2026): linha do tempo
+    return d
+
+
+@router.put("/api/medicoes/{medicao_id}/valor")
+def definir_valor(medicao_id: ID, dados: ValorIn,
+                  usuario: dict = Depends(exigir("editar_cadastros")),
+                  conn: sqlite3.Connection = Depends(conexao)):
+    _medicao_existe(conn, medicao_id)
+    try:
+        centavos = parse_brl(dados.valor)
+        if centavos > MAX_INT64:
+            raise ValueError("Valor monetário fora do limite")
+        medicoes.definir_valor(conn, usuario["id"], medicao_id, dados.campo, centavos, "manual",
+                               dados.data.isoformat() if dados.data else None)
+    except ValueError as e:  # BRL invalido, acima do int64, ou medicao congelada
+        raise _erro_do_cliente(conn, e)
+    return {"ok": True}
+
+
+@router.post("/api/medicoes/{medicao_id}/protocolo", status_code=201)
+def protocolo(medicao_id: ID, dados: ProtocoloIn,
+              usuario: dict = Depends(exigir("editar_cadastros")),
+              conn: sqlite3.Connection = Depends(conexao)):
+    _medicao_existe(conn, medicao_id)
+    # O checklist e' conferido pelo repositorio, dentro da transacao do protocolo (gate
+    # Sol da fase 3,5): a rota so' traduz a recusa em 422.
+    try:
+        pid, ressalva = medicoes.registrar_protocolo(
+            conn, usuario["id"], medicao_id, dados.data.isoformat(), dados.numero_oficio,
+            dados.numero_processo, "manual", dados.apesar_das_pendencias, dados.justificativa, exige_nota=True)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"id": pid, "ressalva": ressalva}
+
+
+@router.post("/api/medicoes/{medicao_id}/estado")
+def estado(medicao_id: ID, dados: EstadoIn,
+           usuario: dict = Depends(exigir("editar_cadastros")),
+           conn: sqlite3.Connection = Depends(conexao)):
+    _medicao_existe(conn, medicao_id)
+    try:
+        medicoes.mudar_estado(conn, usuario["id"], medicao_id, dados.estado, dados.motivo,
+                              dados.data.isoformat() if dados.data else None)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"ok": True}
+
+
+# --- bloco 7: medicao final (poe o contrato em encerramento) ------------------------------------------
+
+class FinalIn(BaseModel):
+    data: datetime.date | None = None
+
+
+class DesmarcarFinalIn(BaseModel):
+    motivo: str = Field(min_length=1, max_length=500)
+
+
+@router.post("/api/medicoes/{medicao_id}/final")
+def marcar_final(medicao_id: ID, dados: FinalIn, usuario: dict = Depends(exigir("editar_cadastros")),
+                 conn: sqlite3.Connection = Depends(conexao)):
+    _medicao_existe(conn, medicao_id)
+    try:
+        medicoes.marcar_final(conn, usuario["id"], medicao_id,
+                              (dados.data or tempo.hoje_local()).isoformat())
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return medicoes.detalhe(conn, medicao_id)
+
+
+@router.post("/api/medicoes/{medicao_id}/final/desmarcar")
+def desmarcar_final(medicao_id: ID, dados: DesmarcarFinalIn, usuario: dict = Depends(exigir("editar_cadastros")),
+                    conn: sqlite3.Connection = Depends(conexao)):
+    _medicao_existe(conn, medicao_id)
+    try:
+        medicoes.desmarcar_final(conn, usuario["id"], medicao_id, dados.motivo)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return medicoes.detalhe(conn, medicao_id)

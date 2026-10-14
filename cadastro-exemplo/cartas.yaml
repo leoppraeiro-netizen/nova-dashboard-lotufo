@@ -1,0 +1,170 @@
+# Textos de exemplo (inventados) das cartas e dos e-mails de protocolo. Placeholders: {razao_social} {cnpj}
+# {oficio} {medicao} {a_medicao} {numero} {numero_extenso} {periodo} {competencia} {obra} {instrumento}
+# {objeto} {municipio} {lista} {saudacao} {oficio_barra}. {lista} é montada pelo sistema; {lista_anexos}
+# (só no e-mail) é o que de fato vai anexado.
+# Campos opcionais por família: `local` (cidade da carta), `assinatura` (linhas) e o par
+# `reajuste_carta_assunto` + `reajuste_carta_corpo`, usado no protocolo que leva só o reajuste.
+signatario: [CONSTRUTORA EXEMPLO LTDA, Responsável de Exemplo]
+emitentes:
+  lotufo:
+    razao_social: CONSTRUTORA EXEMPLO LTDA
+    cnpj: 31.200.101/0001-30
+    ie: 00.000.000-0
+    endereco: 'Rua de Exemplo, 100, Bairro Exemplo – CEP: 00000-000 – Cuiabá/MT'
+    contato: 'Tel.: (00) 0000-0000     contato@exemplo.com.br     www.exemplo.com.br'
+familias:
+  mtpar:
+    email_assunto: 'Protocolo {oficio_barra}: {medicao}, ref. {competencia}, {obra}'
+    email_corpo: |
+      {saudacao}
+
+      Segue arquivo de exemplo para protocolo.
+
+      Pedimos o retorno com o número do protocolo.
+
+      Atenciosamente,
+    carta_assunto: 'Ref.: {medicao} ({periodo})'
+    carta_corpo: |
+      {razao_social}, CNPJ {cnpj}, responsável pela obra {objeto}, envia os documentos relativos {a_medicao}, período {periodo}:
+
+      {lista}
+
+      Ficamos à disposição.
+
+      Cordialmente,
+  ses:
+    local: '{municipio}'
+    email_assunto: 'Envio: {medicao} / {periodo} / {instrumento} / {obra}'
+    email_corpo: |
+      {saudacao}
+
+      Segue em anexo o arquivo de exemplo.
+
+      Atenciosamente,
+    carta_assunto: 'Ref.: envio da {medicao}'
+    carta_corpo: |
+      Construtora Exemplo Ltda, CNPJ 31.200.101/0001-30, encaminha a {medicao} da obra {objeto}.
+
+      Documentos anexos:
+
+      {lista}
+
+      Agradecemos.
+
+      Cordialmente,
+    assinatura: [Responsável de Exemplo, Construtora Exemplo]
+  sinfra:
+    assinatura: [Construtora Exemplo Ltda, Responsável de Exemplo]
+    email_assunto: '{oficio}: {medicao} ({competencia}), {instrumento}, {obra}'
+    email_corpo: |
+      {saudacao}
+
+      Segue arquivo de exemplo para protocolo, com as versões editáveis para a fiscalização.
+
+      Atenciosamente,
+    carta_assunto: 'Ref.: {numero} medição ({periodo})'
+    carta_corpo: |
+      {razao_social}, CNPJ {cnpj}, responsável pela obra {objeto}, envia para análise os documentos da {numero} medição, período {periodo}:
+
+      {lista}
+
+      Aguardamos o retorno.
+
+      Cordialmente,
+    reajuste_carta_assunto: 'Ref.: reajuste da {numero} medição ({periodo})'
+    reajuste_carta_corpo: |
+      Enviamos a planilha de reajuste da {numero} ({numero_extenso}) medição da obra {objeto}.
+
+      Cordialmente,
+    nota_email_assunto: 'Nota fiscal: {medicao} ({competencia}), {instrumento}, {obra}'
+    nota_email_corpo: |
+      {saudacao}
+
+      Seguem, em anexo, {lista_anexos}.
+
+      Atenciosamente,
+  prefeitura:
+    email_assunto: '{oficio}: notas fiscais da {medicao} ({competencia}), {obra}'
+    email_corpo: |
+      {saudacao}
+
+      Seguem, em anexo, {lista_anexos}.
+
+      Atenciosamente,
+    carta_assunto: 'Ref.: nota fiscal da {medicao} ({periodo})'
+    carta_corpo: |
+      {razao_social}, CNPJ {cnpj}, responsável pela obra {objeto}, envia a nota fiscal relativa {a_medicao}, período {periodo}:
+
+      {lista}
+
+      Cordialmente,
+# Pleitos (iguais para todas as famílias; `<campo>_<familia>` vence o comum). Campos próprios:
+# reajuste {data_base} {data_base_extenso} {indice} {mes_aniversario} {aniversario};
+# prazo {historico} {justificativa} {dias} {fim_execucao} {novo_fim_execucao};
+# conclusao {medicao_final} {data_final}.
+pleito_reajuste:
+  carta_assunto: 'Ref.: previsão de reajuste'
+  carta_corpo: |
+    {razao_social}, CNPJ {cnpj}, apresenta a previsão de reajuste do contrato {instrumento}, obra {objeto}.
+
+    O aniversário do contrato é em {mes_aniversario}; a data-base é {data_base_extenso}.
+
+    Seguem o cronograma e a memória de cálculo.
+
+    Cordialmente,
+  carta_corpo_sinfra: |
+    {razao_social}, CNPJ {cnpj}, apresenta a previsão de reajuste do contrato {instrumento}, firmado com a Secretaria de Exemplo, obra {objeto}.
+
+    O aniversário do contrato é em {mes_aniversario}; a data-base é {data_base_extenso}.
+
+    Seguem o cronograma e a memória de cálculo.
+
+    Cordialmente,
+  email_assunto: '{oficio}: previsão de reajuste, {obra}'
+  email_corpo: |
+    {saudacao}
+
+    Segue arquivo de exemplo para protocolo.
+
+    Atenciosamente,
+prazo:
+  carta_assunto: 'Ref.: pedido de mais prazo de execução'
+  carta_corpo: |
+    {razao_social}, CNPJ {cnpj}, responsável pela obra {objeto}, pede mais prazo.
+
+    # 1. HISTÓRICO
+
+    {historico}
+
+    # 2. PEDIDO
+
+    {justificativa}
+
+    Pedimos {dias} dias a mais: o fim da execução passa de {fim_execucao} para {novo_fim_execucao}.
+
+    Cordialmente,
+  email_assunto: '{oficio}: pedido de prazo, {obra}'
+  email_corpo: |
+    {saudacao}
+
+    Segue arquivo de exemplo para protocolo.
+
+    Atenciosamente,
+conclusao:
+  carta_assunto: 'Ref.: obra concluída, pedido de vistoria'
+  carta_corpo: |
+    {razao_social}, CNPJ {cnpj}, informa que a obra do contrato {instrumento} terminou com a {medicao_final} ({data_final}).
+
+    # PEDIDOS
+
+    a) marcar a vistoria técnica;
+    b) emitir o termo de recebimento.
+
+    Cordialmente,
+  email_assunto: '{oficio}: conclusão da obra, {obra}'
+  email_corpo: |
+    {saudacao}
+
+    Segue arquivo de exemplo para protocolo.
+
+    Atenciosamente,

@@ -1,0 +1,397 @@
+"""Envio de e-mail pelo Microsoft Graph, pela conta de QUEM ENVIA (spec 2026-09-21 §5.1).
+
+Cada pessoa conecta a propria conta uma vez (codigo de dispositivo). O refresh token fica num
+arquivo por usuario na pasta de segredos (`DASH_GRAPH_TOKENS_DIR`), fora do repositorio e do
+banco. O sistema NAO le caixa de e-mail: `Mail.ReadWrite` e' o que o Graph exige para criar o
+rascunho e subir anexo acima de 3 MB; nenhuma funcao deste modulo lista ou le mensagem.
+"""
+import base64
+import datetime
+import hashlib
+import json
+import logging
+import os
+import re
+import secrets
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from contextlib import contextmanager
+from pathlib import Path
+
+from app import arquivos, auditoria, db, graph
+
+log = logging.getLogger("app.correio")
+
+ESCOPOS = "offline_access User.Read Mail.Send Mail.ReadWrite"
+# Sugestao de destinatarios como no Outlook (2026-09-25): pessoas com quem a conta fala e o diretorio da
+# empresa. Nenhuma das duas exige consentimento de administrador. O ENVIO continua pedindo so' ESCOPOS: quem
+# conectou antes delas envia normalmente e fica com as sugestoes do cadastro ate conectar de novo.
+ESCOPOS_DIRETORIO = "People.Read User.ReadBasic.All"
+ESCOPOS_LOGIN = f"{ESCOPOS} {ESCOPOS_DIRETORIO}"
+# Assinatura de quem envia: imagem que a pessoa sobe em Minha conta (o Graph nao le a assinatura do Outlook).
+ASSINATURA_MAX = 1024 * 1024
+ASSINATURA_CID = "assinatura-remetente"
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+LIMITE_SIMPLES = 3 * 1024 * 1024       # acima disto o Graph exige sessao de upload
+BLOCO = 3_276_800                      # multiplo de 320 KiB, como o Graph pede
+# O Exchange Online recusa mensagem acima de ~35 MB JA' CODIFICADA; o Base64 incha o anexo
+# em ~33%, entao o teto sobre os bytes crus e' 25 MB.
+MAX_TOTAL = 25 * 1024 * 1024
+_UPLOAD_HOSTS = ("https://outlook.office.com/", "https://outlook.office365.com/")
+
+
+def configuracao() -> dict:
+    return {"tenant": os.environ.get("DASH_GRAPH_TENANT") or "organizations",
+            "client_id": os.environ.get("DASH_GRAPH_CLIENT_ID"),
+            "tokens_dir": os.environ.get("DASH_GRAPH_TOKENS_DIR"),
+            "simulador": os.environ.get("DASH_GRAPH_SIMULADOR")}
+
+
+def arquivo_token(usuario_id: int) -> Path:
+    pasta = configuracao()["tokens_dir"]
+    if not pasta:
+        raise RuntimeError("DASH_GRAPH_TOKENS_DIR não definida: sem pasta para as contas Microsoft")
+    return Path(pasta) / f"usuario-{int(usuario_id)}.txt"
+
+
+def conectado(usuario_id: int) -> bool:
+    try:
+        return bool(arquivo_token(usuario_id).read_text(encoding="utf-8").strip())
+    except (OSError, RuntimeError):
+        return False
+
+
+def registrar_envio(conn, usuario_id: int, tipo: str, remetente: str, para: list[str],
+                    copia: list[str], assunto: str, mensagem_id: str | None,
+                    anexos: list[tuple[str, bytes]], cco: list[str] | None = None) -> int:
+    cco = list(cco or [])
+    with db.mutacao(conn):
+        cur = conn.execute(
+            "INSERT INTO envios (tipo, usuario_id, remetente, para, copia, cco, assunto, mensagem_id) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (tipo, usuario_id, remetente, json.dumps(para), json.dumps(copia), json.dumps(cco) if cco else None,
+             assunto, mensagem_id))
+        eid = cur.lastrowid
+        resumo = []
+        for nome, dados in anexos:
+            h = hashlib.sha256(dados).hexdigest()
+            conn.execute("INSERT INTO envio_anexos (envio_id, nome, tamanho, sha256) VALUES (?,?,?,?)",
+                         (eid, nome, len(dados), h))
+            resumo.append({"nome": nome, "tamanho": len(dados), "sha256": h})
+        auditoria.registrar(conn, usuario_id, "correio.envio", "envio", eid, None,
+                            {"tipo": tipo, "remetente": remetente, "para": para, "copia": copia, "cco": cco,
+                             "assunto": assunto, "mensagem_id": mensagem_id, "anexos": resumo})
+    return eid
+
+
+class EnvioNaoRegistrado(RuntimeError):
+    """O e-mail SAIU e o registro no banco falhou (testes de quebra de 10/10/2026, A-03). Quem repete manda outro
+    e-mail ao orgao: main.py responde 500 dizendo isso, e nao o 503 "tente novamente" do banco ocupado."""
+
+    def __init__(self, mensagem_id: str | None, assunto: str, para: list[str], envio_id: int | None = None):
+        super().__init__(f"e-mail enviado e nao registrado: {assunto}")
+        self.mensagem_id, self.assunto, self.para, self.envio_id = mensagem_id, assunto, para, envio_id
+
+
+class EnvioIncerto(EnvioNaoRegistrado):
+    """A conexao caiu no proprio /send (gate Sol S2, 10/10/2026): o Graph pode ter aceitado e a resposta se perdido.
+    Como o EnvioNaoRegistrado, segura a reserva; main.py responde 500 mandando conferir os Enviados."""
+
+
+@contextmanager
+def depois_do_envio(assunto: str, para: list[str], envio_id: int):
+    """Envolve a marcacao feita DEPOIS do e-mail (protocolo/espelho/pleito `enviado`): QUALQUER falha ali (lock,
+    IntegrityError, auditoria, bug) vira EnvioNaoRegistrado -- o e-mail ja' saiu (gate Sol S3, 10/10/2026). A
+    reserva do envio fica, de proposito, para segurar a repeticao."""
+    try:
+        yield
+    except Exception as e:
+        log.critical("E-mail ENVIADO (envio %s) e nao marcado (%r): %s para %s", envio_id, e, assunto, para)
+        raise EnvioNaoRegistrado(None, assunto, para, envio_id) from e
+
+
+def contas_do_usuario(conn, email_login: str) -> set[str]:
+    """Contas do Outlook de onde a pessoa ja' enviou (o login pode ser outro: alguem entra como
+    fulano@exemplo.com.br e envia como fulano.tal@exemplo.com.br)."""
+    return {r[0].lower() for r in conn.execute(
+        "SELECT DISTINCT e.remetente FROM envios e JOIN usuarios u ON u.id=e.usuario_id WHERE lower(u.email)=?",
+        ((email_login or "").lower(),)) if r[0]}
+
+
+def _http(metodo: str, url: str, corpo: bytes | None = None, headers: dict | None = None,
+          bearer: str | None = None) -> dict:
+    """Uma requisicao. O bearer so' vai ao host do Graph; a URL de upload ja' e' autenticada."""
+    if bearer is not None and not url.startswith(graph.GRAPH + "/"):
+        raise graph.ErroGraph("URL fora do Microsoft Graph recusada")
+    if bearer is None and not url.startswith(_UPLOAD_HOSTS):
+        raise graph.ErroGraph("URL de upload fora do Outlook recusada")
+    h = {"Accept": "application/json", **(headers or {})}
+    if bearer is not None:
+        h["Authorization"] = "Bearer " + bearer
+    req = urllib.request.Request(url, data=corpo, headers=h, method=metodo)
+    try:
+        # Sem seguir redirect: o urllib repetiria o Authorization no destino do 3xx.
+        with graph._SEM_REDIRECT.open(req, timeout=graph.TIMEOUT) as r:
+            bruto = r.read()
+    except urllib.error.HTTPError as e:
+        raise graph.ErroGraph(f"Graph respondeu HTTP {e.code} ao enviar o e-mail", status=e.code) from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise graph.ErroGraph(f"Graph inacessível ({e.__class__.__name__})") from None
+    return json.loads(bruto.decode("utf-8")) if bruto.strip() else {}
+
+
+def _enderecos(lista: list[str]) -> list[dict]:
+    return [{"emailAddress": {"address": e}} for e in lista]
+
+
+def _conferir_tamanho(anexos: list[tuple[str, bytes]]) -> None:
+    total = sum(len(d) for _, d in anexos)
+    if total > MAX_TOTAL:
+        raise graph.ErroGraph(f"Anexos somam {total // 1024 // 1024} MB; o limite do e-mail é "
+                              f"{MAX_TOTAL // 1024 // 1024} MB. Divida o envio.")
+
+
+class ClienteCorreio:
+    def __init__(self, token: graph.Token):
+        self.token = token
+
+    def _json(self, metodo: str, caminho: str, corpo: dict | None = None, headers: dict | None = None) -> dict:
+        dados = None if corpo is None else json.dumps(corpo).encode("utf-8")
+        return _http(metodo, graph.GRAPH + caminho, dados, {"Content-Type": "application/json", **(headers or {})},
+                     bearer=self.token.acesso())
+
+    def remetente(self) -> str:
+        eu = self._json("GET", "/me")
+        return (eu.get("mail") or eu.get("userPrincipalName") or "").lower()
+
+    def enviar(self, para, copia, assunto, corpo_html, anexos, cco=(), inline=()) -> str | None:
+        _conferir_tamanho([*anexos, *((n, d) for n, d, _ in inline)])
+        rascunho = self._json("POST", "/me/messages", {
+            "subject": assunto, "body": {"contentType": "HTML", "content": corpo_html},
+            "toRecipients": _enderecos(para), "ccRecipients": _enderecos(copia), "bccRecipients": _enderecos(cco)})
+        mid = rascunho["id"]
+        try:
+            for nome, dados, cid in inline:          # assinatura: imagem no corpo (cid), pequena
+                self._json("POST", f"/me/messages/{mid}/attachments", {
+                    "@odata.type": "#microsoft.graph.fileAttachment", "name": nome, "isInline": True,
+                    "contentId": cid, "contentBytes": base64.b64encode(dados).decode("ascii")})
+            for nome, dados in anexos:
+                if len(dados) <= LIMITE_SIMPLES:
+                    self._json("POST", f"/me/messages/{mid}/attachments", {
+                        "@odata.type": "#microsoft.graph.fileAttachment", "name": nome,
+                        "contentBytes": base64.b64encode(dados).decode("ascii")})
+                    continue
+                sessao = self._json("POST", f"/me/messages/{mid}/attachments/createUploadSession", {
+                    "AttachmentItem": {"attachmentType": "file", "name": nome, "size": len(dados)}})
+                for inicio in range(0, len(dados), BLOCO):
+                    bloco = dados[inicio:inicio + BLOCO]
+                    _http("PUT", sessao["uploadUrl"], bloco, {
+                        "Content-Type": "application/octet-stream",
+                        "Content-Range": f"bytes {inicio}-{inicio + len(bloco) - 1}/{len(dados)}"})
+            self.token.acesso()          # token renovado AQUI: falha de login ainda e' antes do envio
+        except graph.ErroGraph:
+            self._apagar_rascunho(mid)
+            raise
+        # Ponto sem volta (gate Sol S2, 10/10/2026): so' o /send manda o e-mail. Recusa com 4xx e' certeza de que
+        # nada saiu; sem resposta, 5xx ou resposta ilegivel o Graph pode ter aceitado -- nao se apaga nada (a
+        # mensagem pode ja' estar em Enviados) e a reserva fica (EnvioIncerto).
+        try:
+            self._json("POST", f"/me/messages/{mid}/send")
+        except graph.ErroGraph as e:
+            if e.status is not None and 400 <= e.status < 500:
+                self._apagar_rascunho(mid)
+                raise
+            log.critical("Envio INCERTO (%s): %s para %s", e, assunto, para)
+            raise EnvioIncerto(None, assunto, para) from e
+        except ValueError as e:
+            log.critical("Envio INCERTO (resposta ilegivel do /send): %s para %s", assunto, para)
+            raise EnvioIncerto(None, assunto, para) from e
+        return rascunho.get("internetMessageId")
+
+    def _apagar_rascunho(self, mid: str) -> None:
+        try:
+            self._json("DELETE", f"/me/messages/{mid}")
+        except graph.ErroGraph:
+            log.warning("rascunho %s ficou na caixa apos falha de envio", mid)
+
+
+class CorreioSimulado:
+    """`DASH_GRAPH_SIMULADOR=<pasta>`: grava o que seria enviado, para dev e testes de API."""
+
+    def __init__(self, pasta: Path, remetente: str):
+        self.pasta, self._remetente = pasta / "enviados", remetente
+
+    def remetente(self) -> str:
+        return self._remetente
+
+    def enviar(self, para, copia, assunto, corpo_html, anexos, cco=(), inline=()) -> str:
+        _conferir_tamanho([*anexos, *((n, d) for n, d, _ in inline)])
+        self.pasta.mkdir(parents=True, exist_ok=True)
+        # Nome unico (10/10/2026, N-02): contar os .json da pasta dava o MESMO nome a envios simultaneos, um
+        # sobrescrevia o outro e o simulador subestimava os envios. Ordem alfabetica = ordem de envio.
+        n = f"{datetime.datetime.now().strftime('%Y%m%d-%H%M%S-%f')}-{secrets.token_hex(2)}"
+        (self.pasta / f"{n}.json").write_text(json.dumps({
+            "remetente": self._remetente, "para": para, "copia": copia, "cco": list(cco), "assunto": assunto,
+            "corpo": corpo_html, "inline": [{"nome": nome, "cid": cid, "tamanho": len(d)} for nome, d, cid in inline],
+            "anexos": [{"nome": nome, "tamanho": len(d), "sha256": hashlib.sha256(d).hexdigest()}
+                       for nome, d in anexos]}, ensure_ascii=False, indent=1), encoding="utf-8")
+        return f"<simulado-{n}@dashboard>"
+
+
+def cliente(usuario_id: int, email_usuario: str = ""):
+    cfg = configuracao()
+    if cfg["simulador"]:
+        return CorreioSimulado(Path(cfg["simulador"]), email_usuario or f"usuario-{usuario_id}@simulador")
+    if not cfg["client_id"]:
+        raise graph.ErroGraph("Microsoft 365 não configurado neste servidor (DASH_GRAPH_CLIENT_ID)")
+    if not conectado(usuario_id):
+        raise graph.ErroGraph("Sua conta Microsoft não está conectada: conecte em Minha conta")
+    return ClienteCorreio(graph.Token(cfg["tenant"], cfg["client_id"], arquivo_token(usuario_id), ESCOPOS))
+
+
+def enviar_e_registrar(conn, usuario: dict, tipo: str, para: list[str], copia: list[str], assunto: str,
+                       corpo_html: str, anexos: list[tuple[str, bytes]], cco: list[str] | None = None) -> int:
+    """Envia e SO' ENTAO registra: falha de envio nao deixa rastro de envio. Com assinatura cadastrada, ela vai
+    no fim do corpo como imagem (anexo embutido, como o Outlook faz)."""
+    cco = list(cco or [])
+    c = cliente(usuario["id"], usuario.get("email", ""))
+    remetente = c.remetente()
+    # Quem envia nao vai em copia de si mesmo: compara com a conta do Outlook, nao com o login (09/10/2026).
+    copia = [x for x in copia if x.lower() != (remetente or "").lower()]
+    cco = [x for x in cco if x.lower() != (remetente or "").lower()]
+    inline = []
+    a = assinatura(usuario["id"])
+    if a is not None:
+        dados, tipo_img = a
+        corpo_html += (f'<p>&nbsp;</p><p><img src="cid:{ASSINATURA_CID}" alt="Assinatura" '
+                       f'style="max-width:600px"></p>')
+        inline.append((f"assinatura.{'png' if tipo_img == 'image/png' else 'jpg'}", dados, ASSINATURA_CID))
+    mensagem_id = c.enviar(para, copia, assunto, corpo_html, anexos, cco=cco, inline=inline)
+    # O e-mail SAIU: daqui para baixo nenhuma falha pode virar "tente de novo" (A-03, 10/10/2026). Banco travado
+    # alem do busy_timeout ganha mais duas chances; o que ainda falhar vira EnvioNaoRegistrado.
+    for tentativa in range(3):
+        if tentativa:
+            time.sleep(1)
+        try:
+            return registrar_envio(conn, usuario["id"], tipo, remetente, para, copia, assunto, mensagem_id, anexos,
+                                   cco=cco)
+        except Exception as e:
+            erro = e
+            if not db.eh_lock(e):
+                break
+    log.critical("E-mail ENVIADO e nao registrado: %s para %s (%s)", assunto, para, mensagem_id)
+    raise EnvioNaoRegistrado(mensagem_id, assunto, para) from erro
+
+
+# --- assinatura de quem envia --------------------------------------------------------------------------------
+
+def _arquivo_assinatura(usuario_id: int) -> Path:
+    return arquivos.pasta("assinaturas") / f"usuario-{int(usuario_id)}"
+
+
+def assinatura(usuario_id: int) -> tuple[bytes, str] | None:
+    """(bytes, mime) da imagem da assinatura, ou None."""
+    try:
+        dados = _arquivo_assinatura(usuario_id).read_bytes()
+    except OSError:
+        return None
+    return (dados, _mime_imagem(dados)) if dados and _mime_imagem(dados) else None
+
+
+def _mime_imagem(dados: bytes) -> str | None:
+    if dados.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if dados.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    return None
+
+
+def gravar_assinatura(conn, usuario_id: int, dados: bytes) -> None:
+    if not _mime_imagem(dados):
+        raise ValueError("A assinatura tem que ser uma imagem PNG ou JPG")
+    if len(dados) > ASSINATURA_MAX:
+        raise ValueError("Imagem da assinatura acima de 1 MB")
+    with db.mutacao(conn):
+        auditoria.registrar(conn, usuario_id, "correio.assinatura", "usuario", usuario_id, None,
+                            {"tamanho": len(dados), "sha256": hashlib.sha256(dados).hexdigest()})
+        _arquivo_assinatura(usuario_id).write_bytes(dados)
+
+
+def remover_assinatura(conn, usuario_id: int) -> None:
+    arquivo = _arquivo_assinatura(usuario_id)
+    if not arquivo.exists():
+        return
+    with db.mutacao(conn):
+        auditoria.registrar(conn, usuario_id, "correio.assinatura", "usuario", usuario_id, None, {"removida": True})
+        arquivo.unlink()
+
+
+# --- contatos para os destinatarios --------------------------------------------------------------------------
+
+def _contatos_locais(conn, usuario_id: int) -> dict[str, str | None]:
+    """email -> nome, do que a dashboard ja' conhece: usuarios, fiscais, faturamento das entidades, enderecos dos
+    orgaos e das obras, e quem ja' recebeu e-mail pelo sistema."""
+    out: dict[str, str | None] = {}
+
+    def por(email, nome=None):
+        e = (email or "").strip().lower()
+        if _EMAIL.fullmatch(e) and (e not in out or (nome and not out[e])):
+            out[e] = nome or out.get(e)
+
+    for r in conn.execute("SELECT nome, email FROM usuarios WHERE ativo=1"):
+        por(r["email"], r["nome"])
+    for r in conn.execute("SELECT nome, email FROM contrato_fiscais WHERE email IS NOT NULL"):
+        por(r["email"], r["nome"])
+    textos = [r[0] for r in conn.execute("SELECT regras FROM orgaos WHERE regras IS NOT NULL")]
+    textos += [r[0] for r in conn.execute("SELECT emails_faturamento FROM entidades WHERE emails_faturamento IS NOT NULL")]
+    textos += [r[0] for r in conn.execute("SELECT destinatarios_extras FROM contratos WHERE destinatarios_extras IS NOT NULL")]
+    textos += [x for r in conn.execute("SELECT para, copia FROM envios") for x in r if x]
+    textos += [r[0] for r in conn.execute("SELECT cco FROM envios WHERE usuario_id=? AND cco IS NOT NULL",
+                                          (usuario_id,))]          # copia oculta de outra pessoa nao vaza
+    for t in textos:
+        for e in _EMAIL.findall(t):
+            por(e)
+    return out
+
+
+def _diretorio(usuario_id: int, q: str, todos: bool) -> list[dict]:
+    """Pessoas (/me/people) e usuarios da empresa (/users) pelo Graph. Sem a permissao (conta conectada antes
+    de 2026-09-25) ou fora do ar: lista vazia, e ficam as sugestoes do cadastro."""
+    cfg = configuracao()
+    if cfg["simulador"] or not cfg["client_id"] or not conectado(usuario_id):
+        return []
+    c = ClienteCorreio(graph.Token(cfg["tenant"], cfg["client_id"], arquivo_token(usuario_id), ESCOPOS_DIRETORIO))
+    out = []
+    try:
+        if q:
+            r = c._json("GET", "/me/people?" + urllib.parse.urlencode({"$search": f'"{q}"', "$top": "10"}))
+            for p in r.get("value", []):
+                for e in p.get("scoredEmailAddresses") or []:
+                    out.append({"nome": p.get("displayName"), "email": (e.get("address") or "").lower()})
+        filtro = {"$select": "displayName,mail", "$top": "200" if todos else "10", "$orderby": "displayName"}
+        if q:
+            filtro["$search"] = f'"displayName:{q}" OR "mail:{q}"'
+        r = c._json("GET", "/users?" + urllib.parse.urlencode(filtro), headers={"ConsistencyLevel": "eventual"})
+        out += [{"nome": u.get("displayName"), "email": (u.get("mail") or "").lower()} for u in r.get("value", [])]
+    except graph.ErroGraph as e:
+        log.info("diretorio Microsoft indisponivel para o usuario %s: %s", usuario_id, e)
+    return [x for x in out if _EMAIL.fullmatch(x["email"] or "")]
+
+
+def contatos(conn, usuario_id: int, q: str = "", todos: bool = False) -> list[dict]:
+    """Sugestoes de destinatario: cadastro da dashboard e diretorio Microsoft, sem repetir e-mail."""
+    q = (q or "").strip().lower()
+    vistos: dict[str, dict] = {}
+    for e, nome in _contatos_locais(conn, usuario_id).items():
+        if not q or q in e or q in (nome or "").lower():
+            vistos[e] = {"nome": nome, "email": e}
+    for x in _diretorio(usuario_id, q, todos):
+        if x["email"] not in vistos or not vistos[x["email"]]["nome"]:
+            vistos[x["email"]] = x
+    lista = sorted(vistos.values(), key=lambda x: ((x["nome"] or x["email"]).lower()))
+    if q:   # quem comeca com o texto vem primeiro, como no Outlook
+        lista.sort(key=lambda x: not ((x["nome"] or "").lower().startswith(q) or x["email"].startswith(q)))
+    return lista[:200 if todos else 10]
+

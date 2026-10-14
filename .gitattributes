@@ -1,0 +1,8 @@
+# Binários: sem normalização de fim de linha e sem diff textual. A fonte .woff2 e a
+# logo são consumidas byte a byte pelo navegador — deixar o git "consertar" CRLF nelas
+# corrompe o arquivo em silêncio (fonte que não carrega, imagem que não abre).
+*.woff2 binary
+# Hooks de git sao scripts sh: com autocrlf=true sairiam com CRLF no checkout e o sh quebraria no \r.
+.githooks/* text eol=lf
+*.png binary
+*.jpg binary

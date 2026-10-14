@@ -1,0 +1,145 @@
+"""Pagina Medicoes com abas (09/10/2026): situacao por estado, marco de cada situacao (nunca o criado_em), a linha
+unica de medicao + reajuste, o contratante (sigla e sub-orgao) e as obras sem medicao aberta (prevista nao conta)."""
+import datetime
+
+import pytest
+
+from app import auth, db, medicoes
+
+HOJE = datetime.date(2026, 10, 9)
+
+
+@pytest.fixture
+def conn(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    c = db.get_conn()
+    db.migrate(c)
+    yield c
+    c.close()
+
+
+def _orgao(c, chave, nome, familia):
+    return c.execute("INSERT INTO orgaos (chave, nome, familia, regras) VALUES (?,?,?,'{}')",
+                     (chave, nome, familia)).lastrowid
+
+
+def _obra(c, nome, orgao_id, estado="ativo", orgao_texto="ÓRGÃO"):
+    return c.execute("INSERT INTO contratos (orgao, numero_instrumento, objeto, valor_original_centavos, estado, "
+                     "nome_curto, orgao_id) VALUES (?,?,?,0,?,?,?)",
+                     (orgao_texto, f"IC {nome}", nome, estado, nome, orgao_id)).lastrowid
+
+
+def _medicao(c, cid, numero, tipo, estado, valor=None, criado_em="2026-01-01 10:00:00", **datas):
+    cols = ", ".join(["contrato_id", "numero", "tipo", "competencia", "estado", "valor_protocolado_centavos",
+                      "criado_em", *datas])
+    vals = [cid, numero, tipo, "2026-09", estado, valor, criado_em, *datas.values()]
+    return c.execute(f"INSERT INTO medicoes ({cols}) VALUES ({','.join('?' * len(vals))})", vals).lastrowid
+
+
+@pytest.fixture
+def cenario(conn):
+    c = conn
+    uid = auth.criar_usuario(c, "Leo", "leo@l.com", "senha-forte-123", "admin")
+    suef2 = _orgao(c, "sinfra-suef2", "SINFRA - SUEF II", "sinfra")
+    supu = _orgao(c, "sinfra-supu", "SINFRA - SUPU (Pavimentação Urbana)", "sinfra")
+    mtpar = _orgao(c, "mtpar", "MT Participações e Projetos S.A. - MTPAR", "mtpar")
+    vg = _orgao(c, "pref-vg", "Prefeitura de Várzea Grande - Secretaria Municipal de Saúde", "prefeitura")
+    ids = {
+        "a": _obra(c, "Obra A", suef2), "b": _obra(c, "Obra B", mtpar), "c": _obra(c, "Obra C", supu),
+        "d": _obra(c, "Obra D", vg), "e": _obra(c, "Obra E", mtpar, estado="suspenso"),
+        "f": _obra(c, "Obra F", None, orgao_texto="Órgão sem cadastro"),
+    }
+    # A: medicao + reajuste com a nota emitida (uma linha so', marco mais antigo) e um projeto em linha propria
+    ids["a24"] = _medicao(c, ids["a"], 24, "execucao", "nota_emitida", 100000, nota_emitida_em="2026-10-03")
+    ids["a24r"] = _medicao(c, ids["a"], 24, "reajuste", "nota_emitida", 2500, nota_emitida_em="2026-10-01")
+    ids["a1p"] = _medicao(c, ids["a"], 1, "projeto", "nota_emitida", 7000, nota_emitida_em="2026-10-08")
+    # B: medicao protocolada (aguardando pagamento) e o reajuste do mesmo numero em OUTRA situacao: duas linhas
+    ids["b15"] = _medicao(c, ids["b"], 15, "execucao", "protocolada", 300000)
+    c.execute("INSERT INTO medicao_protocolos (medicao_id, data, origem) VALUES (?, '2026-09-01', 'manual')", (ids["b15"],))
+    ids["b15r"] = _medicao(c, ids["b"], 15, "reajuste", "espelho_enviado", 4000)
+    envio = c.execute("INSERT INTO envios (tipo, usuario_id, remetente, para, copia, assunto, enviado_em) "
+                      "VALUES ('espelho', ?, 'leo@l.com', '[]', '[]', 'Espelho', '2026-10-08 02:00:00')", (uid,)).lastrowid
+    c.execute("INSERT INTO envio_medicoes (envio_id, medicao_id) VALUES (?,?)", (envio, ids["b15r"]))
+    # C: espelho gerado; o espelho substituido (mais antigo) nao e' o marco, o vigente e'
+    ids["c3"] = _medicao(c, ids["c"], 3, "execucao", "espelho_gerado", 5000)
+    for versao, situacao, criado in ((1, "substituido", "2026-09-20 15:00:00"), (2, "vigente", "2026-10-09 15:00:00")):
+        eid = c.execute("INSERT INTO espelhos (contrato_id, numero, competencia, versao, situacao, entradas, saidas, "
+                        "regra_sha256, criado_por, criado_em) VALUES (?,3,'2026-09',?,?,'{}','[]','x',?,?)",
+                        (ids["c"], versao, situacao, uid, criado)).lastrowid
+        c.execute("INSERT INTO espelho_medicoes (espelho_id, medicao_id) VALUES (?,?)", (eid, ids["c3"]))
+    # D: so' a prevista do cronograma -> sem medicao aberta, com a prevista para o "Iniciar processo"
+    ids["d2"] = _medicao(c, ids["d"], 2, "execucao", "prevista")
+    ids["d1"] = c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+                          "VALUES (?, 1, 'execucao', '2026-08', 'prevista')", (ids["d"],)).lastrowid
+    # F: espelho enviado sem e-mail registrado: o criado_em NAO vira marco
+    ids["f1"] = _medicao(c, ids["f"], 1, "execucao", "espelho_enviado", 900, criado_em="2026-09-01 10:00:00")
+    c.commit()
+    return ids
+
+
+def test_situacao_cobre_o_mesmo_em_andamento_do_proximo_passo():
+    assert set(medicoes.SITUACAO) == set(medicoes.PROXIMO_PASSO)
+    assert set(medicoes.SITUACAO.values()) == set(medicoes.ORDEM_SITUACAO)
+
+
+def test_contratante_sigla_e_sub_orgao():
+    assert medicoes.contratante("sinfra", "sinfra-supu", "SINFRA - SUPU (Pavimentação Urbana)", None) == ("SINFRA", "SUPU")
+    assert medicoes.contratante("sinfra", "sinfra-sagpm", "SINFRA - SAGPM / SUOESP", None) == ("SINFRA", "SAGPM / SUOESP")
+    assert medicoes.contratante("prefeitura", "rota-do-oeste", "Concessionária Rota do Oeste S.A. (privado)", None) \
+        == ("Rota do Oeste", None)
+    assert medicoes.contratante("prefeitura", "pref-vg", "Prefeitura de Várzea Grande", None) == ("Pref. Várzea Grande", None)
+    # sem sigla conhecida: o nome do cadastro; sem cadastro: o texto do contrato
+    assert medicoes.contratante("prefeitura", "outra", "Prefeitura X", None) == ("Prefeitura X", None)
+    assert medicoes.contratante(None, None, None, "Órgão antigo") == ("Órgão antigo", None)
+
+
+def test_resumo_linhas_marcos_e_contagens(conn, cenario):
+    ids = cenario
+    r = medicoes.resumo(conn, HOJE)
+    linhas = [(x["obra"], x["titulo"], x["situacao"], x["valor_centavos"], x["dias"]) for x in r["linhas"]]
+    assert linhas == [
+        ("Obra C", "3ª Medição", "faturamento", 5000, 0),               # o espelho vigente, de hoje
+        ("Obra B", "Reajuste da 15ª Medição", "aguardando-nota", 4000, 2),  # 02:00 UTC do dia 8 = dia 7 em Cuiaba
+        ("Obra F", "1ª Medição", "aguardando-nota", 900, None),         # sem e-mail: sem marco, nunca o criado_em
+        ("Obra A", "24ª Medição + Reajuste", "enviar-nota", 102500, 8),  # marco mais antigo dos dois
+        ("Obra A", "1ª Medição de Projeto", "enviar-nota", 7000, 1),
+        ("Obra B", "15ª Medição", "aguardando-pagamento", 300000, 38),
+    ]
+    par = r["linhas"][3]
+    assert par["medicao_id"] == ids["a24"] and par["medicao_ids"] == [ids["a24"], ids["a24r"]]
+    assert par["contratante"] == "SINFRA" and par["orgao_sub"] == "SUEF II" and par["marco"] == "2026-10-01"
+    assert par["proximo_passo"] == "protocolar"
+    assert r["contagens"] == {"sem-medicao": 1, "faturamento": 1, "aguardando-nota": 2, "enviar-nota": 2,
+                              "aguardando-pagamento": 1}
+    # obras ativas (a suspensa fica fora); a D so' tem prevista: sem medicao aberta, com a prevista mais antiga
+    obras = {o["obra"]: o for o in r["obras"]}
+    assert set(obras) == {"Obra A", "Obra B", "Obra C", "Obra D", "Obra F"}
+    assert obras["Obra D"]["aberta"] is False and obras["Obra D"]["prevista_id"] == ids["d1"]
+    assert obras["Obra D"]["contratante"] == "Pref. Várzea Grande"
+    assert obras["Obra F"]["contratante"] == "Órgão sem cadastro" and obras["Obra F"]["aberta"] is True
+    assert obras["Obra A"]["prevista_id"] is None
+
+
+def test_aba_aguardando_pagamento_conta_as_notas_da_tabela(conn, cenario):
+    """N-01 (10/10/2026): a aba contava linhas (medicao + reajuste viram uma) e a tabela, notas; agora as duas
+    contam as medicoes protocoladas, uma por nota."""
+    from app import notas_envio
+    ids = cenario
+    _medicao(conn, ids["b"], 16, "execucao", "protocolada", 1000)
+    _medicao(conn, ids["b"], 16, "reajuste", "protocolada", 100)
+    conn.commit()
+    r = medicoes.resumo(conn, HOJE)
+    assert sum(1 for x in r["linhas"] if x["situacao"] == "aguardando-pagamento") == 2      # o par vira uma linha
+    assert r["contagens"]["aguardando-pagamento"] == len(notas_envio.aguardando_pagamento(conn)) == 3
+
+
+def test_rota_do_resumo(client_admin):
+    r = client_admin.get("/api/medicoes/resumo")
+    assert r.status_code == 200, r.text
+    assert set(r.json()) == {"hoje", "contagens", "linhas", "obras"}
+    # a rota fixa nao cai em /api/medicoes/{medicao_id}
+    assert client_admin.get("/api/medicoes/999").status_code == 404
+
+
+def test_rota_do_resumo_exige_login(client):
+    assert client.get("/api/medicoes/resumo").status_code == 401

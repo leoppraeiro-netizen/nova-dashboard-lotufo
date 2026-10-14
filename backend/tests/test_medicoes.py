@@ -1,0 +1,417 @@
+import json
+
+import pytest
+from app import auditoria, auth, contratos, db, medicoes
+
+@pytest.fixture
+def conn(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    c = db.get_conn()
+    db.migrate(c)
+    # Fase 3,5: o checklist trava o protocolo; estes testes nao sao sobre certidoes.
+    c.execute("UPDATE certidao_tipos SET aplicavel_por_padrao=0"); c.commit()
+    auth.criar_usuario(c, "U", "u@l.com", "senha-forte-123", "engenharia")
+    yield c
+    c.close()
+
+@pytest.fixture
+def contrato_id(conn):
+    return contratos.criar(conn, 1, {"orgao": "SINFRA", "numero_instrumento": "IC 1/2026",
+                                     "objeto": "Obra X", "valor_original_centavos": 100_000_00})
+
+def test_criar_e_listar(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 12,
+                                   "tipo": "execucao", "competencia": "2026-07"})
+    itens = medicoes.listar(conn, contrato_id)
+    assert [ (i["numero"], i["tipo"], i["estado"]) for i in itens ] == [(12, "execucao", "prevista")]
+    assert itens[0]["protocolos"] == []
+    assert medicoes.detalhe(conn, mid)["competencia"] == "2026-07"
+
+def test_numero_duplicado_no_mesmo_tipo_rejeita(conn, contrato_id):
+    medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    with pytest.raises(ValueError, match="já existe"):
+        medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-08"})
+    # mesmo numero em tipo diferente e valido (execucao 1 + reajuste 1)
+    medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "reajuste", "competencia": "2026-07"})
+
+def test_protocolo_congela_e_muda_estado(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "protocolado", 50_000_00, "manual")
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", "CT-279-LT-2026", None, "manual")
+    d = medicoes.detalhe(conn, mid)
+    assert d["estado"] == "protocolada" and d["congelada"] == 1
+    with pytest.raises(ValueError, match="congelada"):
+        medicoes.definir_valor(conn, 1, mid, "protocolado", 60_000_00, "manual")
+    # atestado continua editavel (glosa sem cerimonia, spec §5)
+    medicoes.definir_valor(conn, 1, mid, "atestado", 48_000_00, "manual")
+    # reapresentacao = novo evento, sem apagar o anterior
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-20", "CT-301-LT-2026", None, "manual")
+    assert len(medicoes.detalhe(conn, mid)["protocolos"]) == 2
+
+def test_transicoes_de_estado(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    with pytest.raises(ValueError, match="Transição inválida"):
+        medicoes.mudar_estado(conn, 1, mid, "recebida", None)   # pular etapas nao pode
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", None, None, "manual")
+    with pytest.raises(ValueError, match="Transição inválida"):
+        medicoes.mudar_estado(conn, 1, mid, "nf_emitida", None)   # bloco 3: a NF entra pela nota, nao por botao
+    medicoes.mudar_estado(conn, 1, mid, "recebida", None)          # recebida direto de protocolada
+    with pytest.raises(ValueError, match="Transição inválida"):
+        medicoes.mudar_estado(conn, 1, mid, "cancelada", None)  # recebida e final
+
+
+def test_espelho_enviado_vai_a_nota_emitida_com_data(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 7, "execucao", "2026-08", 100_000)
+    medicoes.marcar_espelho_enviado(conn, 1, mid)
+    medicoes.mudar_estado(conn, 1, mid, "nota_emitida", None, "2026-09-14")
+    m = medicoes.detalhe(conn, mid)
+    assert (m["estado"], m["nota_emitida_em"]) == ("nota_emitida", "2026-09-14")
+
+
+def test_nota_emitida_aceita_protocolo_e_nao_volta(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 8, "execucao", "2026-08", 100_000)
+    medicoes.mudar_estado(conn, 1, mid, "nota_emitida", "declarada completa: nota unica", "2026-09-14")
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-09-16", "CT-300-LT-2026", None, "manual")
+    assert medicoes.detalhe(conn, mid)["estado"] == "protocolada"
+    with pytest.raises(ValueError):
+        medicoes.mudar_estado(conn, 1, mid, "nota_emitida", None, None)
+    # a baixa nao vem antes da nota
+    with pytest.raises(ValueError):
+        medicoes.mudar_estado(conn, 1, mid, "recebida", None, "2026-09-01")
+
+def test_prevista_nao_vira_protocolada_por_mudar_estado(conn, contrato_id):
+    """`protocolada` so se alcanca por registrar_protocolo (spec §5).
+
+    mudar_estado nao cria linha em medicao_protocolos nem liga `congelada`: aceitar
+    a transicao aqui deixaria uma medicao "protocolada" SEM protocolo e com o valor
+    protocolado ainda editavel -- a invariante de congelamento inteira furada.
+    """
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    with pytest.raises(ValueError, match="Transição inválida"):
+        medicoes.mudar_estado(conn, 1, mid, "protocolada", None)
+    d = medicoes.detalhe(conn, mid)
+    assert d["estado"] == "prevista" and d["congelada"] == 0 and d["protocolos"] == []
+    # e sem protocolo nao existe caminho para os estados seguintes
+    for alvo in ("nota_emitida", "nf_emitida", "recebida"):
+        with pytest.raises(ValueError, match="Transição inválida"):
+            medicoes.mudar_estado(conn, 1, mid, alvo, None)
+    assert medicoes.detalhe(conn, mid)["estado"] == "prevista"
+
+def test_cancelar_com_motivo(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.mudar_estado(conn, 1, mid, "cancelada", "órgão desistiu")
+    assert medicoes.detalhe(conn, mid)["estado"] == "cancelada"
+
+def test_campo_invalido_rejeita(conn, contrato_id):
+    # fail-closed sem depender de assert (que some com python -O): nome de coluna
+    # nunca pode vir cru do chamador para dentro do UPDATE.
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    with pytest.raises(ValueError, match="Campo inválido"):
+        medicoes.definir_valor(conn, 1, mid, "protocolado_centavos=0, congelada", 1, "manual")
+    assert medicoes.detalhe(conn, mid)["valor_protocolado_centavos"] is None
+
+
+def _detalhe_com_corrida(monkeypatch, conn, outro, medicao_id: int, sql: str):
+    """Simula outro usuario que escreveu ENTRE o SELECT e o UPDATE (TOCTOU deterministico).
+
+    Desde a fase 3 a mutacao inteira roda dentro de um BEGIN IMMEDIATE (db.mutacao),
+    entao a outra conexao NAO consegue mais escrever no meio dela -- ficaria travada
+    ate o busy_timeout. A corrida e' encenada do lado de fora: tira-se o snapshot da
+    leitura ANTES, a interferencia commita, e a mutacao sob teste recebe aquela leitura
+    ja obsoleta. O que fica provado e' exatamente o mesmo: quem barra o perdedor e' o
+    UPDATE condicional ao estado LIDO, nao a validacao em Python.
+    """
+    real = medicoes.detalhe
+    antigo = real(conn, medicao_id)     # leitura ANTES da corrida
+    outro.execute(sql, (medicao_id,))
+    outro.commit()
+    def wrapper(c, mid):
+        monkeypatch.setattr(medicoes, "detalhe", real)  # so a primeira leitura perde a corrida
+        return antigo
+    monkeypatch.setattr(medicoes, "detalhe", wrapper)
+    return real
+
+def test_mudar_estado_perde_corrida(conn, contrato_id, monkeypatch):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    outro = db.get_conn()
+    real = _detalhe_com_corrida(monkeypatch, conn, outro, mid,
+                                "UPDATE medicoes SET estado='cancelada' WHERE id=?")
+    with pytest.raises(ValueError, match="concorrentemente"):
+        medicoes.mudar_estado(conn, 1, mid, "desistida", None)
+    assert real(conn, mid)["estado"] == "cancelada"  # estado final alheio nao foi sobrescrito
+    outro.close()
+
+def test_valor_protocolado_perde_corrida(conn, contrato_id, monkeypatch):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    outro = db.get_conn()
+    # Outro usuario protocola COM VALOR entre a leitura de `congelada` e o UPDATE. E'
+    # esse o caso que a guarda tem que barrar: congelada e ja' com valor. (Congelada
+    # ainda SEM valor aceita o primeiro preenchimento -- ver o teste do primeiro
+    # preenchimento no fim do arquivo.)
+    real = _detalhe_com_corrida(
+        monkeypatch, conn, outro, mid,
+        "UPDATE medicoes SET estado='protocolada', congelada=1, valor_protocolado_centavos=70000000, "
+        "valor_protocolado_origem='manual' WHERE id=?")
+    with pytest.raises(ValueError, match="congelada"):
+        medicoes.definir_valor(conn, 1, mid, "protocolado", 50_000_00, "manual")
+    conn.rollback()
+    assert real(conn, mid)["valor_protocolado_centavos"] == 70000000  # valor alheio intacto
+    outro.close()
+
+def test_valor_atestado_nao_sofre_a_guarda(conn, contrato_id, monkeypatch):
+    # a guarda vale so para protocolado: atestado segue editavel mesmo congelando no meio (glosa)
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    outro = db.get_conn()
+    real = _detalhe_com_corrida(monkeypatch, conn, outro, mid,
+                                "UPDATE medicoes SET estado='protocolada', congelada=1 WHERE id=?")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 48_000_00, "manual")
+    assert real(conn, mid)["valor_atestado_centavos"] == 48_000_00
+    outro.close()
+
+def test_protocolo_perde_corrida(conn, contrato_id, monkeypatch):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    outro = db.get_conn()
+    real = _detalhe_com_corrida(monkeypatch, conn, outro, mid,
+                                "UPDATE medicoes SET estado='cancelada' WHERE id=?")
+    with pytest.raises(ValueError, match="concorrentemente"):
+        medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", None, None, "manual")
+    conn.rollback()
+    d = real(conn, mid)
+    assert d["estado"] == "cancelada" and d["congelada"] == 0
+    assert d["protocolos"] == []  # nada de protocolo orfao numa medicao cancelada
+    outro.close()
+
+def test_auditoria_registrada(conn, contrato_id):
+    medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    acoes = [r["acao"] for r in conn.execute("SELECT acao FROM audit_log")]
+    assert "medicao.criar" in acoes
+
+
+class _CursorMaterializado:
+    """Cursor ja lido: devolve as linhas capturadas antes da corrida."""
+    def __init__(self, linhas):
+        self._linhas = linhas
+    def fetchone(self):
+        return self._linhas[0] if self._linhas else None
+    def fetchall(self):
+        return self._linhas
+
+class _ConexaoComCorrida:
+    """Conexao que devolve a checagem de duplicidade JA OBSOLETA (nao viu a corrida).
+
+    Reproduz de forma deterministica a corrida real de duas requisicoes criando a
+    mesma (contrato, numero, tipo): o SELECT de cortesia nao ve nada, e quem decide
+    e' o UNIQUE do schema no INSERT. Desde a fase 3 a mutacao inteira roda sob
+    BEGIN IMMEDIATE, entao a interferencia commita ANTES da chamada sob teste e o
+    que se injeta aqui e' a leitura antiga -- a assimetria provada e' a mesma.
+    """
+    def __init__(self, real, linhas_antigas):
+        self._real, self._linhas, self._armada = real, linhas_antigas, True
+    def execute(self, sql, params=()):
+        if self._armada and sql.lstrip().upper().startswith("SELECT ID FROM MEDICOES"):
+            self._armada = False
+            return _CursorMaterializado(self._linhas)
+        return self._real.execute(sql, params)
+    def __getattr__(self, nome):
+        return getattr(self._real, nome)
+
+def test_criar_perde_corrida_vira_erro_de_dominio(conn, contrato_id):
+    """Perdedor da corrida recebe ValueError de dominio, nao IntegrityError crua (500)."""
+    dados = {"contrato_id": contrato_id, "numero": 7, "tipo": "execucao", "competencia": "2026-07"}
+    antigas = conn.execute(
+        "SELECT id FROM medicoes WHERE contrato_id=? AND numero=? AND tipo=?",
+        (contrato_id, 7, "execucao")).fetchall()   # vazio: a checagem nao vera a corrida
+    outro = db.get_conn()
+    outro.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia) VALUES (?,?,?,?)",
+                  (contrato_id, 7, "execucao", "2026-07"))
+    outro.commit()
+    with pytest.raises(ValueError, match="já existe"):
+        medicoes.criar(_ConexaoComCorrida(conn, antigas), 1, dados)
+    conn.rollback()
+    assert len(medicoes.listar(conn, contrato_id)) == 1  # nada duplicado ficou gravado
+    outro.close()
+
+def test_auditoria_do_motivo_reflete_o_que_ficou_gravado(conn, contrato_id):
+    """motivo=None PRESERVA o motivo anterior (COALESCE): a auditoria tem que dizer isso.
+
+    Registrar depois={"motivo": null} descreveria um apagamento que nunca aconteceu --
+    numa cadeia append-only, a versao auditada tem que casar com a persistida.
+    """
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 1, "execucao", "2026-07", 100_00)
+    medicoes.mudar_estado(conn, 1, mid, "nota_emitida", "órgão represou a NF")
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", None, None, "manual")
+    medicoes.mudar_estado(conn, 1, mid, "recebida", None)  # sem motivo novo: o antigo fica
+    gravado = medicoes.detalhe(conn, mid)["motivo_represamento"]
+    assert gravado == "órgão represou a NF"
+    ultimo = conn.execute(
+        "SELECT antes, depois FROM audit_log WHERE acao='medicao.estado' ORDER BY id DESC LIMIT 1").fetchone()
+    antes, depois = json.loads(ultimo["antes"]), json.loads(ultimo["depois"])
+    # `recebida_em` entra na auditoria desde a fase 3,5 (data do marco, aqui ausente).
+    assert depois == {"estado": "recebida", "motivo": gravado, "recebida_em": None}
+    assert antes == {"estado": "protocolada", "motivo": gravado}
+    assert auditoria.verificar_cadeia(conn)
+
+
+# --- fase 3,5: datas dos marcos (spec §6) ---
+
+def test_datas_de_marco_e_atesto(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 1, "execucao", "2026-07", 100_00)
+    medicoes.mudar_estado(conn, 1, mid, "nota_emitida", None, "2026-08-01")     # a nota vem antes do protocolo
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", None, None, "manual")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 90_00, "manual", "2026-08-20")
+    # corrigir o valor SEM data preserva a data do atesto (COALESCE)
+    medicoes.definir_valor(conn, 1, mid, "atestado", 85_00, "manual")
+    medicoes.mudar_estado(conn, 1, mid, "recebida", None, "2026-09-30")
+    d = medicoes.detalhe(conn, mid)
+    assert (d["atestado_em"], d["nota_emitida_em"], d["recebida_em"]) == ("2026-08-20", "2026-08-01", "2026-09-30")
+    assert d["valor_atestado_centavos"] == 85_00
+    # a data so' acompanha o atestado e so' os estados com marco
+    with pytest.raises(ValueError):
+        medicoes.definir_valor(conn, 1, mid, "protocolado", 1, "manual", "2026-08-01")
+    mid2 = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 2, "tipo": "execucao", "competencia": "2026-08"})
+    with pytest.raises(ValueError):
+        medicoes.mudar_estado(conn, 1, mid2, "cancelada", None, "2026-08-01")
+    assert auditoria.verificar_cadeia(conn)
+
+# --- revisao final: estado final nao recebe valores ---
+
+@pytest.mark.parametrize("final", ["cancelada", "desistida"])
+def test_estado_final_recusa_definir_valor_nos_dois_campos(conn, contrato_id, final):
+    """Cancelada/desistida sao encerramentos: nem protocolado nem atestado mudam mais.
+
+    `congelada` sozinha nao cobria isso -- uma medicao cancelada ANTES de qualquer
+    protocolo continua com congelada=0, e o atestado nunca passa pela guarda de
+    congelamento (fica editavel de proposito, para glosa).
+    """
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1,
+                                   "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.mudar_estado(conn, 1, mid, final, "encerrada")
+    for campo in ("protocolado", "atestado"):
+        with pytest.raises(ValueError, match="estado final"):
+            medicoes.definir_valor(conn, 1, mid, campo, 50_000_00, "manual")
+    d = medicoes.detalhe(conn, mid)
+    assert d["valor_protocolado_centavos"] is None and d["valor_atestado_centavos"] is None
+
+def test_recebida_mantem_o_atestado_editavel(conn, contrato_id):
+    """A guarda nova cobre so cancelada/desistida: `recebida` segue aceitando glosa
+    no atestado (spec §5). O protocolado ja e' barrado la pelo congelamento."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1,
+                                   "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "protocolado", 50_000_00, "manual")
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", None, None, "manual")
+    medicoes.mudar_estado(conn, 1, mid, "recebida", None)
+    medicoes.definir_valor(conn, 1, mid, "atestado", 48_000_00, "manual")
+    assert medicoes.detalhe(conn, mid)["valor_atestado_centavos"] == 48_000_00
+    with pytest.raises(ValueError, match="congelada"):
+        medicoes.definir_valor(conn, 1, mid, "protocolado", 60_000_00, "manual")
+
+
+def test_congelada_sem_valor_aceita_o_primeiro_preenchimento(conn, contrato_id):
+    """Protocolo detectado (fase 6) congela a medicao ANTES de alguem saber o valor do
+    oficio. O congelamento barra a ALTERACAO, nao o primeiro preenchimento -- senao a
+    medicao ficaria protocolada sem valor para sempre (gate Sol da fase 6)."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 7, "tipo": "execucao",
+                                   "competencia": "2026-07"})
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-08-05", "CT-279-LT-2026", None, "detectado")
+    assert medicoes.detalhe(conn, mid)["congelada"] == 1
+    medicoes.definir_valor(conn, 1, mid, "protocolado", 50_000_00, "manual")
+    assert medicoes.detalhe(conn, mid)["valor_protocolado_centavos"] == 50_000_00
+    # a partir daqui vale o congelamento de sempre
+    with pytest.raises(ValueError, match="congelada"):
+        medicoes.definir_valor(conn, 1, mid, "protocolado", 60_000_00, "manual")
+
+
+# --- bloco 2: a medicao nasce ao gerar o espelho ---------------------------------------
+
+def test_criar_para_espelho_nasce_em_espelho_gerado_com_valor(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 7, "execucao", "2026-05", 27850992)
+    m = medicoes.detalhe(conn, mid)
+    assert (m["estado"], m["valor_protocolado_centavos"], m["valor_protocolado_origem"], m["congelada"]) == \
+        ("espelho_gerado", 27850992, "espelho", 0)
+
+
+def test_criar_para_espelho_de_novo_atualiza_o_valor_e_recusa_protocolada(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 7, "execucao", "2026-05", 100)
+    assert medicoes.criar_para_espelho(conn, 1, contrato_id, 7, "execucao", "2026-05", 200) == mid
+    assert medicoes.detalhe(conn, mid)["valor_protocolado_centavos"] == 200
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-06-10", "CT-1", None, "manual")
+    with pytest.raises(ValueError, match="protocolada"):
+        medicoes.criar_para_espelho(conn, 1, contrato_id, 7, "execucao", "2026-05", 300)
+
+
+def test_protocolo_a_partir_de_espelho_enviado_congela(conn, contrato_id):
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 8, "execucao", "2026-05", 100)
+    medicoes.marcar_espelho_enviado(conn, 1, mid)
+    medicoes.marcar_espelho_enviado(conn, 1, mid)          # idempotente
+    assert medicoes.detalhe(conn, mid)["estado"] == "espelho_enviado"
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-06-10", "CT-2", None, "manual")
+    m = medicoes.detalhe(conn, mid)
+    assert (m["estado"], m["congelada"]) == ("protocolada", 1)
+    with pytest.raises(ValueError):
+        medicoes.mudar_estado(conn, 1, mid, "espelho_enviado", None)   # nao volta
+
+
+def test_em_andamento_lista_do_espelho_ao_pagamento_com_proximo_passo(conn, contrato_id):
+    for numero, estado in ((1, "recebida"), (2, "protocolada"), (3, "nota_emitida"), (4, "cancelada")):
+        conn.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+                     "VALUES (?, ?, 'execucao', '2026-08', ?)", (contrato_id, numero, estado))
+    conn.commit()
+    lista = medicoes.em_andamento(conn)
+    assert [(m["numero"], m["proximo_passo"]) for m in lista] == [(3, "protocolar"), (2, "aguardando pagamento")]
+    assert [m["titulo"] for m in medicoes.em_andamento(conn, estado="nota_emitida")] == ["3ª Medição"]
+
+
+def test_medicao_final_poe_e_tira_o_contrato_do_encerramento(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 30, "tipo": "execucao", "competencia": "2026-08"})
+    medicoes.marcar_final(conn, 1, mid, "2026-09-10")
+    assert conn.execute("SELECT final FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == 1
+    enc = "SELECT encerramento_iniciado_em FROM contratos WHERE id=?"
+    assert conn.execute(enc, (contrato_id,)).fetchone()[0] == "2026-09-10"
+    with pytest.raises(ValueError, match="motivo"):
+        medicoes.desmarcar_final(conn, 1, mid, " ")
+    medicoes.desmarcar_final(conn, 1, mid, "marcada na obra errada")
+    assert conn.execute(enc, (contrato_id,)).fetchone()[0] is None
+
+
+def test_edicoes_valor_filtra_no_sql_pelo_indice_e_em_lotes(conn, contrato_id, monkeypatch):
+    """Gate Sol S2 (10/10/2026): a linha do tempo lia todas as edicoes de valor da auditoria a cada obra aberta."""
+    a = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    b = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 2, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, a, "protocolado", 100, "manual")
+    medicoes.definir_valor(conn, 1, b, "protocolado", 200, "manual")
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [a])[a]] == ["Valor protocolado definido em R$ 1,00 por U"]
+    assert b not in medicoes.edicoes_valor(conn, [a])
+    # a consulta usa o indice (migracao 036), sem varrer audit_log
+    plano = " ".join(r[3] for r in conn.execute(
+        "EXPLAIN QUERY PLAN SELECT id FROM audit_log WHERE entidade='medicao' AND entidade_id IN ('1','2') "
+        "AND acao IN ('medicao.valor_protocolado','medicao.valor_atestado')"))
+    assert "ix_audit_log_entidade" in plano
+    # mais de 500 ids: em lotes, sem estourar o limite de parametros do SQLite
+    monkeypatch.setattr(medicoes, "LOTE_AUDITORIA", 1)
+    r = medicoes.edicoes_valor(conn, [a, b, *range(10_000, 10_600)])
+    assert len(r[a]) == 1 and len(r[b]) == 1 and r[10_000] == []
+
+
+def test_edicao_de_valor_sem_usuario_diz_pelo_sistema(conn, contrato_id):
+    """Gate Sol S5 (10/10/2026): evento sem usuario ficava sem autoria na linha do tempo."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, None, mid, "protocolado", 100, "detectado")
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Valor protocolado definido em R$ 1,00 pelo sistema"]
+
+
+def test_em_andamento_desde_usa_o_dia_de_cuiaba_no_criado_em(conn, contrato_id):
+    """Sem marco, o `desde` cai no criado_em (UTC do SQLite): 01:30Z do dia 11 e' 21:30 do dia 10 em Cuiaba."""
+    conn.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado, criado_em) "
+                 "VALUES (?, 5, 'execucao', '2026-09', 'espelho_gerado', '2026-10-11 01:30:00')", (contrato_id,))
+    conn.commit()
+    assert medicoes.em_andamento(conn)[0]["desde"] == "2026-10-10"
+
+
+def test_mensagens_do_servidor_usam_o_rotulo_da_tela_para_nf_emitida(conn, contrato_id):
+    assert medicoes.rotulo_estado("nf_emitida") == "lançada no RM"
+    mid = medicoes.criar_para_espelho(conn, 1, contrato_id, 40, "execucao", "2026-08", 100_000)
+    with pytest.raises(ValueError) as e:
+        medicoes.mudar_estado(conn, 1, mid, "protocolada", None, "2026-09-14")
+    assert "NF emitida" not in str(e.value)
+    assert "lançada no RM" in str(e.value)

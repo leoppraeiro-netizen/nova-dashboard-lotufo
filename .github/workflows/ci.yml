@@ -1,0 +1,106 @@
+# CI minimo (fase 3,5): a suite do backend, tipos + lint + testes do frontend e o
+# build. Roda em push e pull request; nada e' publicado daqui -- a producao sobe a
+# mao pelo runbook, no <servidor>.
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Push novo numa PR cancela a execucao anterior dela, que ja' perdeu o sentido (issue #89:
+# 3 pushes em 6 minutos rodaram os 3 inteiros). Em master o grupo e' o proprio commit, entao
+# nada e' cancelado nem fica em fila: cada merge precisa da propria execucao verde (a skill
+# deploy confere o commit), e um grupo so' por branch cancelaria ate' a execucao que espera.
+# O job backend continua no Windows de proposito, mesmo custando em dobro: a suite curta
+# (issue #88) e' o que resolve a conta, nao trocar de sistema.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # Dado real no repositorio publico (issue #106): CNPJ/CPF validos, e-mail de dominio real, chave de NFS-e/NF-e e o
+  # nome da maquina (scripts/vazamento.py) e segredo tecnico (gitleaks). O log e' publico: o script so' mostra
+  # o dado mascarado. A lista de nomes de pessoas e' local do Leo, entao aqui essa parte e' pulada. O nome da
+  # maquina vem do secret DASH_SERVIDOR (sem ele, ex. PR de fork, a checagem e' pulada com aviso). Na PR, o
+  # script tambem varre cada commit da PR (dado que entra e sai continua no historico), e um passo proprio falha
+  # se ela altera o script, a lista de excecoes ou os hooks: essas mudancas exigem merge do Leo.
+  vazamento:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Varredura de dado real
+        if: ${{ !cancelled() }}
+        env:
+          DASH_SERVIDOR: ${{ secrets.DASH_SERVIDOR }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            python scripts/vazamento.py --base "origin/$BASE_REF"
+          else
+            python scripts/vazamento.py
+          fi
+      # v2.3.9, fixado no commit
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A CI roda o script da propria PR; por isso quem decide se o script, a lista de excecoes ou os hooks
+      # mudaram e' este passo (o ci.yml e' protegido por `.github/`), nao o script. Arquivo novo nao conta.
+      # Fica por ultimo e os passos acima usam `!cancelled()`: um passo vermelho nao pode esconder a varredura
+      # nem o gitleaks justamente nas PRs que mexem no script ou nos hooks.
+      - name: Script, lista de excecoes e hooks so mudam com merge do Leo
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          mudou=$(git diff --name-only --no-renames --diff-filter=MDT "origin/$BASE_REF...HEAD" -- scripts/vazamento.py scripts/vazamento-excecoes.txt .githooks)
+          if [ -n "$mudou" ]; then
+            echo "::error::Esta PR altera arquivos que decidem o que a varredura de dado real deixa passar. Isso exige merge do Leo."
+            echo "$mudou"
+            exit 1
+          fi
+
+  backend:
+    # Windows de proposito: e' o sistema da producao (<servidor>) e os testes de
+    # backup/ACL exercitam caminhos e ferramentas do Windows.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock
+      - run: python -m pip install -r requirements.lock
+        working-directory: backend
+      - run: python -m pytest -q
+        working-directory: backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc -b
+        working-directory: frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
+      - run: npx vite build
+        working-directory: frontend

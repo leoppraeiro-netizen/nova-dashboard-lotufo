@@ -1,0 +1,14 @@
+# Obra Própria (IC 001/2025, órgão de exemplo): uma nota por medição, da empresa própria, sem rateio.
+# Alíquotas de retenção são as de lei (ISS/IRRF/INSS), de propósito; obra, rateio, chaves e valores são fictícios.
+contrato: Obra Própria
+situacao: ativa
+entradas:
+  - {natureza: medicao, chave: medicao, rotulo: Valor medido no mês (exemplo)}
+retencoes:
+  mao_de_obra: {arredondamento: trunc, percentual: '40'}
+  material: {modo: diferenca}
+  inss: {arredondamento: trunc, percentual: '11', base: mao_de_obra}
+  iss: {arredondamento: trunc, percentual: '5', base: mao_de_obra}
+  irrf: {arredondamento: round, percentual: '1,2', base: total}
+saidas:
+  - {chave: nota-unica, emissor: lotufo, natureza: medicao, valor: medicao, municipio: Rondonópolis, modelo: nota-unica.docx}

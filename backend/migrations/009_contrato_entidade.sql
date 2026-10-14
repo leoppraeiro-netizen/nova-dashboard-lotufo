@@ -1,0 +1,21 @@
+-- De QUAL CNPJ e' este contrato (spec §5, fase 3 T7).
+--
+-- Habilitacao e' verificada POR CNPJ: obra tocada por consorcio se habilita com as
+-- certidoes DO CONSORCIO, nao com as da Lotufo. Sem esta coluna o checklist "pronto
+-- para protocolar" so' saberia responder pela Lotufo, e o consorcio -- justamente o
+-- caso em que a papelada e' mais dificil -- ficaria invisivel.
+--
+-- SEM DEFAULT NA COLUNA, DE PROPOSITO. O SQLite recusa
+-- `ADD COLUMN ... REFERENCES ... DEFAULT <valor>` ("Cannot add a REFERENCES column
+-- with non-NULL default value"), e este projeto roda com PRAGMA foreign_keys=ON
+-- (app/db.py). Entao a coluna nasce NULL e o UPDATE seguinte ancora os contratos que
+-- ja existiam na Lotufo (id 1, semeada na 006). As LEITURAS tratam NULL como 1
+-- (COALESCE) por defesa -- linha gravada por caminho que nao preencheu a coluna
+-- continua respondendo pela entidade certa em vez de sumir do checklist.
+--
+-- ALTER TABLE GUARDADO: o runner (app/db.py) pula `ALTER TABLE ... ADD COLUMN` cuja
+-- coluna ja existe, porque `executescript` nao e' transacional e uma migracao
+-- interrompida no meio pode ser reaplicada inteira. O UPDATE abaixo e' idempotente
+-- por construcao (`WHERE entidade_id IS NULL`), entao a reaplicacao e' inofensiva.
+ALTER TABLE contratos ADD COLUMN entidade_id INTEGER REFERENCES entidades(id);
+UPDATE contratos SET entidade_id = 1 WHERE entidade_id IS NULL;

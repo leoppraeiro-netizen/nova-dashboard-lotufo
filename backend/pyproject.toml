@@ -1,0 +1,73 @@
+[project]
+name = "dashboard-lotufo"
+version = "0.1.0"
+requires-python = ">=3.12"
+# Faixas presas ao major instalado hoje: sem limite superior, um `pip install`
+# futuro traz um major novo e quebra a producao sem ninguem mexer no codigo.
+# A reproducao exata do ambiente esta em requirements.lock (pip freeze).
+# cryptography NAO entra aqui: e' dependencia so do scripts\gerar_certificado.ps1,
+# instalada a mao (o proprio script diz como). Ela aparece no lock porque o freeze
+# retrata o venv real.
+dependencies = [
+    "fastapi>=0.141,<1.0",
+    "uvicorn>=0.52,<1.0",
+    "argon2-cffi>=25.1,<26.0",
+    # Parser de multipart/form-data. O FastAPI so aceita UploadFile/Form com ele
+    # instalado (upload do PDF da certidao, fase 3); sem ele a rota levanta
+    # RuntimeError na importacao e o servidor nao sobe.
+    "python-multipart>=0.0.20,<1.0",
+    # Base IANA de fusos para o zoneinfo (app/tempo.py). O Windows nao tem a base do
+    # sistema: sem ela, ZoneInfo("America/Cuiaba") levanta ZoneInfoNotFoundError e o
+    # servidor nao sobe. PINADO EXATO (nao faixa): o pacote e' um retrato dos fusos do
+    # mundo, e uma versao nova pode mudar deslocamento de fuso — isso desloca fronteira
+    # de mes do cronograma, entao a atualizacao e' decisao consciente, nao efeito
+    # colateral de um `pip install`.
+    "tzdata==2025.2",
+    # Cliente HTTP exigido pelo TestClient do starlette -- toda a suite de API roda por
+    # ele. E' o httpx2, e nao o httpx: o starlette DEPRECIOU o httpx no TestClient e
+    # avisa em toda coleta de teste enquanto o httpx2 nao estiver instalado.
+    # DEPENDENCIA DE TESTE, nao de producao: nenhum modulo de `app/` importa httpx2
+    # (confira com `grep -rn httpx backend/app`). Ela mora nesta lista porque este
+    # projeto nao tem secao de extras -- `dependencies` e' a unica que existe, e um
+    # ambiente montado a partir deste arquivo precisa conseguir rodar os testes.
+    "httpx2>=2.12,<3.0",
+    # Leitura do texto do PDF de certidao (app/leitura_pdf.py) e conferencia do upload.
+    # PINADO EXATO: a extracao de texto do pypdf muda entre versoes menores, e ela e'
+    # quem alimenta as regexes de data -- uma atualizacao silenciosa faria a leitura
+    # parar de achar a validade (ou, pior, achar a errada) sem nenhuma mudanca nossa.
+    "pypdf==6.16.2",
+    # OCR local das certidoes sem texto (app/leitura_pdf.py, emenda de 2026-09-24): desenha a
+    # pagina para o Tesseract instalado no servidor. PINADO EXATO pelo mesmo motivo do pypdf: o
+    # desenho alimenta o OCR, que alimenta as mesmas regexes de data.
+    "pypdfium2==5.13.0",
+    # Carta, capa e divisoria do protocolo em PDF (app/carta.py, bloco 5): nao existe modelo Word
+    # de carta nem conversao Word->PDF no servidor. PINADO EXATO: o desenho do PDF e' conferido por
+    # texto na assinatura (app/assinatura.py).
+    "fpdf2==2.8.8",
+    # Leitura do cadastro versionado (cadastro/*.yaml, spec 2026-09-21 §8). So' safe_load:
+    # o cadastro e' dado, nunca objeto Python serializado.
+    "PyYAML>=6.0,<7.0",
+    # Leitura das planilhas de medicao do SharePoint (fase 6, spec §15.3): celulas
+    # cadastradas por contrato, valor calculado em cache (data_only). Leitura apenas.
+    "openpyxl>=3.1,<4.0",
+    # Preenchimento dos content controls (w:sdt) dos modelos Word do espelho (bloco 2,
+    # app/espelho_docx.py). python-docx nao le w:sdt; lxml preserva os prefixos de namespace
+    # que o Word exige (mc:Ignorable).
+    "lxml>=5.0,<7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# ruff (hook PostToolUse do Claude, .claude/hooks/formatar.ps1). 120 = estilo que o codigo ja tem
+# (p99 das linhas de app/ = 118). Sem `ruff format`: em 11/10/2026 ele reformataria a maior parte
+# dos arquivos, entao o hook so roda `ruff check --fix` com as regras abaixo (erro de sintaxe,
+# pyflakes e ordem de import). Reformatar tudo, se um dia for desejado, e' tarefa propria.
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+# Testes reutilizam o nome da fixture como parametro (F811): e' o padrao do pytest, nao erro.
+per-file-ignores = { "tests/*" = ["F811"] }

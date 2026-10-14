@@ -1,0 +1,68 @@
+Prefeitura Municipal de Cuiabá 
+Secretaria Municipal de Economia 
+Prefeitura Municipal de Cuiabá MT 
+Série do Documento
+Nota Fiscal de Serviço
+Eletrônica - NFS-e
+Número da Nota Fiscal
+3105
+Data de Geração da NFS-e Data de Competência Código de Autenticidade
+21/08/2026 11:07:05 21/08/2026 51034031231200101000130000000000310526084934182525 
+Emitente da NFS-e Número da DPS Data Emissão da DPS Série da DPS
+Prestador    
+Consulte a autenticidade desta nota lendo o QRcode ou acessando o site: https://onlinecba.issnetonline.com.br/cuiaba/
+IDENTIFICAÇÃO DO PRESTADOR
+CNPJ/CPF/NIF: 31.200.101/0001-30 Inscrição Municipal: 40123 Telefone: 6565-0000
+Nome/Razão Social: CONSTRUTORA ALFA LTDA
+Nome Fantasia: CONSTRUTORA ALFA
+Endereço: RUA DAS PALMEIRAS, 100 CEP: 78000-000
+Cidade: Cuiabá   Estado/Prov./Reg.: Mato Grosso   País: Brasil
+E-mail: contabilidade@exemplo.com.br
+Situação Simples Nacional: Não Optante   Regime Apuração: -   Regime Especial: Nenhum
+IDENTIFICAÇÃO DO TOMADOR
+CNPJ/CPF/NIF: 31.300.202/0001-82 Inscrição Municipal: 300200 Telefone: (65)3000-0002 
+Nome/Razão Social: MT PARTICIPACOES E PROJETOS S/A MT PAR 
+Nome Fantasia: MT PAR 
+Endereço: Avenida Exemplo, 525 - EDIF: EXEMPLO; CEP: 78000-100
+Cidade: Cuiabá   Estado/Prov./Reg.: Mato Grosso   País: Brasil 
+E-mail: nucleoadm@orgao-b.exemplo.com.br 
+INTERMEDIÁRIO DO SERVIÇO NÃO IDENTIFICADO NA NFS-E
+DESTINATÁRIO É O PRÓPRIO TOMADOR IDENTIFICADO NA NFS-E
+DADOS DO SERVIÇO PRESTADO
+Cód. Trib. Nacional: 07.02.01 NBS: 1.0102.90.00 Atividade Municipal: [4299-5/99] Outras obras de engenharia civil não e...
+Local da Prestação: Cuiabá - MT País Resultado da Prestação do Serviço: - 
+Vl. do Serviço: R$4.075.275,90 Vl. do Desc. Incondicionado: - Vl. do Desc. Condicionado: - 
+Descrição do Serviço: VALOR REFERENTE A 22ª MEDIÇÃO DA EXECUÇÃO DAS OBRAS DO COMPLEXO CULTURAL DA PRAÇA DA
+FAMÍLIA, COMPOSTO POR DOIS MUSEUS, UMA PRAÇA DE ALIMENTAÇÃO E UM MIRANTE LOCALIZADO NO PARQUE NOVO MATO
+GROSSO, CONFORME CONTRATO Nº 099/2024/MTPAR CNO 90.000.00004/04. E O.I.S. 00281/2024/DIVDOC/MTPAR, PERÍODO DE
+01/07/2026 A 31/07/2026. SERVIÇOS REALIZADOS COM FORNECIMENTO DE MATERIAIS, MÃO DE OBRA E EQUIPAMENTOS NO
+MUNICÍPIO DE CUIABÁMT. VALOR TOTAL DA 22ª MEDIÇÃO: R$ 4.075.275,90 (QUATRO MILHÕES, SETENTA E CINCO MIL, DUZENTOS E
+SETENTA E CINCO REAIS E NOVENTA CENTAVOS). MÃO DE OBRA 40%: R$ 1.630.110,36 / MATERIAIS 60%: R$ 2.445.165,54 RETENÇÃO
+INSS (11%) SOBRE VALOR DA MÃO DE OBRA R$ 179.312,14 VALOR ISSQN (5%) SOBRE 40% DO VALOR DA NF R$ 81.505,52 VALOR
+IRRF (1,50%) SOBRE O VALOR TOTAL DA NF R$ 61.129,14 CONTA PARA DEPOSITO BANCO DO BRASIL (001) AG: 4321 CONTA: 12.3456
+CONSTRUTORA ALFA LTDA
+IMPOSTO SOBRE SERVIÇO DE QUALQUER NATUREZA - ISSQN
+Tipo Tributação: Operação tributável Tipo Susp. Exig.: - Nº Proc. Susp.: - 
+Município de Incidência: Cuiabá - MT   Tipo de Retenção: Retido pelo Tomador   Valor Dedução: R$2.445.165,54 
+Base de Cálculo: R$1.630.110,36 Alíquota: 5% Vl. ISSQN: R$81.505,52 
+TRIBUTAÇÃO NACIONAL
+CST: Operação Tributável com Alíquota Básica 
+Tipo de Retenção: PIS/COFINS/CSLL Não Retidos Vl. PIS: R$26.489,29 Vl. COFINS: R$122.258,28 
+Vl. CSLL: - Vl. IRRF: R$61.129,14 Vl. CP Retido: R$179.312,14 
+IMPOSTO E CONTRIBUIÇÃO SOBRE BENS E SERVIÇOS - IBS/CBS
+Cód. Ind. Op.: 020201 Classif. Tributária: 200045 Situação Tributária: Alíquota reduzida 
+Município de Incidência: Cuiabá - MT Tipo de Operação: Fornecimento com pagamento posterior 
+Tipo de Ente Governamental: Estado Perc. Red. Compra Gov.: 0% Base de Cálculo: R$3.845.022,81 
+Alíq. CBS: 0,9% Perc. Red. Alíq. CBS: 60% Alíq. Efet. CBS: 0,36% Valor CBS: R$13.842,08 
+Alíq. IBS Est.: 0,1% Perc. Red. Alíq. IBS Est.: 60% Alíq. Efet. IBS Est.: 0,04% Valor IBS Est.: R$1.538,01 
+Alíq. IBS Mun.: 0% Perc. Red. Alíq. IBS Mun.: 60% Alíq. Efet. IBS Mun.: 0% Valor IBS Mun.: R$0,00 
+Cód. Créd. Pres.:  Alíq. do Créd. Pres. (CBS): - Alíq. do Créd. Pres. (IBS): - 
+Vl. do Créd. Pres. (CBS): - Vl. do Créd. Pres. (IBS): - 
+Classif. Tributária Regular: - Situação Tributária Regular: - 
+Aliq. Efet. Regular - CBS: - Alíq. Efet. Regular - IBS Estadual: - Alíq. Efet. Regular - IBS Municipal: - 
+Valor CBS: - Vl. IBS Regular Estadual: - Vl. IBS Regular Municipal: - 
+Total de Retenção Valor Total do CBS Valor Total do IBS Valor Total Líquido Valor Total da Nota Fiscal - IBS/CBS
+R$321.946,80 R$13.842,08 R$1.538,01 R$3.753.329,10 R$3.753.329,10 
+INFORMAÇÕES COMPLEMENTARES
+• PROCON Municipal Cuiabá - Endereço: R. Joaquim Murtinho, 554 - Centro, Cuiabá - MT, 78020-290 Telefone: (65) 3632-6400 PROCON
+Estadual - MT - Endereço: Av. Gen. Ramiro de Noronha, 294 - 1º andar - Jardim Cuiaba, Cuiabá - MT, 78043-180 Telefone: (65) 3613-2100/151

@@ -1,0 +1,31 @@
+# Obra Consórcio: contrato do Consórcio Exemplo (empresa própria 50% e Engenharia Beta 50%). Dados fictícios.
+nome_curto: Obra Consórcio
+numero_instrumento: 002/2025/00/00-EXEMPLO
+orgao: secretaria-exemplo
+entidade: consorcio-exemplo
+objeto: Obra Consórcio
+objeto_completo: 'PAVIMENTAÇÃO E DRENAGEM DE VIAS URBANAS NAS CIDADES DE CUIABÁ E VÁRZEA GRANDE'
+municipio: Cuiabá e Várzea Grande
+lei: '14.133'
+cno: null
+art: null
+numero_processo: null
+centro_custo_rm: null
+valor_original: 100.000.000,00
+percentual_lotufo: 50,00
+execucao_inicio: '2025-06-02'
+execucao_fim: '2026-11-30'
+vigencia_inicio: '2025-06-02'
+vigencia_fim: '2027-02-28'
+status: ativo
+status_desde: null
+sem_reajuste: false
+datas_base:
+- mes: 2025-01
+  indice: ''
+fiscais:
+- nome: Fiscal de Exemplo
+  email: fiscal@exemplo.gov.br
+  desde: '2025-06-02'
+destinatarios_extras: []
+instrumentos: []

@@ -1,0 +1,27 @@
+# Órgão fictício. Nenhum dado aqui é real.
+- chave: secretaria-exemplo
+  nome: Secretaria de Exemplo
+  cnpj: '31.300.101/0001-01'
+  familia: sinfra
+  nome_qdop: 'SECRETARIA DE EXEMPLO'
+  tipo_contratante: PÚBLICO
+  protocolo_para: [protocolo@exemplo.gov.br]
+  protocolo_copia: [engenharia@exemplo.com.br, faturamento@exemplo.com.br]
+  pede_devolutiva: false
+  separa_reajuste: false
+  exige_planilha: true
+  limite_mb_por_documento: 25
+  folga_vigencia_dias: 90
+  vigencia_automatica: true
+  documentos_medicao: [fgts, federal, trabalhista, estadual, municipal]
+  documentos_reajuste: [fgts, federal, trabalhista, estadual, municipal]
+  ordem_certidoes: [federal, trabalhista, municipal, estadual, fgts]
+  carta_destinatario:
+    - À Secretaria de Exemplo
+    - Superintendência de Obras de Exemplo
+  pecas:
+    - {tipo: cronograma, rotulo: Cronograma físico-financeiro, naturezas: [execucao]}
+    - {tipo: boletim, rotulo: Memória de cálculo da medição, exigida: true, naturezas: [execucao]}
+    - {tipo: fotos, rotulo: Registro fotográfico, naturezas: [execucao]}
+    - {tipo: outro, rotulo: Planilha de reajuste de exemplo, exigida: true, naturezas: [reajuste]}
+    - {tipo: planilha, rotulo: Planilha de exemplo editável, exigida: true, solto: true}

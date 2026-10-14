@@ -1,0 +1,108 @@
+"""Pagina Inicio do redesenho (08/10/2026): de onde vem cada numero."""
+import datetime
+import json
+
+import pytest
+
+from app import db, inicio, tempo
+
+D = datetime.date
+HOJE = D(2026, 10, 9)
+
+
+@pytest.fixture
+def cenario(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(tempo, "hoje_local", lambda: HOJE)
+    c = db.get_conn(); db.migrate(c)
+    c.execute("UPDATE certidao_tipos SET aplicavel_por_padrao=0")
+    c.execute("INSERT INTO orgaos (chave, nome, familia, regras) VALUES ('mtpar', 'MT Participações', 'mtpar', ?)",
+              (json.dumps({"vigencia_automatica": False, "documentos_medicao": [], "documentos_reajuste": []}),))
+    c.execute("INSERT INTO contratos (orgao, numero_instrumento, nome_curto, objeto, valor_original_centavos, "
+              "orgao_id, execucao_fim, vigencia_fim) VALUES ('MTPAR', 'CT 1/2025', 'Obra A', 'obra', 100, "
+              "(SELECT id FROM orgaos WHERE chave='mtpar'), '2026-10-20', '2026-12-30')")
+    cid = c.execute("SELECT MAX(id) FROM contratos").fetchone()[0]
+    c.execute("INSERT INTO contrato_datas_base (contrato_id, mes) VALUES (?, '2025-11')", (cid,))
+    c.commit()
+    yield c, cid
+    c.close()
+
+
+def _medicao(c, cid, numero, criado_em, valor, estado="espelho_gerado", competencia="2026-09", recebida_em=None):
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado, valor_protocolado_centavos, "
+              "criado_em, recebida_em) VALUES (?, ?, 'execucao', ?, ?, ?, ?, ?)",
+              (cid, numero, competencia, estado, valor, criado_em, recebida_em))
+    c.commit()
+    return c.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]
+
+
+def test_medido_no_mes_pela_competencia_contra_o_mes_anterior_inteiro(cenario):
+    # B-01 (10/10/2026): a mesma regra da Carteira -- competencia do mes, valor cheio, mes anterior inteiro
+    c, cid = cenario
+    _medicao(c, cid, 1, "2026-10-05 12:00:00", 1_000_000, competencia="2026-10")
+    _medicao(c, cid, 2, "2026-10-08 12:00:00", 5, competencia="2026-10")
+    _medicao(c, cid, 3, "2026-09-03 12:00:00", 400_000, competencia="2026-09")
+    _medicao(c, cid, 4, "2026-09-28 12:00:00", 999, competencia="2026-09")     # depois do dia 9: conta (mes inteiro)
+    _medicao(c, cid, 5, "2026-10-02 12:00:00", 777, estado="cancelada", competencia="2026-10")
+    _medicao(c, cid, 6, "2026-10-09 12:00:00", 50_000, competencia="2026-09")  # lancada hoje, competencia passada
+    _medicao(c, cid, 7, "2026-10-09 13:00:00", 3, competencia="2025-10")       # carga do legado lancada hoje: fora
+    p = inicio.painel(c, HOJE)
+    m = p["medido"]
+    assert (m["valor_centavos"], m["anterior_centavos"], m["quantidade"]) == (1_000_005, 450_999, 2)
+    assert (m["competencia"], m["anterior_competencia"]) == ("2026-10", "2026-09")
+    assert m["ultimo_lancamento"] == "2026-10-09"
+    assert p["por_contratante"] == [{"contratante": "MTPAR", "atual_centavos": 1_000_005, "anterior_centavos": 450_999}]
+
+
+def test_mes_sem_medicao_da_competencia(cenario):
+    c, cid = cenario
+    _medicao(c, cid, 1, "2026-09-30 12:00:00", 10, competencia="2026-09")
+    m = inicio.painel(c, HOJE)["medido"]
+    assert (m["quantidade"], m["valor_centavos"], m["anterior_centavos"], m["ultimo_lancamento"]) == (0, 0, 10, "2026-09-30")
+
+
+def test_prazos_e_reajuste_a_pedir(cenario):
+    c, cid = cenario
+    p = inicio.painel(c, HOJE)
+    assert [(x["tipo"], x["data"], x["dias"]) for x in p["prazos"]] == [
+        ("execucao", "2026-10-20", 11), ("data_base", "2026-11-01", 23), ("vigencia", "2026-12-30", 82)]
+    assert p["prazos"][0]["contratante"] == "MTPAR"
+    assert p["reajustes"] == [{"contrato_id": cid, "obra": "Obra A", "data_base_mes": "2025-11",
+                               "aniversario": "2026-11-01", "dias": 23}]
+    # apostilado: a data-base sai dos dois
+    c.execute("INSERT INTO instrumentos (contrato_id, chave, tipo, numero, data, dados) "
+              "VALUES (?, 'ap1', 'apostilamento_reajuste', '1', '2026-10-05', ?)", (cid, json.dumps({"ciclo": 2026})))
+    c.commit()
+    p = inicio.painel(c, HOJE)
+    assert p["reajustes"] == [] and "data_base" not in {x["tipo"] for x in p["prazos"]}
+
+
+def test_recebido_no_ano_nulo_com_recebida_sem_data(cenario):
+    c, cid = cenario
+    _medicao(c, cid, 1, "2026-08-01 12:00:00", 300_000, estado="recebida", competencia="2026-07", recebida_em="2026-10-02")
+    _medicao(c, cid, 2, "2026-06-01 12:00:00", 100_000, estado="recebida", competencia="2026-05", recebida_em="2026-06-20")
+    assert inicio.painel(c, HOJE)["recebido_ano"] == {"valor_centavos": 400_000, "mes_centavos": 300_000, "sem_data": 0}
+    _medicao(c, cid, 3, "2026-09-25 12:00:00", 50, estado="recebida", competencia="2026-04")
+    assert inicio.painel(c, HOJE)["recebido_ano"] == {"valor_centavos": None, "mes_centavos": 300_000, "sem_data": 1}
+
+
+def test_a_receber_so_com_total_liberado_e_na_cota(cenario):
+    c, cid = cenario
+    c.execute("UPDATE contratos SET percentual_direito_bp=5000")
+    mid = _medicao(c, cid, 1, "2026-07-01 12:00:00", 200_000, estado="protocolada", competencia="2026-06")
+    c.execute("INSERT INTO medicao_protocolos (medicao_id, data, origem) VALUES (?, '2026-07-02', 'manual')", (mid,))
+    c.commit()
+    p = inicio.painel(c, HOJE)
+    assert p["a_receber"] == {"liberado": False, "valor_centavos": None, "mais_60_centavos": None}
+    assert p["protocoladas"] == {"obras_protocoladas": 0, "obras_ativas": 1, "ultima": "2026-07-02"}
+    c.execute("INSERT INTO cadastro_geral (chave, valor) VALUES ('diretoria', ?)",
+              (json.dumps({"total_a_receber_liberado": True}),))
+    c.commit()
+    assert inicio.painel(c, HOJE)["a_receber"] == {"liberado": True, "valor_centavos": 100_000, "mais_60_centavos": 100_000}
+
+
+def test_cartoes_vazios(cenario):
+    c, _ = cenario
+    p = inicio.painel(c, HOJE)
+    assert p["notas_a_enviar"] == 0
+    assert p["certidoes"] == {"vencidas": 0, "vencendo": 0, "itens": []}

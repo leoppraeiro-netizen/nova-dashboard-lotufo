@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# Node
+node_modules/
+frontend/dist/
+# Dados locais (nunca commitar banco/segredos/backups)
+dados/
+*.db
+*.db-wal
+*.db-shm
+backups/
+certs/
+.env
+
+# Artefatos de sessao do impeccable (log de perguntas e capturas de revisao)
+.impeccable/questions/
+.impeccable/review/
+
+# Rascunhos de leitura de PDF/planilha (subagentes escreveram aqui por engano em 2026-09-03)
+backend/scratch_*
+
+# Loop de refino visual: prints locais por rodada e o build que a captura serve
+.ui-review/round-*/
+.ui-review/.build/
+# Reestruturacao da arquitetura de informacao (/ui-architecture): prints locais, mesma regra das rodadas
+.ui-review/arquitetura/capturas/
+# Capturas do 1o loop (arquivadas) e prints das referencias visuais (Mercury, Cloudscape)
+.ui-review/loop1-2026-09-25/
+.ui-review/referencias/
+
+# Monitor SIGA: cookies do login e leituras
+monitor-siga/dados/
+
+# Worktrees das sessoes paralelas do Claude (juncoes criadas por .claude/hooks/preparar-worktree.ps1)
+.claude/worktrees/
+
+# Repositorio publico: o que e' da maquina do Leo ou tem dado real nunca entra. prototipos/login-3d continua rastreado (launch.json e login usam)
+PENDENCIAS.md
+cobranca.ps1
+contexto-*/
+monitor-siga/
+prototipos/*
+!prototipos/login-3d/
+
+# Lista local de nomes de pessoas que scripts/vazamento.py barra (o Leo mantem na maquina dele; na CI a parte e pulada)
+scripts/vazamento-nomes.txt

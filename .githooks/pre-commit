@@ -1,0 +1,51 @@
+#!/bin/sh
+# Pre-commit versionado (ligado por `git config core.hooksPath .githooks`, que o hook de inicio de
+# sessao do Claude faz sozinho). Roda so' o barato: ruff check nos .py do backend e tsc no frontend,
+# e so' quando ha arquivo desses no commit, mais a varredura de dado real (scripts/vazamento.py --staged, em
+# todo commit; usa a lista local de nomes scripts/vazamento-nomes.txt quando ela existe). A suite inteira fica
+# para a CI.
+# Pular uma vez: `git commit --no-verify` (nao fazer isso de habito).
+raiz=$(git rev-parse --show-toplevel)
+cd "$raiz" || exit 1
+arquivos=$(git diff --cached --name-only --diff-filter=ACMR)
+py=$(printf '%s\n' "$arquivos" | grep -E '^backend/.*\.py$')
+ts=$(printf '%s\n' "$arquivos" | grep -E '^frontend/src/.*\.(ts|tsx)$')
+status=0
+
+if [ -n "$py" ]; then
+    ruff="backend/.venv/Scripts/ruff.exe"
+    [ -x "$ruff" ] || ruff="ruff"
+    # shellcheck disable=SC2086
+    if ! "$ruff" check $py; then
+        echo "pre-commit: ruff check falhou (corrija ou \`ruff check --fix\`)" >&2
+        status=1
+    fi
+fi
+
+if [ -n "$ts" ]; then
+    if [ ! -d frontend/node_modules ]; then
+        echo "pre-commit: falta frontend/node_modules (rode .claude/hooks/preparar-worktree.ps1)" >&2
+        status=1
+    elif ! (cd frontend && npx tsc -b --force); then
+        echo "pre-commit: tsc falhou" >&2
+        status=1
+    fi
+fi
+
+# Dado real (CNPJ/CPF validos, e-mail de dominio real, chave de NFS-e, nome da maquina, nomes da lista local).
+py_exe="backend/.venv/Scripts/python.exe"
+[ -x "$py_exe" ] || py_exe="python"
+# Nome da maquina para a checagem de vazamento: DASH_SERVIDOR, ou o nome desta maquina.
+DASH_SERVIDOR="${DASH_SERVIDOR:-$COMPUTERNAME}"
+export DASH_SERVIDOR
+"$py_exe" scripts/vazamento.py --staged
+rc=$?
+if [ "$rc" -eq 1 ]; then
+    echo "pre-commit: dado real no commit (veja acima; o repositorio e' publico). Troque por dado ficticio." >&2
+    status=1
+elif [ "$rc" -ne 0 ]; then
+    echo "pre-commit: scripts/vazamento.py nao rodou (codigo $rc; falta python no PATH ou lista de excecoes mal formada)" >&2
+    status=1
+fi
+
+exit $status
