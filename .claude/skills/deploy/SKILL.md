@@ -81,9 +81,8 @@ seguir o runbook, "Cadastro versionado", em `C:\DashboardLotufo\app\backend` com
 e `DASH_DB_PATH` do banco de produção na sessão: `--ensaio` primeiro, conferir o relatório (a primeira linha diz a
 pasta lida), depois o real.
 
-**Enquanto o clone não existir (antes do corte)**: sem `pull`; usar `--raiz C:\DashboardLotufo\app\cadastro` (o
-`cadastro/` que vai no próprio worktree pinado). Sem `--raiz` nem `DASH_CADASTRO_DIR` o comando cairia no
-`cadastro-exemplo/` (fictício) e se recusa em banco com cadastro real.
+Sem `--raiz` nem `DASH_CADASTRO_DIR` o comando cairia no `cadastro-exemplo/` (fictício) e se recusa em banco com
+cadastro real.
 
 ## Registrar
 
