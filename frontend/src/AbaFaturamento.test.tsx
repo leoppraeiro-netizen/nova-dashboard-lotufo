@@ -82,6 +82,17 @@ describe("Aba Enviar ao faturamento", () => {
     render(<MedicoesPagina aba="faturamento" busca={{}} usuario={{ ...usuario, perfil: "diretoria" }} />);
     await screen.findByRole("region", { name: /^SINFRA/ });
     expect(screen.queryByRole("button", { name: /Iniciar processo/ })).toBeNull();
+    // a diretoria so' consulta: sem o botao de enviar, e o titulo da medicao continua levando a' etapa 2
+    expect(screen.queryByRole("link", { name: /Enviar ao faturamento:/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "15ª Medição + Reajuste" }).getAttribute("href")).toBe("/obras/17/medicoes/900#etapa-2");
+  });
+
+  it("limiar da parada: 7 dias sem cor, 8 dias âmbar", async () => {
+    api.mockResolvedValue(resumo([linha({ medicao_id: 1, dias: 7 }), linha({ medicao_id: 2, obra: "Outra", dias: 8 })]));
+    render(<MedicoesPagina aba="faturamento" busca={{}} usuario={usuario} />);
+    const sete = await screen.findByText(/^7\s+dias$/);
+    expect(sete.className).toBe("medicoes__parada");
+    expect(screen.getByText(/^8\s+dias$/).className).toContain("medicoes__parada--atencao");
   });
 
   it("contratante nulo (obra fora do cadastro ativo) não derruba a aba", async () => {

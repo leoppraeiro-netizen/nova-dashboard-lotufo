@@ -75,10 +75,13 @@ export default function AbaFaturamento({ linhas, podeIniciar, aoIniciar }:
                     </div>
                     <span className="dinheiro fat-linha__valor">{brl(l.valor_centavos)}</span>
                     <Parada l={l} />
-                    <Link className="btn btn--primario" para={{ tela: "medicao", obra: l.contrato_id, id: l.medicao_id }} secao="etapa-2"
-                      aria-label={`Enviar ao faturamento: ${l.obra}, ${l.titulo}`}>
-                      Enviar ao faturamento<IconeEnviar />
-                    </Link>
+                    {/* quem so' consulta (diretoria) nao ve o botao; o titulo da medicao segue levando a' etapa 2 */}
+                    {podeIniciar && (
+                      <Link className="btn btn--primario" para={{ tela: "medicao", obra: l.contrato_id, id: l.medicao_id }} secao="etapa-2"
+                        aria-label={`Enviar ao faturamento: ${l.obra}, ${l.titulo}`}>
+                        Enviar ao faturamento<IconeEnviar />
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>
