@@ -2,7 +2,7 @@ import hashlib
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from argon2 import PasswordHasher
+from argon2 import PasswordHasher, extract_parameters
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 from app import auditoria, db
@@ -69,6 +69,14 @@ def autenticar(conn: sqlite3.Connection, email: str, senha: str) -> dict | None:
         _escrita_dummy(conn)
         return None
     try:
+        # Gate Sol S1 (#4): o formato do hash e' conferido ANTES, sem argon2, para que o hash invalido
+        # pague exatamente um verify (o dummy), como os outros caminhos, e nao "um que falha + o dummy".
+        extract_parameters(row["senha_hash"])
+    except InvalidHashError:
+        _verify_dummy(senha)
+        _escrita_dummy(conn)
+        return None
+    try:
         _ph.verify(row["senha_hash"], senha)
     except VerifyMismatchError:
         # autenticar() e' caminho de LEITURA que muta o contador de lockout: so o
@@ -88,7 +96,8 @@ def autenticar(conn: sqlite3.Connection, email: str, senha: str) -> dict | None:
     except InvalidHashError:
         # senha_hash corrompido/invalido: problema de dado, nao senha errada.
         # Nao incrementa o contador nem expoe detalhe ao chamador.
-        # #4: o hash invalido falha na hora; sem os dois custos, a resposta rapida entregaria a conta.
+        # #4: rede de seguranca para hash que passa no formato mas o verify recusa; o formato invalido
+        # sai acima. Paga os dois custos, senao a resposta rapida entregaria a conta.
         _verify_dummy(senha)
         _escrita_dummy(conn)
         return None

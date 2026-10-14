@@ -376,6 +376,60 @@ def test_login_com_hash_corrompido_paga_verify_e_escrita(tmp_path, monkeypatch):
     conn.commit()
     antes = _usuarios(conn)
     custo = _custo(conn, monkeypatch, "ana@lotufo.com", "qualquer")
-    assert custo["begin_immediate"] == 1 and custo["escreveu"]
-    assert custo["verify"] == 2  # o real (que levanta na hora) e o dummy (que gasta o tempo)
+    # gate Sol S1: exatamente um verify, como os outros caminhos (o formato e' conferido sem argon2)
+    assert custo == {"verify": 1, "begin_immediate": 1, "escreveu": True}
     assert _usuarios(conn) == antes
+
+def test_login_sem_nenhum_usuario_nao_quebra(tmp_path, monkeypatch):
+    # banco vazio: a escrita equivalente nao tem linha onde gravar, e nao ha conta a esconder
+    conn = _conn(tmp_path, monkeypatch)
+    custo = _custo(conn, monkeypatch, "ninguem@lotufo.com", "qualquer")
+    assert custo["verify"] == 1 and custo["begin_immediate"] == 1
+    assert _usuarios(conn) == []
+
+def test_endpoint_responde_igual_em_toda_recusa(client):
+    # gate Sol S3: inexistente, senha errada, bloqueada e hash invalido: mesmo status, mesma
+    # mensagem e o mesmo evento de auditoria (so' o e-mail digitado muda)
+    import json
+    _seed("leo@lotufo.com")
+    _seed("bloq@lotufo.com")
+    _seed("lixo@lotufo.com")
+    conn = db.get_conn()
+    conn.execute("UPDATE usuarios SET bloqueado_ate=? WHERE email='bloq@lotufo.com'",
+                 ((auth._agora() + auth.timedelta(minutes=10)).isoformat(),))
+    conn.execute("UPDATE usuarios SET senha_hash='lixo-nao-argon2' WHERE email='lixo@lotufo.com'")
+    conn.commit()
+    respostas = []
+    for email in ("ninguem@lotufo.com", "leo@lotufo.com", "bloq@lotufo.com", "lixo@lotufo.com"):
+        r = client.post("/api/auth/login", json={"email": email, "senha": "senha-errada-1"})
+        ultimo = conn.execute("SELECT usuario_id, acao, entidade, entidade_id, depois FROM audit_log "
+                              "ORDER BY id DESC LIMIT 1").fetchone()
+        respostas.append((r.status_code, r.json()["detail"], tuple(ultimo)[:4], json.loads(ultimo["depois"]) == {"email": email}))
+    conn.close()
+    assert len(set(respostas)) == 1, respostas
+    assert respostas[0][0] == 401
+
+def test_escrita_equivalente_em_paralelo_preserva_os_contadores(tmp_path, monkeypatch):
+    # gate Sol S3: logins inexistentes concorrentes com senhas erradas reais na conta-alvo da escrita
+    # equivalente (a de menor id): o contador termina exatamente no numero de senhas erradas
+    import threading
+    conn = _conn(tmp_path, monkeypatch)
+    uid = auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    largada = threading.Barrier(8)
+
+    def tentar(email):
+        c = db.get_conn()
+        try:
+            largada.wait()
+            auth.autenticar(c, email, "errada")
+        finally:
+            c.close()
+
+    emails = ["ninguem@lotufo.com"] * 5 + ["leo@lotufo.com"] * 3
+    threads = [threading.Thread(target=tentar, args=(e,)) for e in emails]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    row = conn.execute("SELECT tentativas_falhas, bloqueado_ate FROM usuarios WHERE id=?", (uid,)).fetchone()
+    assert (row["tentativas_falhas"], row["bloqueado_ate"]) == (3, None)
