@@ -162,7 +162,7 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
         if s["paralisacao"]:
             out.append(_av.aviso("obra_paralisada", "atencao",
                                  f"{nome}: paralisada desde {_br(s['paralisacao']['desde'])}", cid, nome,
-                                 publico=("diretoria",), destino=destino,
+                                 publico=("operacao", "diretoria"), destino=destino,
                                  data=s["paralisacao"]["desde"], sentido="desde"))
         else:
             dias = s["dias_execucao"]

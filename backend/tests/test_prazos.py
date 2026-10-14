@@ -77,11 +77,12 @@ def test_resumo_para_a_lista_de_obras(cenario):
     assert prazos.resumo(c, ids["contrato"], D(2026, 9, 25))["pedido_prorrogacao"] is None
 
 
-def test_paralisacao_aberta_suspende_o_aviso_e_avisa_a_diretoria(cenario):
+def test_paralisacao_aberta_suspende_o_aviso_e_avisa_operacao_e_diretoria(cenario):
     c, ids = cenario
     ids["instrumento"]("paralisacao", "2026-02-01")
     a = _por_tipo(c, D(2026, 10, 1))
-    assert "execucao_vencendo" not in a and a["obra_paralisada"]["publico"] == ["diretoria"]
+    assert "execucao_vencendo" not in a and a["obra_paralisada"]["publico"] == ["operacao", "diretoria"]
+    assert (a["obra_paralisada"]["data"], a["obra_paralisada"]["sentido"]) == ("2026-02-01", "desde")
     ids["instrumento"]("reinicio", "2026-05-05")
     a = _por_tipo(c, D(2026, 10, 1))
     assert "obra_paralisada" not in a and "execucao_vencendo" in a
