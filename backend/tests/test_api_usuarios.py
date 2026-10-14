@@ -233,7 +233,7 @@ def test_rotas_novas_de_admin_negadas_a_diretoria_e_engenharia(client_admin):
 def test_trocar_a_propria_senha(client_admin):
     client_admin.post("/api/admin/usuarios", json=NOVO)
     outra = _entrar(client_admin, NOVO["email"], NOVO["senha"])
-    atual = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    _entrar(client_admin, NOVO["email"], NOVO["senha"])
     r = client_admin.post("/api/auth/senha", json={"senha_atual": "errada-errada", "senha_nova": "senha-nova-456"})
     assert r.status_code == 422, r.text
     r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": "curta"})
