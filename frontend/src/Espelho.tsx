@@ -89,7 +89,7 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
   // o espelho que acabou de ser gerado na obra: a mensagem aponta para a medicao dele
   const [gerado, setGerado] = useState<number | null>(null);
   const geracao = useRef(0);
-  const baseForm = useRef("");   // o formulario como abriu: so' conta como rascunho o que mudou
+  const baseForm = useRef(JSON.stringify(form));   // o formulario como abriu: so' conta como rascunho o que mudou
   useRascunho(passo.tipo !== "lista" && passo.tipo !== "envio" && JSON.stringify(form) !== baseForm.current);
 
   const carregar = async () => {

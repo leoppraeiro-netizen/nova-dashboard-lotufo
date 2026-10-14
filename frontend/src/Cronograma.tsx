@@ -317,7 +317,8 @@ export default function Cronograma({ contratoId, podeEditar }:
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
-  useRascunho(texto.trim() !== "");   // cronograma digitado e ainda nao publicado
+  const copiado = useRef("");   // texto vindo de "Copiar versao vigente": ainda nao e' rascunho
+  useRascunho(texto.trim() !== "" && texto !== copiado.current);   // cronograma digitado e ainda nao publicado
   const area = useRef<HTMLTextAreaElement>(null);
 
   // GERACAO da leitura — mesma guarda de Medicoes.tsx. Cada troca de `contratoId` (e o
@@ -422,7 +423,9 @@ export default function Cronograma({ contratoId, podeEditar }:
   function copiarVigente() {
     if (!versao) return;
     setSucesso("");
-    setTexto(versao.itens.map(i => `${i.competencia};${brlCampo(i.valor_previsto_centavos)}`).join("\n"));
+    const copia = versao.itens.map(i => `${i.competencia};${brlCampo(i.valor_previsto_centavos)}`).join("\n");
+    copiado.current = copia;
+    setTexto(copia);
     area.current?.focus();
   }
 
