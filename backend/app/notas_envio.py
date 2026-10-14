@@ -5,6 +5,7 @@ como feito por fora) -> aguardando pagamento (= `protocolada`). Um ENVIO e' um e
 medicao e reajuste da mesma competencia vao juntos (D9); na MTPAR e na SES, um por medicao.
 """
 import datetime
+import json
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
@@ -147,6 +148,25 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
     return itens, notas, curtos
 
 
+def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict]) -> list[dict]:
+    """Issue #172: onde medicao e reajuste vao no mesmo e-mail (SINFRA, Pref. VG), a irma (mesmo numero, o outro tipo
+    do par execucao x reajuste) com nota emitida que ficou fora deste envio, para o registro por fora leva-la junto."""
+    regras = json.loads(o.get("regras") or "{}")
+    if not protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, _etapa(familia))):
+        return []
+    dentro = {m["id"] for m in ms}
+    outro = {"execucao": "reajuste", "reajuste": "execucao"}
+    achadas: dict[int, dict] = {}
+    for m in ms:
+        if m["tipo"] not in outro:
+            continue
+        for r in conn.execute("SELECT * FROM medicoes WHERE contrato_id=? AND numero=? AND tipo=? "
+                              "AND estado='nota_emitida' ORDER BY id", (c["id"], m["numero"], outro[m["tipo"]])):
+            if r["id"] not in dentro:
+                achadas[r["id"]] = {"medicao_id": r["id"], "titulo": medicoes.titulo(r), "tipo": r["tipo"]}
+    return list(achadas.values())
+
+
 def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: int | None,
            hoje: datetime.date) -> dict:
     itens, notas, curtos = _itens(conn, c, familia, ms, hoje)
@@ -163,7 +183,7 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
             "valor_centavos": sum(m.get("valor_centavos") or 0 for m in ms), "emitida_em": emitida,
             "dias": (hoje - datetime.date.fromisoformat(emitida)).days if emitida else None,
             "situacao": situacao, "aviso": " · ".join(dict.fromkeys(curtos)) or None, "itens": itens,
-            "protocolo_id": protocolo_id}
+            "protocolo_id": protocolo_id, "irmas": _irmas(conn, c, familia, o, ms)}
 
 
 # --- lista -----------------------------------------------------------------------------------------

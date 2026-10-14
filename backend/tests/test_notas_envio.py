@@ -334,6 +334,64 @@ def test_envio_feito_por_fora_e_numero_do_siga(api):
     assert r.status_code == 422                                         # ja' protocolada
 
 
+EML = (b"From: Engenharia <engenharia@exemplo.com.br>\r\nTo: sinfra@orgao-a.exemplo.com.br\r\n"
+       b"Date: Tue, 15 Sep 2026 10:00:00 -0400\r\nSubject: 23 medicao e reajuste\r\n\r\ncorpo")
+
+
+def test_envio_por_fora_da_medicao_e_do_reajuste_juntos(api):
+    """Issue #172: medicao e reajuste no mesmo e-mail viram um registro so': as duas com o mesmo .eml e uma auditoria."""
+    cl, c, ids = api
+    par = [ids["sinfra_exec"], ids["sinfra_reaj"]]
+    r = cl.post("/api/notas/envio-externo",
+                data={"medicao_ids": [str(x) for x in par], "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"},
+                files={"eml": ("envio.eml", EML, "message/rfc822")})
+    assert r.status_code == 200, r.text
+    linhas = c.execute("SELECT estado, envio_origem, envio_externo_em FROM medicoes WHERE id IN (?,?)", par).fetchall()
+    assert {tuple(x) for x in linhas} == {("protocolada", "externo", "2026-09-15")}
+    emls = c.execute("SELECT medicao_id, arquivo FROM medicao_documentos WHERE tipo_doc='evidencia_orgao'").fetchall()
+    assert sorted(x[0] for x in emls) == par and len({x[1] for x in emls}) == 1
+    aud = c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchall()
+    assert len(aud) == 1 and json.loads(aud[0][0])["medicoes"] == par
+
+
+def test_envio_por_fora_com_a_irma_fora_de_nota_emitida_nao_registra_nenhuma(api):
+    cl, c, ids = api
+    c.execute("UPDATE medicoes SET estado='espelho_enviado' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    r = cl.post("/api/notas/envio-externo",
+                data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])], "enviado_em": "2026-09-15",
+                      "observacao": "Pelo Outlook"}, files={"eml": ("envio.eml", EML, "message/rfc822")})
+    assert r.status_code == 422 and "não está com a nota emitida" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM medicao_documentos WHERE tipo_doc='evidencia_orgao'").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_lista_traz_a_irma_em_outro_envio_so_onde_medicao_e_reajuste_vao_juntos(svc):
+    """Issue #172: a irma (mesmo numero, outro tipo, nota emitida) fora do envio aparece para o registro por fora."""
+    c, ids = svc
+    for obra in ("sinfra", "vg", "mtpar"):           # competencias diferentes: a lista nao as junta sozinha
+        c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids[f"{obra}_reaj"],))
+    c.commit()
+    lista = notas_envio.a_enviar(c, HOJE)
+    for obra in ("sinfra", "vg"):
+        por_medicao = {x["medicao_ids"][0]: x for x in _por_contrato(lista, ids[obra])}
+        assert por_medicao[ids[f"{obra}_exec"]]["irmas"] == [
+            {"medicao_id": ids[f"{obra}_reaj"], "titulo": "Reajuste da 23ª Medição", "tipo": "reajuste"}]
+        assert por_medicao[ids[f"{obra}_reaj"]]["irmas"] == [
+            {"medicao_id": ids[f"{obra}_exec"], "titulo": "23ª Medição", "tipo": "execucao"}]
+    assert all(x["irmas"] == [] for x in _por_contrato(lista, ids["mtpar"]))       # MTPAR tramita separado
+    # irma que nao esta' em nota emitida nao e' oferecida
+    c.execute("UPDATE medicoes SET estado='espelho_enviado' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["irmas"] == []
+
+
+def test_irma_no_mesmo_envio_nao_e_oferecida_de_novo(svc):
+    c, ids = svc
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert len(sinfra["medicao_ids"]) == 2 and sinfra["irmas"] == []
+
+
 # --- cobranca de certidoes por e-mail --------------------------------------------------------------
 
 def _hora(h, mi=0, dia=HOJE):
