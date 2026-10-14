@@ -96,16 +96,18 @@ def listar(conn, hoje: datetime.date | None = None, publico: str = "operacao") -
     todos = [a for fonte in FONTES for a in fonte(conn, hoje)]
     if publico != "todos":
         todos = [a for a in todos if publico in a["publico"]]
-    # nivel; depois o mais atrasado primeiro (os piores no topo do nivel); sem dias, no fim
-    return sorted(todos, key=lambda a: (_ORDEM[a["nivel"]], _chave_atraso(a), a["obra"] or ""))
+    # nivel; depois o mais atrasado primeiro (os piores no topo do nivel); sem data nem dias, no fim
+    return sorted(todos, key=lambda a: (_ORDEM[a["nivel"]], _chave_atraso(a, hoje), a["obra"] or ""))
 
 
-def _chave_atraso(a: dict):
-    """Atraso negado, para ordenar do pior ao menos grave: `dias` conta DESDE o fato (sentido "desde") ou ATE'
-    o prazo (negativo = vencido), entao o atraso e' dias ou -dias. Sem dias, vai para o fim do nivel."""
-    if a["dias"] is None:
-        return (1, 0)
-    return (0, -(a["dias"] if a["sentido"] == "desde" else -a["dias"]))
+def _chave_atraso(a: dict, hoje: datetime.date):
+    """Atraso negado, para ordenar do pior ao menos grave. Com `data` (a do fato), o atraso e' hoje - data, o
+    mesmo nos dois sentidos (docstring do modulo); sem ela, `dias` conta desde o fato ("desde") ou ate' o prazo (negativo = vencido)."""
+    if a["data"]:
+        return (0, -(hoje - datetime.date.fromisoformat(a["data"][:10])).days)
+    if a["dias"] is not None:
+        return (0, -a["dias"] if a["sentido"] == "desde" else a["dias"])
+    return (1, 0)
 
 
 def _mes(d: datetime.date) -> str:

@@ -113,12 +113,12 @@ def test_aviso_de_nota_leva_a_medicao(cenario, monkeypatch):
 
 def test_avisos_do_nivel_vem_do_mais_atrasado_para_o_menos(cenario, monkeypatch):
     c, ids = cenario                          # G4-04: os piores primeiro dentro do nivel, tanto "prazo" quanto "desde"
-    def mk(tipo, dias, sentido):
-        return avisos.aviso(tipo, "acao", "x", ids["contrato"], "Obra A", dias=dias, sentido=sentido)
+    def mk(tipo, dias, sentido, data=None):
+        return avisos.aviso(tipo, "acao", "x", ids["contrato"], "Obra A", dias=dias, sentido=sentido, data=data)
     monkeypatch.setattr(avisos, "FONTES", [lambda conn, hoje: [
         mk("a", 3, "desde"), mk("b", -10, "prazo"), mk("c", 40, "desde"), mk("d", 5, "prazo"),
-        mk("e", None, None), mk("f", -2, "prazo")]])
-    assert [a["tipo"] for a in avisos.listar(c, D(2026, 9, 20))] == ["c", "b", "a", "f", "d", "e"]
+        mk("e", None, None), mk("f", -2, "prazo"), mk("g", None, "desde", "2026-01-01")]])
+    assert [a["tipo"] for a in avisos.listar(c, D(2026, 9, 20))] == ["g", "c", "b", "a", "f", "d", "e"]
 
 
 def test_mensagem_sem_prefixo_da_obra_e_datas_com_ano(cenario):
