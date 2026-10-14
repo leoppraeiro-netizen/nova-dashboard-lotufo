@@ -4,7 +4,7 @@ import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
   ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, filtrarEventos, pessoaDoEvento, quantidadeRec, reconciliacaoDaObra,
-  rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
+  rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, TETO_REC,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
 import { api, ApiErro } from "./api";
@@ -730,6 +730,11 @@ function Auditoria({ busca }: { busca: Busca }) {
   const f = { acao: busca.acao ?? null, pessoa: busca.pessoa ?? null, desde: busca.desde ?? null };
   const quem = (p: string) => (p === "sistema" ? "sistema" : nomes?.get(Number(p)) ?? `usuário ${p}`);
   const eventos = audit ? filtrarEventos(audit.eventos, f) : [];
+  // o objeto e' link para a tela dele; sem tela, fica o texto
+  const objeto = (ev: Evento) => {
+    const rota = rotaDoObjeto(ev);
+    return rota ? <Link para={rota}>{rotuloObjeto(ev.entidade, ev.entidade_id)}</Link> : rotuloObjeto(ev.entidade, ev.entidade_id);
+  };
   // as opcoes do filtro em ordem alfabetica do rotulo em portugues (o valor segue sendo o codigo da acao)
   const acoes = audit ? [...new Set(audit.eventos.map(e => e.acao))].sort((a, b) => rotuloAcao(a).localeCompare(rotuloAcao(b), "pt-BR")) : [];
   const pessoas = audit ? [...new Set(audit.eventos.map(pessoaDoEvento))] : [];
@@ -805,7 +810,7 @@ function Auditoria({ busca }: { busca: Busca }) {
                       <td className="num">{fmtDataHora(ev.criado_em)}</td>
                       <td>{quem(pessoaDoEvento(ev))}</td>
                       <td>{rotuloAcao(ev.acao)}</td>
-                      <td>{rotuloObjeto(ev.entidade, ev.entidade_id)}</td>
+                      <td>{objeto(ev)}</td>
                     </tr>
                   ))}
                 </tbody>
