@@ -2,7 +2,8 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { api, ApiErro } from "./api";
 import { brl, contar, fmtDias } from "./formato";
 import { IconeAlerta, IconeSeta } from "./icones";
-import { Link, trocarBusca, type Busca } from "./rota";
+import { trocarBusca, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia } from "./tempo";
 import Rolagem from "./Rolagem";
 

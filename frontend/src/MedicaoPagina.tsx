@@ -13,7 +13,8 @@ import { FormDesmarcarFinal, FormEstado, FormFinal, FormProtocoloManual, FormRec
 import { brl, Estado, type Medicao } from "./Medicoes";
 import { Notas } from "./Notas";
 import { ProtocolosDaMedicao, useProtocolos } from "./Protocolo";
-import { Link, type Origem, type Rota } from "./rota";
+import { type Origem, type Rota } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora, fmtDataPura } from "./tempo";
 import { Migalhas, VoltarOrigem } from "./Topo";
 

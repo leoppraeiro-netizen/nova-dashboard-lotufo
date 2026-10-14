@@ -4,7 +4,8 @@ import { api } from "./api";
 import { FAMILIAS, filtrarAvisos, ondeSeResolve, porFamilia, porObra, quandoDoAviso, semRSOrfao, type Familia, type Grupo } from "./avisos";
 import { IconeAlerta } from "./icones";
 import { brl } from "./Medicoes";
-import { Link, trocarBusca, type Busca } from "./rota";
+import { trocarBusca, type Busca } from "./rota";
+import { Link } from "./Link";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";
 
