@@ -208,6 +208,3 @@
 /* etapa 4: a FRC assinada se arrasta no proprio item */
 .notas-v3 .nota-item--soltar { flex-direction: column; align-items: stretch; }
 .notas-v3 .nota-item--soltar .nota-complementares__soltar { min-height: 52px; }
-
-/* ------------------------------------------------------ aguardando pagamento */
-.notas-v3.nota-aguardando .cartao__titulo { font-size: 17px; line-height: 24px; font-weight: 600; }

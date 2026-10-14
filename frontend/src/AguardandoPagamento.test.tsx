@@ -104,4 +104,17 @@ describe("Aguardando pagamento", () => {
     render(<AguardandoPagamento podeEditar hoje={HOJE} />);
     expect(await screen.findByText("Nenhuma nota esperando pagamento.")).toBeTruthy();
   });
+
+  it("em tela estreita (até 1180 px), escolher uma nota rola até o painel; em tela larga, não", async () => {
+    api.mockResolvedValue(cinco());
+    const rolar = vi.fn();
+    Element.prototype.scrollIntoView = rolar;
+    window.matchMedia = ((q: string) => ({ matches: q === "(max-width: 1180px)" })) as unknown as typeof window.matchMedia;
+    render(<AguardandoPagamento podeEditar hoje={HOJE} />);
+    fireEvent.click(await screen.findByRole("row", { name: /MT-402/ }));
+    expect(rolar).toHaveBeenCalledTimes(1);
+    window.matchMedia = (() => ({ matches: false })) as unknown as typeof window.matchMedia;
+    fireEvent.click(screen.getByRole("row", { name: /Leblon/ }));
+    expect(rolar).toHaveBeenCalledTimes(1);
+  });
 });

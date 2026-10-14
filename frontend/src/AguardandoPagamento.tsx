@@ -80,7 +80,7 @@ function Painel({ l, podeEditar, aoMudar }: { l: Item; podeEditar: boolean; aoMu
   const mtpar = l.familia === "mtpar";
   const rotulo = mtpar ? "Nº do protocolo no SIGA" : "Nº do protocolo no órgão";
   return (
-    <aside className="ap__painel" aria-label="Detalhe da nota">
+    <aside id="painel-nota" className="ap__painel" aria-label="Detalhe da nota">
       <h2>{l.obra} · {l.descricao}</h2>
       <div className="ap__painel-orgao">{l.orgao}</div>
       <div className="ap__painel-valor">{brl(l.valor_centavos)}</div>
@@ -109,6 +109,11 @@ function Painel({ l, podeEditar, aoMudar }: { l: Item; podeEditar: boolean; aoMu
       </div>
     </aside>
   );
+}
+
+// ate' 1180 px o painel fica abaixo da lista: ao escolher uma nota, leva a vista ate' ele (como no prototipo)
+function irAoPainel() {
+  if (window.matchMedia?.("(max-width: 1180px)").matches) document.getElementById("painel-nota")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
 }
 
 export default function AguardandoPagamento({ podeEditar, hoje }: { podeEditar: boolean; hoje?: string }) {
@@ -146,7 +151,7 @@ export default function AguardandoPagamento({ podeEditar, hoje }: { podeEditar: 
 
   return (
     <>
-      <p className="ap__total"><span className="dinheiro">{brl(total)}</span> aguardando pagamento · {contar(itens.length, "nota", "notas")}</p>
+      <p className="ap__total"><span className="dinheiro">{brl(total)}</span> em notas aguardando pagamento · {contar(itens.length, "nota", "notas")}</p>
       <div className="ap">
         <section className="ap__quadro" aria-label="Notas aguardando pagamento">
           <table className="ap__tabela" role="grid">
@@ -173,8 +178,8 @@ export default function AguardandoPagamento({ podeEditar, hoje }: { podeEditar: 
                   return (
                     <tr key={i.medicao_id} className="ap__linha" tabIndex={0} aria-selected={sel}
                       aria-label={`${i.obra} · ${i.descricao}`}
-                      onClick={() => setEscolhida(i.medicao_id)}
-                      onKeyDown={ev => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); setEscolhida(i.medicao_id); } }}>
+                      onClick={() => { setEscolhida(i.medicao_id); irAoPainel(); }}
+                      onKeyDown={ev => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); setEscolhida(i.medicao_id); irAoPainel(); } }}>
                       <td><span className="ap__obra">{i.obra}</span> · {i.descricao}</td>
                       <td>{i.orgao}{semSiga(i) && <> <Selo classe="selo--atencao">sem protocolo SIGA</Selo></>}</td>
                       <td className="col-num dinheiro" data-rotulo="Valor">{brl(i.valor_centavos)}</td>
