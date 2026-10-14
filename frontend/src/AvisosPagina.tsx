@@ -20,12 +20,20 @@ const NIVEIS: { id: Nivel; rotulo: string }[] = [
 
 const chaveDoAviso = (a: Aviso, i: number) => `${a.tipo}-${a.contrato_id}-${a.entidade_id ?? ""}-${a.medicao_id ?? ""}-${i}`;
 
+/** O fato do aviso com a obra (ou a empresa) em negrito, lida do CAMPO e nao do texto; o prefixo no texto (documentos,
+ *  que ainda o trazem) tem a mesma saida. Dentro do grupo da obra/empresa (`omitirObra`) o nome ja' esta' no titulo. */
+function Fato({ a, texto, omitirObra }: { a: Aviso; texto: string; omitirObra: boolean }) {
+  const quem = [a.obra, a.entidade].find(q => q && texto.startsWith(`${q}: `));
+  if (quem) return <><span className="forte">{quem}</span>{semRSOrfao(texto.slice(quem.length))}</>;
+  if (!omitirObra && a.obra) return <><span className="forte">{a.obra}</span>{": "}{semRSOrfao(texto)}</>;
+  return <>{semRSOrfao(texto)}</>;
+}
+
 function LinhaAviso({ a, tirar, omitirObra, comValor }: { a: Aviso; tirar: (a: Aviso) => Aviso; omitirObra: boolean; comValor: boolean }) {
   const s = SELO[a.nivel] ?? SELO.atencao;
   const d = destinoDoAviso(a);
   const texto = tirar(a).mensagem;
   // F-54: o fato em texto neutro, com a obra (ou a empresa) em negrito; o link fica no destino
-  const quem = [a.obra, a.entidade].find(q => q && texto.startsWith(`${q}: `));
   // dentro do grupo da obra (ou da empresa) o nome ja' esta' no titulo: o destino diz so' a aba (N4-03)
   const onde = ondeSeResolve(a, omitirObra);
   // o link do destino fora de contexto (lista de links do leitor de tela) leva a frase do aviso como descricao
@@ -33,7 +41,7 @@ function LinhaAviso({ a, tirar, omitirObra, comValor }: { a: Aviso; tirar: (a: A
   return (
     <tr>
       <td><Selo classe={s.classe} forte={s.forte}>{s.rotulo}</Selo></td>
-      <td id={idTexto} className="aviso__fato">{quem ? <><span className="forte">{quem}</span>{semRSOrfao(texto.slice(quem.length))}</> : semRSOrfao(texto)}</td>
+      <td id={idTexto} className="aviso__fato"><Fato a={a} texto={texto} omitirObra={omitirObra} /></td>
       <td className="num">{quandoDoAviso(a)}</td>
       {comValor && <td className="col-num dinheiro num">{a.valor_centavos !== null ? brl(a.valor_centavos) : ""}</td>}
       <td>{d && onde ? <Link para={d.para} busca={d.busca} secao={d.secao} aria-describedby={idTexto}>{onde}</Link> : onde || "—"}</td>
@@ -140,7 +148,7 @@ function CartaoGrupo({ g, abrirTudo, porObraSim, comValor, unico = false }: { g:
         <details className="detalhes detalhes--tabela cartao__corpo">
           {/* so' "Atenção (N)" fica no acento de link; o mais urgente (nem sempre atrasado: o prazo pode ainda nao ter
               vencido) e' apoio, com o selo do nivel dele (N4-05, F-79) */}
-          <summary>Atenção ({atencao.length})<span className="detalhes__resto"> · o mais urgente: <Selo classe={selo.classe} forte={selo.forte}>{selo.rotulo}</Selo> {semRSOrfao(tirar(atencao[0]).mensagem)}</span></summary>
+          <summary>Atenção ({atencao.length})<span className="detalhes__resto"> · o mais urgente: <Selo classe={selo.classe} forte={selo.forte}>{selo.rotulo}</Selo> <Fato a={atencao[0]} texto={tirar(atencao[0]).mensagem} omitirObra={omitirObra} /></span></summary>
           <Linhas itens={atencao} rotulo={`Avisos de atenção: ${g.rotulo}`} tirar={tirar} omitirObra={omitirObra} comValor={comValor} />
         </details>
       )}

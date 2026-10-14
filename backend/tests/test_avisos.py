@@ -109,3 +109,21 @@ def test_aviso_de_nota_leva_a_medicao(cenario, monkeypatch):
          "dias": 6, "mensagem": "nota 12 protocolada há 6 dias e ainda não apareceu no RM"}])
     a = [x for x in avisos.listar(c, D(2026, 9, 20)) if x["tipo"] == "nota_ausente_rm"][0]
     assert (a["medicao_id"], a["data"], a["sentido"]) == (77, "2026-09-14", "desde")
+
+
+def test_avisos_do_nivel_vem_do_mais_atrasado_para_o_menos(cenario, monkeypatch):
+    c, ids = cenario                          # G4-04: os piores primeiro dentro do nivel, tanto "prazo" quanto "desde"
+    def mk(tipo, dias, sentido, data=None):
+        return avisos.aviso(tipo, "acao", "x", ids["contrato"], "Obra A", dias=dias, sentido=sentido, data=data)
+    monkeypatch.setattr(avisos, "FONTES", [lambda conn, hoje: [
+        mk("a", 3, "desde"), mk("b", -10, "prazo"), mk("c", 40, "desde"), mk("d", 5, "prazo"),
+        mk("e", None, None), mk("f", -2, "prazo"), mk("g", None, "desde", "2026-01-01")]])
+    assert [a["tipo"] for a in avisos.listar(c, D(2026, 9, 20))] == ["g", "c", "b", "a", "f", "d", "e"]
+
+
+def test_mensagem_sem_prefixo_da_obra_e_datas_com_ano(cenario):
+    c, ids = cenario                          # G1-07: a tela mostra a obra em coluna; datas com ano
+    lista = avisos.listar(c, D(2026, 9, 1), publico="todos")
+    assert lista and not [a for a in lista if a["mensagem"].startswith("Obra A")]
+    execucao = [a for a in lista if a["tipo"] == "execucao_vencendo"][0]
+    assert execucao["mensagem"] == "execução termina em 49 dias (20/10/2026)"

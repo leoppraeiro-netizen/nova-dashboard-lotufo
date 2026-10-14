@@ -345,10 +345,10 @@ def avisos_pagamento(conn, hoje: datetime.date | None = None) -> list[dict]:
         dias, prazo = (hoje - _d(m["protocolo_em"])).days, prazos_q3[m["orgao_id"]]
         if dias > prazo:
             if m["tipo"] == "nota":
-                texto = f"{m['obra']}: NF {m['nf']} emitida há {dias} dias sem pagamento no RM"
+                texto = f"NF {m['nf']} emitida há {dias} dias sem pagamento no RM"
             else:
                 titulo = f"Reajuste da {m['numero']}ª Medição" if m["tipo"] == "reajuste" else f"{m['numero']}ª Medição"
-                texto = f"{m['obra']}: {titulo} protocolada há {dias} dias"
+                texto = f"{titulo} protocolada há {dias} dias"
             # A12 (2026-09-28): a medicao, para o aviso levar ao recebimento dela; a nota do RM nao tem medicao
             out.append({**_av.aviso("pagamento_atrasado", "acao",
                                     f"{texto}; o prazo normal do órgão é {prazo} dias",
