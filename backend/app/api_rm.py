@@ -12,6 +12,8 @@ from app.api_auth import conexao
 from app.permissoes import exigir
 
 router = APIRouter(prefix="/api/rm")
+# id acima de int64 e' recusado na entrada (422): o sqlite3 levantaria OverflowError (500)
+MAX_INT64 = 9223372036854775807
 
 
 @router.get("/status")
@@ -39,7 +41,8 @@ def sincronizar(usuario: dict = Depends(exigir("administrar")),
 
 
 @router.get("/reconciliacao")
-def reconciliacao(nfs_apos: int | None = Query(None, ge=1), desfeitas_apos: int | None = Query(None, ge=1),
+def reconciliacao(nfs_apos: int | None = Query(None, ge=1, le=MAX_INT64),
+                  desfeitas_apos: int | None = Query(None, ge=1, le=MAX_INT64),
                   usuario: dict = Depends(exigir("administrar", com_csrf=False)),
                   conn: sqlite3.Connection = Depends(conexao)):
     # #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas, depois do id da ultima linha que a tela ja'
