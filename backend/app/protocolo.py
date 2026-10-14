@@ -247,7 +247,9 @@ def adicionar_link(conn, usuario_id: int, protocolo_id: int, nome: str, url: str
     if not dominios:
         raise ValueError("Links do OneDrive ou SharePoint não estão liberados neste servidor: "
                          "o administrador precisa configurar os endereços permitidos")
-    if (urlparse(url).hostname or "").lower() not in dominios:
+    # O netloc inteiro (nao o hostname) tem que ser um host da lista: "\", "@" (userinfo), ":" (porta) e "%"
+    # ficam de fora. "https://evil.test\@host/..." daria hostname=host, mas o navegador le "\" como "/" e abre evil.test.
+    if urlparse(url).netloc.lower() not in dominios:
         raise ValueError(f"Cole um link do OneDrive ou SharePoint da Lotufo ({' ou '.join(dominios)})")
     p = _linha(conn, protocolo_id)
     _editavel(p)

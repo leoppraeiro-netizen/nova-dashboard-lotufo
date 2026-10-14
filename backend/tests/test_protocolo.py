@@ -315,7 +315,11 @@ def test_link_aceita_so_os_hosts_da_variavel(cenario, monkeypatch):
     monkeypatch.setenv("DASH_SHAREPOINT_HOSTS", " Exemplo-my.SharePoint.com , exemplo.sharepoint.com,, ")
     pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
     for url in ("https://outro-my.sharepoint.com/:b:/g/abc", "https://exemplo-my.sharepoint.com.evil.test/abcdef",
-                "https://sub.exemplo.sharepoint.com/abcdef"):
+                "https://sub.exemplo.sharepoint.com/abcdef",
+                "https://evil.test\\@exemplo.sharepoint.com/abcdef",       # navegador le "\" como "/": abre evil.test
+                "https://evil.test@exemplo.sharepoint.com/abcdef",         # userinfo
+                "https://exemplo.sharepoint.com:8443/abcdef",              # porta
+                "https://exemplo.sharepoint.com%2f.evil.test/abcdef"):
         with pytest.raises(ValueError, match=r"exemplo-my\.sharepoint\.com ou exemplo\.sharepoint\.com"):
             protocolo.adicionar_link(c, ids["uid"], pid, "Planilha", url)
     assert protocolo.adicionar_link(c, ids["uid"], pid, "Planilha", "https://exemplo-my.sharepoint.com/:b:/g/abc")
