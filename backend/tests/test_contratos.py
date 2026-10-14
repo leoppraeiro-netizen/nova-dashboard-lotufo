@@ -136,3 +136,23 @@ def test_cabecalho_e_cadastro_da_obra(tmp_path, monkeypatch):
     assert cab["status"] == "em_encerramento" and cab["dias_execucao"] == 10 and cab["orgao"] == "SINFRA-MT"
     ap = contratos.cadastro_da_obra(conn, cid)["instrumentos"][0]
     assert ap["tipo"] == "apostilamento_reajuste" and ap["dados"]["percentual"] == "4,21"
+
+
+def test_lista_de_obras_traz_a_data_da_paralisacao_para_a_operacao(client, tmp_path):
+    """"Paralisada desde" na lista: o aviso e' so' da diretoria, entao a data vem do proprio /api/contratos,
+    tambem para obra suspensa (estado que o cadastro do QDOP usa para 'paralisada')."""
+    import json
+    conn = db.get_conn()
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    auth.criar_usuario(conn, "Eng", "eng@lotufo.com", "senha-forte-123", "engenharia")
+    cid = contratos.criar(conn, 1, BASE)
+    contratos.mudar_estado(conn, 1, cid, "suspenso", "2026-08-01", None)
+    conn.execute("INSERT INTO instrumentos (contrato_id, chave, tipo, data, dados) VALUES (?, 'par-1', 'paralisacao', "
+                 "'2026-08-01', ?)", (cid, json.dumps({})))
+    conn.commit()
+    conn.close()
+    r = client.post("/api/auth/login", json={"email": "eng@lotufo.com", "senha": "senha-forte-123"})
+    assert r.status_code == 200, r.text
+    client.cookies.set("sessao", r.cookies.get("sessao") or client.cookies.get("sessao"))
+    obra = next(o for o in client.get("/api/contratos").json() if o["id"] == cid)
+    assert obra["estado"] == "suspenso" and obra["paralisada_desde"] == "2026-08-01"
