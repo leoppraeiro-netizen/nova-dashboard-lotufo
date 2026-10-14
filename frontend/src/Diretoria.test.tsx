@@ -43,7 +43,16 @@ describe("Carteira", () => {
     expect(await screen.findByText("1 de 3")).toBeTruthy();
     expect(screen.getByText("obras ativas protocolaram")).toBeTruthy();
     // A-21 (10/10/2026): o farol conta mais que as "obras ativas" e diz a base
-    expect(screen.getByText("1 de 1 obras (19 ativas, 2 em encerramento, 1 suspensa) com farol em Atenção ou Crítico")).toBeTruthy();
+    expect(screen.getByText("1 de 1 obras (19 ativas, 2 em encerramento, 1 suspensa) com farol em Ação, Atenção ou Crítico")).toBeTruthy();
+  });
+
+  it("Resumo: o farol de Ação e o de Atenção têm rótulos diferentes (D10)", async () => {
+    const outra = { ...PAINEL.obras[0], contrato_id: 8, seq: 2, obra: "Outra", farol: "atencao" };
+    const respostas: Record<string, unknown> = { ...RESPOSTAS, "/api/diretoria": { ...PAINEL, obras: [{ ...PAINEL.obras[0], farol: "acao" }, outra] } };
+    api.mockImplementation((url: string) => Promise.resolve(respostas[url]));
+    render(<Diretoria ir={() => {}} />);
+    expect(await screen.findByText("Ação")).toBeTruthy();
+    expect(screen.getByText("Atenção")).toBeTruthy();
   });
 
   it("QDOP: exporta a planilha e mostra os motivos da obra", async () => {

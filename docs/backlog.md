@@ -47,7 +47,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 - 2026-09-25 Volume: paginação da reconciliação (298 NFs inalcançáveis); virtualização do catálogo de contatos (até 200 linhas). [A, G5-03, G5-04]
 - 2026-09-25 Administração: saúde do backup na tela (o PRODUCT.md dá ao admin, não aparece). [G5-06]
 - 2026-09-25 Decisões pendentes do loop: D5 rótulos "Nota emitida" × "NF emitida"; D6 "Emitir" só nas certidões que pedem ação; D7 "set/26" no eixo do gráfico; D8 KPIs de comparação como linha dentro do KPI principal. (D9 e D10 decididos em 2026-09-26 e em produção em 2fcc4d1: borda de campo #8a93a2; certidão vencida e nota divergente são Crítico no aviso e na tela.)
-- 2026-09-25 Diretoria (API): o farol só tem "amarelo" para Ação e Atenção; distinguir (D10 decidido em 2026-09-26; o farol ainda não separa Ação de Atenção). [crítico R3]
 
 ## Todas as obras prontas (mergeado em `master` a7e5a64 e EM PRODUÇÃO em 2026-09-23 com OK do Leonardo)
 
