@@ -132,7 +132,7 @@ export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar, versaoDocs = 0,
       )}
       {/* issue #172: o e-mail que ja' saiu se registra sem "Começar o envio", que montaria um rascunho a toa */}
       {podeEditar && envio.situacao !== "bloqueado" && <EnvioPorFora medicaoIds={envio.medicao_ids} irmas={envio.irmas}
-        aoFeito={js => aoMudar(avisoPorFora(js))} />}
+        aoFeito={js => aoMudar(avisoPorFora(js, envio.medicao_ids.length))} />}
     </div>
   );
 }

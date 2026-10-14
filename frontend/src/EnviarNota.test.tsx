@@ -292,8 +292,20 @@ describe("Etapa do envio na página da medição", () => {
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(aoMudar).toHaveBeenCalledWith(
       "Envio registrado: esta nota e a do Reajuste da 7ª Medição foram para Aguardando pagamento."));
-    expect((apiForm.mock.calls[0][1] as FormData).getAll("medicao_ids")).toEqual(["631", "632"]);
+    const fd = apiForm.mock.calls[0][1] as FormData;
+    expect([fd.getAll("medicao_ids"), fd.getAll("irma_ids")]).toEqual([["631"], ["632"]]);
     expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/iniciar")).toBe(false);
+  });
+
+  it("envio com medição e reajuste juntos: o aviso fala das notas no plural (revisor da PR #178)", async () => {
+    api.mockResolvedValue({ ...lista, envios: [{ ...lista.envios[0], medicao_ids: [631, 632], irmas: [] }] });
+    apiForm.mockResolvedValue({ ok: true });
+    const aoMudar = vi.fn();
+    render(<EnvioDaMedicao medicaoId={631} podeEditar aoMudar={aoMudar} />);
+    fireEvent.click(await screen.findByText("Registrar envio feito por fora"));
+    fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(aoMudar).toHaveBeenCalledWith("Envio registrado: as notas foram para Aguardando pagamento."));
   });
 
   it("quem só consulta continua sem o link", async () => {

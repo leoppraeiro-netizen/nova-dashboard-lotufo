@@ -176,9 +176,10 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
 }
 
 /** Aviso da pagina da medicao depois do registro por fora: a irma que foi junto e' dita pelo nome. */
-export function avisoPorFora(juntas: Irma[]): string {
-  return juntas.length ? `Envio registrado: esta nota e a do ${juntas.map(i => i.titulo).join(", ")} foram para Aguardando pagamento.`
-    : "Envio registrado: a nota foi para Aguardando pagamento.";
+export function avisoPorFora(juntas: Irma[], qtdEnvio: number): string {
+  const estas = qtdEnvio > 1 ? "as notas deste envio" : "esta nota";
+  if (juntas.length) return `Envio registrado: ${estas} e a do ${juntas.map(i => i.titulo).join(", ")} foram para Aguardando pagamento.`;
+  return qtdEnvio > 1 ? "Envio registrado: as notas foram para Aguardando pagamento." : "Envio registrado: a nota foi para Aguardando pagamento.";
 }
 
 /** "Registrar envio feito por fora": o e-mail ja' saiu pelo Outlook; data (obrigatoria), observacao e o .eml.
@@ -197,7 +198,9 @@ export function EnvioPorFora({ medicaoIds, irmas = [], aoFeito }: { medicaoIds: 
     ev.preventDefault();
     const fd = new FormData();
     const juntas = irmas.filter(i => !fora.includes(i.medicao_id));
-    for (const id of [...medicaoIds, ...juntas.map(i => i.medicao_id)]) fd.append("medicao_ids", String(id));
+    for (const id of medicaoIds) fd.append("medicao_ids", String(id));
+    // a irma vai a' parte: o servidor confere de novo se ela pode ir junto (revisor da PR #178)
+    for (const i of juntas) fd.append("irma_ids", String(i.medicao_id));
     fd.append("enviado_em", data);
     fd.append("observacao", obs);
     if (eml) fd.append("eml", eml);

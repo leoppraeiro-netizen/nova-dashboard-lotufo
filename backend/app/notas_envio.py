@@ -347,20 +347,11 @@ def _e_email(dados: bytes) -> bool:
         return False
 
 
-def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
-                  eml: tuple[str, bytes] | None = None) -> None:
-    ids = sorted(set(medicao_ids or []))
-    if not ids:
-        raise ValueError("Escolha ao menos uma medição")
-    try:
-        data = datetime.date.fromisoformat(enviado_em)
-    except (TypeError, ValueError):
-        raise ValueError("Data do envio inválida (use AAAA-MM-DD)") from None
-    if data > tempo.hoje_local():
-        raise ValueError("A data do envio não pode ser futura")
-    obs = (observacao or "").strip()
-    if not obs:
-        raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
+def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
+    """As medicoes do registro por fora, conferidas. Roda antes de gravar o .eml e de novo DENTRO da transacao
+    (revisor da PR #178): outro registro ou envio entre as duas leituras nao pode passar. Recusa a medicao fora de
+    `nota_emitida`, contratos diferentes, protocolo com envio reservado (o e-mail esta' saindo pelo sistema) e, em
+    `irmas` (as que a tela juntou a' medicao da pagina), a que `_irmas` nao ofereceria."""
     ms = []
     for mid in ids:
         m = conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone()
@@ -371,6 +362,39 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
         ms.append(dict(m))
     if len({m["contrato_id"] for m in ms}) > 1:       # issue #172: um e-mail e' de um contrato so'
         raise ValueError("Medição de outro contrato")
+    for m in ms:
+        if any(p["envio_reservado_em"] for etapa in ("nota", "unico") for p in _ativos(conn, etapa, m["id"])):
+            raise ValueError(f"{medicoes.titulo(m)} está sendo enviada pelo sistema agora: confira o envio dela "
+                             "antes de registrar por fora")
+    if irmas:
+        c = protocolo._contrato(conn, ms[0]["contrato_id"])
+        familia, _, o = protocolo._orgao(conn, c)
+        principais = [m for m in ms if m["id"] not in irmas]
+        validas = {i["medicao_id"] for i in _irmas(conn, c, familia, o, principais, tempo.hoje_local())}
+        for m in ms:
+            if m["id"] in irmas and m["id"] not in validas:
+                raise ValueError(f"{medicoes.titulo(m)} não pode ir neste registro (envio próprio montado ou "
+                                 "assinado, bloqueio ou órgão que tramita separado): registre-a no envio dela")
+    return ms
+
+
+def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
+                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None) -> None:
+    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`)."""
+    irmas = set(irma_ids or []) - set(medicao_ids or [])
+    ids = sorted(set(medicao_ids or []) | irmas)
+    if not set(medicao_ids or []):
+        raise ValueError("Escolha ao menos uma medição")
+    try:
+        data = datetime.date.fromisoformat(enviado_em)
+    except (TypeError, ValueError):
+        raise ValueError("Data do envio inválida (use AAAA-MM-DD)") from None
+    if data > tempo.hoje_local():
+        raise ValueError("A data do envio não pode ser futura")
+    obs = (observacao or "").strip()
+    if not obs:
+        raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
+    _conferir_externo(conn, ids, irmas)
     rel = sha = None
     if eml:
         if len(eml[1]) > TETO_EML:
@@ -379,6 +403,7 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
             raise ValueError(NAO_E_EML)
         rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
     with db.mutacao(conn):
+        ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
         for m in ms:
             medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
                                          protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",

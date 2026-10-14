@@ -70,11 +70,11 @@ describe("Notas a enviar", () => {
       await waitFor(() => expect(apiForm).toHaveBeenCalled());
       const [caminho, fd] = apiForm.mock.calls[0] as [string, FormData];
       expect(caminho).toBe("/api/notas/envio-externo");
-      return fd.getAll("medicao_ids");
+      return { medicoes: fd.getAll("medicao_ids"), irmas: fd.getAll("irma_ids") };
     }
 
     it("a irmã com nota emitida vem marcada e o registro leva as duas medições", async () => {
-      expect(await registrar(false)).toEqual(["637", "638"]);
+      expect(await registrar(false)).toEqual({ medicoes: ["637"], irmas: ["638"] });
       expect((await screen.findByRole("status")).textContent)
         .toBe("Envio registrado: MT-388 · 14ª medição + Reajuste da 14ª Medição foram para Aguardando pagamento.");
     });
@@ -90,7 +90,7 @@ describe("Notas a enviar", () => {
     });
 
     it("desmarcada, o registro leva só a medição do envio", async () => {
-      expect(await registrar(true)).toEqual(["637"]);
+      expect(await registrar(true)).toEqual({ medicoes: ["637"], irmas: [] });
     });
 
     it("sem irmã (MTPAR tramita separado) a opção não aparece", async () => {

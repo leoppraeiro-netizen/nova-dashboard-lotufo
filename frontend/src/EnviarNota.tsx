@@ -458,7 +458,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
 
         <div className="nota-rodape">
           {motivo && <p className={`nota-rodape__motivo nota-rodape__motivo--${det.bloqueio ? "bloqueio" : !justOk ? "atencao" : "neutro"}`}>{motivo}</p>}
-          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} irmas={e.irmas} aoFeito={js => embutido ? embutido.aoConcluir(avisoPorFora(js)) : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` }, forcar: true })} />}
+          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} irmas={e.irmas} aoFeito={js => embutido ? embutido.aoConcluir(avisoPorFora(js, e.medicao_ids.length)) : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` }, forcar: true })} />}
         </div>
         {e.familia === "mtpar" && (
           <p className="nota-porfora__dica">Depois do envio a nota vai para Aguardando pagamento com a marca “sem protocolo SIGA”; o número é registrado lá.</p>
