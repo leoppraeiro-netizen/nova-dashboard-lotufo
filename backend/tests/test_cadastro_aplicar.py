@@ -118,6 +118,13 @@ def test_reaplicar_contrato_e_igual(conn):
     assert r["contratos"] == {"criados": [], "alterados": [], "iguais": 1}
 
 
+def test_contrato_sem_copia_extras_continua_igual_depois_da_migracao_037(conn):
+    cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(copia_extras=[])]))
+    assert conn.execute("SELECT copia_extras FROM contratos").fetchone()[0] is None
+    r = cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(copia_extras=[])]))
+    assert r["contratos"] == {"criados": [], "alterados": [], "iguais": 1}
+
+
 def test_em_encerramento_mantem_ativo_e_grava_a_data(conn):
     cad = _cad(contratos=[_contrato(status="em_encerramento", status_desde="2026-07-17")])
     cadastro_aplicar.aplicar(conn, 1, cad)

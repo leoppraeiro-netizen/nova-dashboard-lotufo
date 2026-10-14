@@ -237,7 +237,8 @@ def _contrato(conn, usuario_id, c, ids_orgao, ids_ent, rel) -> int:
             "vigencia_inicio": c["vigencia_inicio"], "vigencia_fim": c["vigencia_fim"],
             "sem_reajuste": 1 if c["sem_reajuste"] else 0, "encerramento_iniciado_em": enc,
             "destinatarios_extras": _json(c["destinatarios_extras"]),
-            "copia_extras": _json(c.get("copia_extras") or []), "estado": _ESTADO[c["status"]],
+            "copia_extras": _json(c["copia_extras"]) if c.get("copia_extras") else None,
+            "estado": _ESTADO[c["status"]],
             "documentos": _json(c["documentos"]) if c.get("documentos") else None,
             "objeto_completo": c.get("objeto_completo"),
             "cno_arquivo": _no_disco("anexos", c["cno_caminho"], "pdf", rel["ensaio"]) if c.get("cno_caminho")
