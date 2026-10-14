@@ -1,3 +1,4 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
@@ -122,6 +123,7 @@ export function CartaoPleito({ p, podeEditar, aoMudar, desfecho, contexto }: {
   const [descartando, setDescartando] = useState(false);
   useEffect(() => { setCorpo(p.corpo_carta || p.corpo_padrao || ""); }, [p.id, p.corpo_carta, p.corpo_padrao]);
   const editavel = podeEditar && p.origem === "sistema" && !["enviado", "descartado"].includes(p.situacao);
+  useRascunho(editavel && corpo.trim() !== (p.corpo_carta || p.corpo_padrao || "").trim());   // carta editada e ainda nao montada
 
   async function agir(f: () => Promise<unknown>) {
     setOcupado(true); setErro(""); setReserva(null);
