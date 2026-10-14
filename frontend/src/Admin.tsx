@@ -39,6 +39,7 @@ type StatusRm = {
 type Conta = { usuario_id: number; nome: string; email: string; perfil: string; conectada: boolean; token_em: string | null };
 // O estado do backup sai no /api/health e mora na memoria do servidor: zera quando ele reinicia.
 type Backup = { ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null;
+                ultima_copia_arquivos?: string | null; ultima_copia_arquivos_erro?: string | null;
                 ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null };
 
 const ROTULO_ESTADO_RODADA: Record<string, string> = { success: "OK", failed: "Falhou", running: "Rodando" };
@@ -276,8 +277,8 @@ function Backup() {
     <section className="cartao" aria-labelledby="titulo-backup">
       <div className="cartao__cabeca">
         <h2 className="cartao__titulo" id="titulo-backup">Backup</h2>
-        {/* o resultado de relance: Falhou se uma das duas tentativas falhou; OK quando alguma deu certo e nenhuma falhou */}
-        {b && (b.ultimo_snapshot_erro || b.ultima_copia_externa_erro ? <SeloRodada estado="failed" />
+        {/* o resultado de relance: Falhou se uma das tentativas falhou; OK quando alguma deu certo e nenhuma falhou */}
+        {b && (b.ultimo_snapshot_erro || b.ultima_copia_arquivos_erro || b.ultima_copia_externa_erro ? <SeloRodada estado="failed" />
           : b.ultimo_snapshot || b.ultima_copia_externa ? <SeloRodada estado="success" /> : null)}
         <span className="cartao__dica">desde que o servidor subiu</span>
       </div>
@@ -286,6 +287,8 @@ function Backup() {
           : b === null ? <p className="campo__nota">Não foi possível ler o estado do backup; recarregue a página para tentar de novo.</p>
           : <>
               <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} nenhum="nenhum desde que o servidor subiu" />
+              <LinhaBackup rotulo="Última cópia dos arquivos" em={b.ultima_copia_arquivos ?? null} erro={b.ultima_copia_arquivos_erro ?? null}
+                nenhum="nenhuma desde que o servidor subiu" />
               <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} nenhum="nenhuma desde que o servidor subiu" />
             </>}
       </div>

@@ -82,3 +82,19 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
   expect(await screen.findByText(/entre os já carregados/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Carregar mais" })).toBeTruthy();
 });
+
+// Issue #55: o backup passou a copiar as pastas de notas, espelhos, modelos e evidências; a falha dessa cópia
+// tem de aparecer na tela, senão o selo diz OK com os arquivos sem cópia
+test("Backup: falha na cópia dos arquivos aparece e o selo vira Falhou", async () => {
+  api.mockImplementation(async (url: string) => {
+    if (url === "/api/health") return { status: "ok", banco: "ok", backup: {
+      ultimo_snapshot: "2026-10-13T10:00:00-04:00", ultimo_snapshot_erro: null,
+      ultima_copia_arquivos: null, ultima_copia_arquivos_erro: "2026-10-13T10:00:00-04:00: disco cheio",
+      ultima_copia_externa: null, ultima_copia_externa_erro: null } };
+    throw new Error(`fora deste teste: ${url}`);
+  });
+  render(<Admin aba="saude" />);
+  expect(await screen.findByText(/Última cópia dos arquivos: a última tentativa falhou/)).toBeTruthy();
+  expect(screen.getByText(/disco cheio/)).toBeTruthy();
+  expect(screen.getByText("Falhou")).toBeTruthy();
+});
