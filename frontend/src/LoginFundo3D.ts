@@ -31,7 +31,7 @@ const cota = (a: V, b: V, off: V, k = 2) => {
 // Pista que segue alem da obra ate sumir na neblina, desenhada do centro para fora.
 // Fica depois de "nucleo": o enquadramento da camera usa so' a obra, nao a pista.
 let nucleo = -1;
-const VIA_PASSOS = 40;
+const VIA_PASSOS = 20;
 // ponto(lado, passo, o, y): ponto da pista no passo (0 = fim da obra), lado -1/1, deslocamento lateral o
 type Ponto = (s: number, j: number, o: number, y: number) => V;
 const via = (ponto: Ponto, linhas: number[][], tracos: number[][], transv: number[][][]) => {
@@ -135,7 +135,8 @@ function rodovia() {
   for (let i = 8; i < N; i += 17) { const t = st(i); L(P(t, 0, .87), P(t, 0, 12), 1); for (const s of [-1, 1]) { L(P(t, 0, 12), P(t, s * 2.6, 12), 1); L(P(t, s * 2.6, 11.8), P(t, s * 3.2, 11.8), 1); } }
   { const t = st(78); for (const o of [1, 11]) L(P(t, o, sup(o)), P(t, o, 7.4), 1); for (const y of [7.4, 6.8]) L(P(t, 1, y), P(t, 11, y), 1); poly([P(t, 2.6, 4.8), P(t, 9.6, 4.8), P(t, 9.6, 6.6), P(t, 2.6, 6.6)], true, 1); }
   // pista seguindo a curva alem da tela, passos de 0,025 rad (~9 m)
-  via((s, j, o, y) => P(s < 0 ? t0 - j * .025 : t1 + j * .025, o, y), longas,
+  // a defensa fica na obra: na pista ela seguiria sem os montantes
+  via((s, j, o, y) => P(s < 0 ? t0 - j * .025 : t1 + j * .025, o, y), longas.filter(([o]) => o !== 11.55),
     [[-5.2, sup(-5.2) + .01], [5.2, sup(5.2) + .01]], [secao.slice(0, 10), secao.slice(10)]);
   return S;
 }
@@ -229,7 +230,7 @@ const OBRAS = [
 
 const ESTILO = [{ cor: "#E0E7FF", w: 1.8, op: 1 }, { cor: "#8B93F5", w: 1.1, op: 1 }, { cor: "#5753C9", w: .8, op: .9 }];
 // devagar e sem arranco: senoide em vez de cubica (pico de velocidade ~pela metade)
-const DES = 20, PARA = 5, SAI = 2.5, CICLO = DES + PARA + SAI;
+const DES = 24, PARA = 5, SAI = 2.5, CICLO = DES + PARA + SAI;
 const ease = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
 
 /**
@@ -309,8 +310,8 @@ export function iniciarFundo(canvas: HTMLCanvasElement, parado: boolean, aoFalha
     catch { parou = true; aoFalhar(); return false; }
   }
 
-  // Parado: primeira obra completa, ja sem a cauda branca (lt = DES + 1).
-  const T_PARADO = DES + 1;
+  // Parado: primeira obra completa, ja sem a cauda branca (lt = DES + 2; ela some em 1,5 s).
+  const T_PARADO = DES + 2;
   function quadro(agora: number) {
     if (parou) return;
     // o clamp em 0 evita tempo negativo no 1o quadro (bug do Edge visto no prototipo)
