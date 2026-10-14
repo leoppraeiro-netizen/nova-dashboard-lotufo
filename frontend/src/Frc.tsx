@@ -96,7 +96,7 @@ export function FrcConsorcio({ medicaoId, podeEditar, versao, aoMudar, aoLer }: 
     }
   }
 
-  const numeroOk =/^\d{1,5}$/.test(numero) && Number(numero) > 0;
+  const numeroOk = /^\d{1,5}$/.test(numero) && Number(numero) > 0;
   return (
     <div className="notas-v3 frc">
       <div className="frc__cabeca">

@@ -719,7 +719,8 @@ def test_assinada_de_frc_anterior_recusa_o_envio(conn, usuario, consorcio14, _te
     frc.gerar(conn, usuario, mid, n)                       # FRC gerada de novo: a assinada anexada e' da anterior
     d = notas_envio.detalhe_envio(conn, pid)
     item = next(i for i in d["envio"]["itens"] if i["chave"] == f"frc:{mid}")
-    assert item["estado"] == "falta" and d["envio"]["situacao"] != "pronto"
+    assert item["estado"] == "falta" and d["envio"]["situacao"] == "bloqueado"
+    assert "FRC assinada não é a da FRC vigente" in d["envio"]["aviso"]
     assert d["bloqueio"] == (f"14ª Medição: A FRC assinada anexada não é a da FRC nº {n} vigente: baixe a FRC "
                              "gerada, assine no DocuSign e anexe aqui")
     assert not [a for a in d["previa"]["anexos"] if a["origem"] == "frc"]          # a velha nao vai

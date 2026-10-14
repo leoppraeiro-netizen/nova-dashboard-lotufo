@@ -271,10 +271,11 @@ def assinada(conn, medicao_id: int) -> dict:
     da FRC vigente (`recusa` diz por que a anexada nao vale). Consorcio sem FRC pela dashboard: a ultima anexada."""
     s = situacao(conn, medicao_id)
     if s["disponivel"]:
-        return {"controla": True, "documento": s["assinada_documento"], "recusa": s["assinada_recusa"]}
+        return {"controla": True, "documento": s["assinada_documento"], "recusa": s["assinada_recusa"],
+                "frc": s["frc"]}
     docs = _faturas(conn, medicao_id)
     return {"controla": False, "documento": {"id": docs[-1]["id"], "nome": docs[-1]["nome"]} if docs else None,
-            "recusa": None}
+            "recusa": None, "frc": None}
 
 
 def para_assinar(conn, medicao_id: int) -> int | None:

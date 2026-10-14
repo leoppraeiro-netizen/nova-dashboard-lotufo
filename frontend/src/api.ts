@@ -109,7 +109,7 @@ export async function baixarArquivo(caminho: string, nomePadrao: string): Promis
   const a = document.createElement("a");
   a.href = url; a.download = nome;
   document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);     // Firefox e Safari cancelam se revogar ja' no clique
 }
 
 /** Texto de erro para a tela. `ApiErro` ja traz mensagem em portugues (inclusive a falha de rede, status 0);

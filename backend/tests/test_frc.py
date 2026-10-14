@@ -312,7 +312,9 @@ def test_assinada_de_frc_substituida_nao_deixa_o_item_pronto(conn, usuario, cons
     assert faltas == []                                    # nao e' "nao anexada": e' bloqueio (protocolo.frc_recusadas)
     s = frc.situacao(conn, mid)
     assert (s["assinada"], s["assinada_recusa"]) == (False, recusa)
-    assert frc.assinada(conn, mid) == {"controla": True, "documento": None, "recusa": recusa}
+    a = frc.assinada(conn, mid)
+    assert (a["controla"], a["documento"], a["recusa"], a["frc"]["numero"]) == (True, None, recusa, n)
+    assert item["bloqueia"] is True
     assert protocolo._docs_nota(conn, [mid])[-1]["tipo_doc"] == "nfs"      # a velha nao vai no envio
     nova = _assinar(conn, usuario, mid, _texto, f"FRC {n} assinada de novo.pdf")["documento_id"]
     item, faltas = _item_frc(conn, cid, mid)
@@ -372,7 +374,8 @@ def test_consorcio_sem_formulario_e_obra_propria(conn, usuario):  # noqa: F811
         frc.gerar(conn, usuario, mid, 1)
     # issue #169: sem FRC pela dashboard nao ha' versao a conferir: a assinada entra sem vinculo e vale, como antes
     doc = notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), "FRC 9.pdf", tipo_doc="fatura")["documento_id"]
-    assert frc.assinada(conn, mid) == {"controla": False, "documento": {"id": doc, "nome": "FRC 9.pdf"}, "recusa": None}
+    assert frc.assinada(conn, mid) == {"controla": False, "documento": {"id": doc, "nome": "FRC 9.pdf"}, "recusa": None,
+                                       "frc": None}
     propria = conn.execute("SELECT id FROM contratos WHERE nome_curto='Obra Própria'").fetchone()[0]
     mid = medicoes.criar(conn, 1, {"contrato_id": propria, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
     assert frc.situacao(conn, mid)["disponivel"] is False and frc.situacao(conn, mid)["motivo"] is None

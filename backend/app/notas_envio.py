@@ -89,7 +89,9 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
                 d = a["documento"]
                 # issue #148: a FRC gerada (sem assinatura) vigente, para a etapa 4 oferecer baixa-la; desatualizada
                 # (as notas mudaram depois dela) nao se oferece: assinaria valores velhos
-                g = None if d else frc.situacao(conn, m["id"]).get("frc")
+                g = None if d else a["frc"]
+                if a["recusa"]:         # nao se justifica: o envio fica bloqueado (protocolo.frc_recusadas)
+                    curtos.append("FRC assinada não é a da FRC vigente")
                 detalhe = (f"Assinada anexada · {d['nome']}" if d else a["recusa"] if a["recusa"]
                            else "Falta a assinada: as notas mudaram depois da FRC gerada; gere de novo na etapa 3 "
                                 "(Nota fiscal), assine no DocuSign e anexe aqui" if g and g["desatualizada"]
@@ -98,7 +100,8 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
                 itens.append({"chave": f"frc:{m['id']}", "medicao_id": m["id"],
                               "rotulo": "FRC assinada" + (f" · {medicoes.titulo(m)}" if len(ms) > 1 else ""),
                               "detalhe": detalhe, "frc_gerada": g["numero"] if g and not g["desatualizada"] else None,
-                              "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc"})
+                              "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc",
+                              "bloqueia": bool(a["recusa"])})
             notas_faltam = [f for f in faltas if not f.endswith("FRC assinada não anexada")]
             itens.append({"chave": "consorcio", "rotulo": "Notas das consorciadas",
                           "detalhe": "; ".join(notas_faltam) or "todas anexadas",
@@ -152,7 +155,7 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
            hoje: datetime.date) -> dict:
     itens, notas, curtos = _itens(conn, c, familia, ms, hoje)
     estados = {i["estado"] for i in itens}
-    situacao = "bloqueado" if "vencida" in estados else "pendente" if "falta" in estados else \
+    situacao = "bloqueado" if "vencida" in estados or any(i.get("bloqueia") for i in itens) else"pendente" if "falta" in estados else \
         "a_pedido" if o["chave"] == "pref-cuiaba" else "pronto"
     ids = sorted(m["id"] for m in ms)
     emitida = max((m["desde"] for m in ms if m.get("desde")), default=None)
