@@ -83,7 +83,9 @@ describe("Enviar a nota", () => {
   it("a ajuda do link diz que só vale o OneDrive ou SharePoint da Lotufo (testes de quebra 10/10, A-13)", async () => {
     api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
     render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
-    expect(await screen.findByText(/Cole um link do OneDrive ou SharePoint da Lotufo \(lotufoengmt-my\.sharepoint\.com ou lotufoengmt\.sharepoint\.com\)/))
+    expect(await screen.findByText(/Cole um link do OneDrive ou SharePoint da Lotufo; link de outro endereço é recusado\./))
       .toBeTruthy();
+    // issue #118: o endereço permitido é do servidor (DASH_SHAREPOINT_HOSTS); a tela não traz o tenant da empresa
+    expect(document.body.innerHTML).not.toMatch(/[a-z0-9-]+(-my)?\.sharepoint\.com/i);
   });
 });
