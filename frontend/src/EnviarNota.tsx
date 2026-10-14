@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ConfirmarRemocao from "./ConfirmarRemocao";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm } from "./api";
+import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { EnvioPorFora, IconeCheck, iniciarEnvio, ItensEnvio, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
@@ -22,13 +22,21 @@ const MIN_JUSTIFICATIVA = 10;
 type Det = {
   envio: Envio; familia: string; etapa: string; situacao_protocolo: string;
   carta: { oficio: string | null; paginas: string[] } | null;
-  previa: { para: string[]; copia: string[]; assunto: string; corpo: string; anexos: { nome: string; origem?: string; tamanho?: number }[];
+  previa: { para: string[]; copia: string[]; assunto: string; corpo: string; anexos: { nome: string; origem?: string; tamanho: number }[];
     links?: Link[] };
   bloqueio: string | null; pendencias: (string | { mensagem: string })[]; justificativa_obrigatoria: boolean;
   extras: Extra[];
 };
 type Extra = { id: number; nome: string; tamanho: number };
 type Link = { id: number; nome: string; url: string };
+
+// issue #100 (gate Sol S3, PR #141): a lista de anexos sem depender da ordem, como a conferencia do servidor; repetidos
+// contam. A mesma lista em outra ordem nao refaz a previa.
+function assinaturaAnexos(anexos: { nome: string; tamanho: number }[]): string {
+  const pares = anexos.map(a => [a.nome, a.tamanho] as const)
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1]));
+  return JSON.stringify(pares);
+}
 
 // Documentos complementares (09/10/2026): PDF a mais no envio (ex.: justificativa tecnica). Vai SEMPRE separado no
 // e-mail, fora do PDF da carta; por isso anexar ou remover nao desfaz o montado/assinado. Botao ou arrastar e soltar.
@@ -128,12 +136,12 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar, em
         </label>
         <label className="campo nota-complementares__url">
           <span className="campo__nota">Link do OneDrive</span>
-          <input type="url" name="link_url" autoComplete="off" spellCheck={false} value={linkUrl} maxLength={2100} placeholder="https://lotufoengmt-my.sharepoint.com/…"
+          <input type="url" name="link_url" autoComplete="off" spellCheck={false} value={linkUrl} maxLength={2100} placeholder="https://…sharepoint.com/…"
             disabled={ocupado} onChange={ev => setLinkUrl(ev.target.value)} />
         </label>
         <button type="submit" className="btn btn--pequeno" disabled={ocupado || !linkNome.trim() || !linkUrl.trim()}>Adicionar link</button>
       </form>
-      <span className="campo__nota">Para arquivo que passa do limite do e-mail (25 MB somados): suba no seu OneDrive, copie o link de compartilhamento e cole aqui. O link entra no texto do e-mail. Cole um link do OneDrive ou SharePoint da Lotufo (lotufoengmt-my.sharepoint.com ou lotufoengmt.sharepoint.com).</span>
+      <span className="campo__nota">Para arquivo que passa do limite do e-mail (25 MB somados): suba no seu OneDrive, copie o link de compartilhamento e cole aqui. O link entra no texto do e-mail. Cole um link do OneDrive ou SharePoint da Lotufo; link de outro endereço é recusado.</span>
     </div>
   );
 }
@@ -163,7 +171,11 @@ function Secao({ n, titulo, passo, acoes, children }: {
  *  enviar (ou registrar por fora) ela recarrega em vez de voltar a Notas a enviar. */
 export type Embutido = { aoConcluir: (aviso?: string) => void; aoTrocar: (protocoloId: number) => void };
 
-export default function EnviarNota({ protocoloId, embutido, podeEditar }: { protocoloId: number; embutido?: Embutido; podeEditar: boolean }) {
+/** `versao` (issue #100): a pagina da medicao a incrementa quando um documento da medicao muda em outra etapa; o envio
+ *  e' lido de novo e, se os anexos mudaram, a previa e' refeita com o aviso. */
+export default function EnviarNota({ protocoloId, embutido, podeEditar, versao = 0 }: {
+  protocoloId: number; embutido?: Embutido; podeEditar: boolean; versao?: number;
+}) {
   const [det, setDet] = useState<Det | null>(null);
   const [erro, setErro] = useState("");
   const [erroAcao, setErroAcao] = useState("");
@@ -176,10 +188,21 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const [conferencia, setConferencia] = useState<Conferencia>(null);
   const [emailMexido, setEmailMexido] = useState(false);
 
+  // issue #100 (revisor na PR #141): os anexos mudaram depois da primeira leitura, entao o e-mail foi refeito e o
+  // texto editado voltou ao padrao; a tela diz isso em vez de trocar o e-mail calada
+  const [refeita, setRefeita] = useState(false);
+  const anexosLidos = useRef<string | null>(null);
+
   const carregar = useCallback(async () => {
-    try { setDet(await api<Det>(`/api/notas/envio/${protocoloId}`)); setErro(""); } catch (e) { setErro(mensagem(e)); }
+    try {
+      const novo = await api<Det>(`/api/notas/envio/${protocoloId}`);
+      const assinatura = assinaturaAnexos(novo.previa.anexos);
+      if (anexosLidos.current !== null && anexosLidos.current !== assinatura) setRefeita(true);
+      anexosLidos.current = assinatura;
+      setDet(novo); setErro("");
+    } catch (e) { setErro(mensagem(e)); }
   }, [protocoloId]);
-  useEffect(() => { void carregar(); }, [carregar]);
+  useEffect(() => { void carregar(); }, [carregar, versao]);   // versao: documento da medicao mudou em outra etapa
 
   async function agir(f: () => Promise<void>) {
     setOcupado(true); setErroAcao(""); setReserva(null); setTentou(false);
@@ -223,10 +246,24 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const passoAssinar: Passo = assinado ? "feito" : montado ? "atual" : "futuro";
   const passoEnviar: Passo = assinado ? "atual" : "futuro";
 
+  // issue #100 (como o protocolo na PR #92): os anexos que a previa mostrou; documento anexado depois dela (na
+  // medicao, em outra aba) faz o servidor recusar o envio em vez de mandar o que ninguem conferiu
+  const anexosVistos = det.previa.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho }));
+
   async function enviar(m: Mensagem) {
+    setRefeita(false);
     await agir(async () => {
-      await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
-        para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null }) });
+      try {
+        await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
+          para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
+          anexos: anexosVistos }) });
+      } catch (erro) {
+        // so' a recusa por anexos mudados (em outra aba, p. ex.) recarrega: a previa com os anexos de agora toma o
+        // lugar. Outro erro (409 de envio em andamento, falha do Outlook) mantem o e-mail como esta' (gate Sol S2).
+        // `carregar` guarda o proprio erro, entao o que sobe e' sempre o do envio.
+        if (erro instanceof ApiErro && erro.status === 422 && erro.corpo?.codigo === "ANEXOS_MUDARAM") await carregar();
+        throw erro;
+      }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
       if (embutido) embutido.aoConcluir(`Nota enviada às ${fmtHora(new Date().toISOString())}.`);
       else ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { enviada: `${e.obra} · ${e.descricao}` }, forcar: true });
@@ -283,10 +320,12 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const email = (
     <>
       {/* a chave inclui os complementares: anexar ou remover refaz o texto ("... e documento complementar.") */}
-      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
+      {/* issue #100: e os anexos da previa: NF ou FRC anexada, juntar ou separar fecham a previa e abrem a nova */}
+      <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${assinaturaAnexos(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
         aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
+      {refeita && <CaixaAviso nivel="atencao" role="status">A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.</CaixaAviso>}
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>
   );
