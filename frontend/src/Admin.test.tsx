@@ -101,8 +101,8 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
 // Issue #31: a Saúde mostra o último backup, quantos estão guardados e o último erro; atrasado acima de 2 h em destaque
 const BACKUP_EM_DIA = {
   ultimo_backup: "2026-10-13T07:30:00-04:00", tamanho_bytes: 3 * 1024 * 1024, guardados: 48, copia_externa_configurada: true,
-  atrasado: false, ultimo_snapshot: "2026-10-13T07:30:00-04:00", ultimo_snapshot_erro: null,
-  ultima_copia_externa: "2026-10-13T03:00:00-04:00", ultima_copia_externa_erro: null,
+  atrasado: false, ultimo_snapshot: "2026-10-13T07:30:00-04:00", ultimo_snapshot_erro: null, ultimo_snapshot_erro_em: null,
+  ultima_copia_externa: "2026-10-13T03:00:00-04:00", ultima_copia_externa_erro: null, ultima_copia_externa_erro_em: null,
 };
 
 function saudeCom(backup: object) {
@@ -125,11 +125,15 @@ test("Saúde: backup em dia mostra a data e hora do último, a quantidade guarda
 });
 
 test("Saúde: backup atrasado acima de 2 h aparece em destaque, e o último erro aparece", async () => {
-  saudeCom({ ...BACKUP_EM_DIA, atrasado: true, ultimo_snapshot_erro: "2026-10-13T10:30:00-04:00: disco cheio" });
+  saudeCom({ ...BACKUP_EM_DIA, atrasado: true, ultimo_snapshot_erro_em: "2026-10-13T10:30:00-04:00",
+             ultimo_snapshot_erro: "não foi possível gravar o snapshot; o detalhe está no log do servidor" });
   const alerta = await screen.findByText(/Backup atrasado/);
   expect(alerta.closest(".aviso--critico")).toBeTruthy();
   expect(alerta.textContent).toMatch(/13\/10\/2026 às 07:30/);
-  expect(screen.getByText(/disco cheio/)).toBeTruthy();
+  // sugestao do revisor: instrucao de operacao, nao caminho de arquivo do repositorio
+  expect(alerta.textContent).not.toMatch(/runbook/);
+  expect(screen.getByText(/em 13\/10\/2026 às 10:30, falhou \(não foi possível gravar o snapshot/)).toBeTruthy();
+  expect(screen.queryByText(/runbook/)).toBeNull();
   expect(screen.queryByText(/Último erro: nenhum/)).toBeNull();
 });
 

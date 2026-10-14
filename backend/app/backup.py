@@ -230,11 +230,13 @@ ATRASO_MAX = datetime.timedelta(hours=2)
 
 
 def _snapshots_locais(local: Path) -> list[os.stat_result]:
-    """stat de cada snapshot guardado. Arquivo que some no meio (a rotacao do outro processo)
-    fica de fora; pasta ilegivel conta como vazia, e a tela mostra o atraso em destaque."""
+    """stat de cada snapshot HORARIO guardado (nome `dashboard-AAAAMMDD-HHMMSS.db`). O
+    `dashboard-PRE-*.db` do deploy casa com PADRAO mas nao e' a rotina horaria: contado, um
+    deploy recente esconderia o snapshot horario parado. Arquivo que some no meio (a rotacao do
+    outro processo) fica de fora; pasta ilegivel conta como vazia, e a tela mostra o atraso."""
     stats = []
     try:
-        arquivos = list(local.glob(PADRAO)) if local.exists() else []
+        arquivos = [a for a in local.glob(PADRAO) if _NOME.match(a.name)] if local.exists() else []
     except OSError:
         return []
     for a in arquivos:
@@ -243,6 +245,15 @@ def _snapshots_locais(local: Path) -> list[os.stat_result]:
         except OSError:
             pass
     return stats
+
+
+def _erro_para_tela(bruto: str | None, mensagem: str) -> tuple[str | None, str | None]:
+    """`ESTADO` guarda "<iso>: <excecao>", e a excecao traz caminho, compartilhamento e maquina.
+    A tela recebe so' o momento e uma frase fixa; o detalhe fica no log do servidor (`log.exception`)."""
+    if not bruto:
+        return None, None
+    em = bruto.split(": ", 1)[0]  # o ISO nao tem ": " (so' ":" sem espaco)
+    return em, f"{mensagem}; o detalhe está no log do servidor"
 
 
 def situacao(local: Path, externa_configurada: bool, agora: datetime.datetime) -> dict:
@@ -256,8 +267,16 @@ def situacao(local: Path, externa_configurada: bool, agora: datetime.datetime) -
     stats = _snapshots_locais(local)
     ultimo = max(stats, key=lambda s: s.st_mtime) if stats else None
     ultimo_em = datetime.datetime.fromtimestamp(ultimo.st_mtime, datetime.timezone.utc) if ultimo else None
+    snap_erro_em, snap_erro = _erro_para_tela(ESTADO["ultimo_snapshot_erro"], "não foi possível gravar o snapshot")
+    copia_erro_em, copia_erro = _erro_para_tela(ESTADO["ultima_copia_externa_erro"],
+                                                "não foi possível fazer a cópia externa")
     return {
-        **ESTADO,
+        "ultimo_snapshot": ESTADO["ultimo_snapshot"],
+        "ultimo_snapshot_erro": snap_erro,
+        "ultimo_snapshot_erro_em": snap_erro_em,
+        "ultima_copia_externa": ESTADO["ultima_copia_externa"],
+        "ultima_copia_externa_erro": copia_erro,
+        "ultima_copia_externa_erro_em": copia_erro_em,
         "ultimo_backup": tempo.para_local(ultimo_em).isoformat(timespec="seconds") if ultimo_em else None,
         "tamanho_bytes": ultimo.st_size if ultimo else None,
         "guardados": len(stats),

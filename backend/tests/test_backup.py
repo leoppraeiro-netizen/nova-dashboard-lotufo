@@ -255,8 +255,24 @@ def test_situacao_pasta_ilegivel_nao_derruba_e_fica_atrasado(tmp_path, monkeypat
     s = backup.situacao(local, False, _agora())
     assert s["guardados"] == 0 and s["atrasado"] is True
 
-def test_situacao_traz_o_ultimo_erro(tmp_path, monkeypatch):
-    monkeypatch.setitem(backup.ESTADO, "ultimo_snapshot_erro", "2026-10-13T08:00:00-04:00: disco cheio")
+def test_situacao_pre_migracao_recente_nao_esconde_o_horario_parado(tmp_path):
+    # gate Sol S1: o dashboard-PRE-*.db do deploy casa com PADRAO, mas nao e' a rotina horaria
+    local = tmp_path / "backups"
+    _snapshot_com_idade(local, "dashboard-20261013-050000.db", 5 * 3600)
+    _snapshot_com_idade(local, "dashboard-PRE-abc1234-20261013-115500.db", 300)
+    s = backup.situacao(local, False, _agora())
+    assert s["atrasado"] is True and s["guardados"] == 1
+    assert s["ultimo_backup"] == "2026-10-13T03:00:00-04:00"
+
+def test_situacao_traz_o_ultimo_erro_sem_caminho_nem_maquina(tmp_path, monkeypatch):
+    # gate Sol S3: a excecao crua (caminho, compartilhamento, maquina) fica no log; a tela recebe frase fixa
+    monkeypatch.setitem(backup.ESTADO, "ultimo_snapshot_erro",
+                        r"2026-10-13T08:00:00-04:00: [Errno 28] No space left: 'C:\\dados\\backups\\x.db'")
+    monkeypatch.setitem(backup.ESTADO, "ultima_copia_externa_erro",
+                        r"2026-10-13T03:00:00-04:00: [WinError 53] \\\\servidor\\backup")
     s = backup.situacao(tmp_path / "backups", False, _agora())
-    assert s["ultimo_snapshot_erro"].endswith("disco cheio")
-    assert "ultima_copia_externa_erro" in s
+    assert s["ultimo_snapshot_erro_em"] == "2026-10-13T08:00:00-04:00"
+    assert s["ultimo_snapshot_erro"] == "não foi possível gravar o snapshot; o detalhe está no log do servidor"
+    assert s["ultima_copia_externa_erro_em"] == "2026-10-13T03:00:00-04:00"
+    assert "cópia externa" in s["ultima_copia_externa_erro"]
+    assert not any("\\" in str(v) or "Errno" in str(v) for v in s.values())
