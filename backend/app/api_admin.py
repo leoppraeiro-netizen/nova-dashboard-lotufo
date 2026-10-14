@@ -28,7 +28,7 @@ def listar_auditoria(limite: int = Query(default=100, ge=1, le=500),
 def saude_do_backup(usuario: dict = Depends(exigir("administrar", com_csrf=False))):
     """Administracao > Saude (issue #31): ultimo backup, quantos estao guardados, ultimo erro
     e se esta atrasado (mais de 2 h sem snapshot). So' admin: traz caminhos e erros do servidor."""
-    return backup.situacao(backup.pasta_local(), backup.pasta_externa(), tempo.agora_utc())
+    return backup.situacao(backup.pasta_local(), backup.pasta_externa() is not None, tempo.agora_utc())
 
 
 @router.get("/contas-microsoft")

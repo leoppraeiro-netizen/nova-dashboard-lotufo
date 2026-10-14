@@ -85,7 +85,7 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
 
 // Issue #31: a Saúde mostra o último backup, quantos estão guardados e o último erro; atrasado acima de 2 h em destaque
 const BACKUP_EM_DIA = {
-  ultimo_backup: "2026-10-13T07:30:00-04:00", tamanho_bytes: 3 * 1024 * 1024, guardados: 48, copias_externas: 7,
+  ultimo_backup: "2026-10-13T07:30:00-04:00", tamanho_bytes: 3 * 1024 * 1024, guardados: 48, copia_externa_configurada: true,
   atrasado: false, ultimo_snapshot: "2026-10-13T07:30:00-04:00", ultimo_snapshot_erro: null,
   ultima_copia_externa: "2026-10-13T03:00:00-04:00", ultima_copia_externa_erro: null,
 };
@@ -102,7 +102,8 @@ test("Saúde: backup em dia mostra a data e hora do último, a quantidade guarda
   saudeCom(BACKUP_EM_DIA);
   expect(await screen.findByText(/Último backup: 13\/10\/2026 às 07:30/)).toBeTruthy();
   expect(screen.getByText(/48 snapshots guardados/)).toBeTruthy();
-  expect(screen.getByText(/7 cópias externas/)).toBeTruthy();
+  expect(screen.getByText(/3,0\sMB/)).toBeTruthy();
+  expect(screen.getByText(/Última cópia externa: 13\/10\/2026 às 03:00/)).toBeTruthy();
   expect(screen.getByText(/Último erro: nenhum/)).toBeTruthy();
   expect(screen.queryByText(/Backup atrasado/)).toBeNull();
   expect(api).not.toHaveBeenCalledWith("/api/health");
@@ -118,7 +119,10 @@ test("Saúde: backup atrasado acima de 2 h aparece em destaque, e o último erro
 });
 
 test("Saúde: sem nenhum backup guardado também é atraso em destaque", async () => {
-  saudeCom({ ...BACKUP_EM_DIA, ultimo_backup: null, tamanho_bytes: null, guardados: 0, copias_externas: null,
+  saudeCom({ ...BACKUP_EM_DIA, ultimo_backup: null, tamanho_bytes: null, guardados: 0, copia_externa_configurada: false,
              atrasado: true, ultimo_snapshot: null, ultima_copia_externa: null });
   expect((await screen.findByText(/Backup atrasado/)).textContent).toMatch(/nenhum backup guardado/);
+  // sem erro registrado, "nenhum erro" desmentiria o alerta; sem pasta externa, não há cópia a esperar
+  expect(screen.queryByText(/Último erro: nenhum/)).toBeNull();
+  expect(screen.queryByText(/Última cópia externa/)).toBeNull();
 });

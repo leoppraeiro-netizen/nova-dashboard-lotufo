@@ -37,10 +37,10 @@ type StatusRm = {
 };
 // Bloco 9: fica so' quem conectou a propria conta para enviar e-mail; a conexao e' feita por cada pessoa em Minha conta.
 type Conta = { usuario_id: number; nome: string; email: string; perfil: string; conectada: boolean; token_em: string | null };
-// Issue #31: /api/admin/backup. O ultimo backup, o tamanho e as contagens vem do disco; as tentativas e os erros
+// Issue #31: /api/admin/backup. O ultimo backup, o tamanho e a contagem vem do disco local; as tentativas e os erros
 // (ultimo_*) moram na memoria do servidor e zeram quando ele reinicia. `atrasado` = mais de 2 h sem snapshot.
 type Backup = { ultimo_backup: string | null; tamanho_bytes: number | null; guardados: number;
-                copias_externas: number | null; atrasado: boolean;
+                copia_externa_configurada: boolean; atrasado: boolean;
                 ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null;
                 ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null };
 
@@ -297,11 +297,13 @@ function Backup() {
               <p>Último backup: {b.ultimo_backup
                 ? `${fmtDataHora(b.ultimo_backup)}${b.tamanho_bytes !== null ? ` (${fmtTamanho(b.tamanho_bytes)})` : ""}`
                 : "nenhum"}.</p>
-              <p>{contar(b.guardados, "snapshot guardado", "snapshots guardados")} neste servidor
-                {b.copias_externas !== null ? `; ${contar(b.copias_externas, "cópia externa", "cópias externas")}` : ""}.</p>
+              <p>{contar(b.guardados, "snapshot guardado", "snapshots guardados")} neste servidor.</p>
               {b.ultimo_snapshot_erro && <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} nenhum="" />}
-              <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} nenhum="nenhuma desde que o servidor subiu" />
-              {!b.ultimo_snapshot_erro && !b.ultima_copia_externa_erro && <p>Último erro: nenhum desde que o servidor subiu.</p>}
+              {/* sem pasta externa configurada nao ha copia a esperar: a linha so' confundiria */}
+              {(b.copia_externa_configurada || b.ultima_copia_externa_erro) &&
+                <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} nenhum="nenhuma desde que o servidor subiu" />}
+              {/* atrasado sem erro registrado (thread parada, servidor recem-reiniciado): "nenhum erro" desmentiria o alerta */}
+              {!b.atrasado && !b.ultimo_snapshot_erro && !b.ultima_copia_externa_erro && <p>Último erro: nenhum desde que o servidor subiu.</p>}
             </>}
       </div>
     </section>

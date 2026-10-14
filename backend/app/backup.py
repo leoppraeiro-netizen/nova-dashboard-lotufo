@@ -229,36 +229,40 @@ def pasta_externa() -> Path | None:
 ATRASO_MAX = datetime.timedelta(hours=2)
 
 
-def _contar(pasta: Path) -> int:
-    return sum(1 for _ in pasta.glob(PADRAO)) if pasta.exists() else 0
+def _snapshots_locais(local: Path) -> list[os.stat_result]:
+    """stat de cada snapshot guardado. Arquivo que some no meio (a rotacao do outro processo)
+    fica de fora; pasta ilegivel conta como vazia, e a tela mostra o atraso em destaque."""
+    stats = []
+    try:
+        arquivos = list(local.glob(PADRAO)) if local.exists() else []
+    except OSError:
+        return []
+    for a in arquivos:
+        try:
+            stats.append(a.stat())
+        except OSError:
+            pass
+    return stats
 
 
-def situacao(local: Path, externa: Path | None, agora: datetime.datetime) -> dict:
+def situacao(local: Path, externa_configurada: bool, agora: datetime.datetime) -> dict:
     """Saude do backup para a tela de Administracao (issue #31).
 
     O ultimo backup e a contagem vem do DISCO (sobrevivem ao servidor reiniciar); os erros
     vem de `ESTADO`, que so existe na memoria desta execucao. Sem snapshot nenhum conta como
     atrasado: backup parado sem ninguem ver e' o risco que a tela existe para mostrar.
+    A pasta externa NAO e' lida aqui: um compartilhamento fora do ar travaria a tela.
     """
-    snaps = sorted(local.glob(PADRAO)) if local.exists() else []
-    ultimo_em = tamanho = None
-    if snaps:
-        st = snaps[-1].stat()
-        ultimo_em = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
-        tamanho = st.st_size
-    copias = None
-    if externa is not None:
-        try:  # compartilhamento fora do ar nao pode derrubar a tela; o erro da copia aparece no ESTADO
-            copias = _contar(externa)
-        except OSError:
-            copias = None
+    stats = _snapshots_locais(local)
+    ultimo = max(stats, key=lambda s: s.st_mtime) if stats else None
+    ultimo_em = datetime.datetime.fromtimestamp(ultimo.st_mtime, datetime.timezone.utc) if ultimo else None
     return {
-        "ultimo_backup": tempo.para_local(ultimo_em).isoformat(timespec="seconds") if ultimo_em else None,
-        "tamanho_bytes": tamanho,
-        "guardados": len(snaps),
-        "copias_externas": copias,
-        "atrasado": ultimo_em is None or agora - ultimo_em > ATRASO_MAX,
         **ESTADO,
+        "ultimo_backup": tempo.para_local(ultimo_em).isoformat(timespec="seconds") if ultimo_em else None,
+        "tamanho_bytes": ultimo.st_size if ultimo else None,
+        "guardados": len(stats),
+        "copia_externa_configurada": externa_configurada,
+        "atrasado": ultimo_em is None or agora - ultimo_em > ATRASO_MAX,
     }
 
 
