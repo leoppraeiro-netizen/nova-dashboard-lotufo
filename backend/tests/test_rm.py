@@ -137,6 +137,20 @@ def test_valor_exato_unico_aloca_e_proximo_fica_sem_alocacao(conn, cid, tmp_path
     assert sorted(n["idmov"] for n in rec["nfs_sem_medicao"]) == [2, 3]
 
 
+def test_reconciliacao_pagina_as_nfs_sem_medicao_com_total_exato(conn, cid, tmp_path):
+    """#22: a lista vem em paginas de 200, com o total exato; a segunda pagina traz o resto, sem repetir."""
+    cli = _simulador(tmp_path, [_nf(i, 999.0) for i in range(1, 251)], [])
+    sincronizacao_rm.sincronizar(conn, cli)
+    rec = sincronizacao_rm.reconciliacao(conn)
+    assert rec["totais"]["nfs_sem_medicao"] == 250
+    assert len(rec["nfs_sem_medicao"]) == 200
+    seg = sincronizacao_rm.reconciliacao(conn, nfs_desde=200)
+    assert seg["totais"]["nfs_sem_medicao"] == 250
+    assert len(seg["nfs_sem_medicao"]) == 50
+    ids = [n["idmov"] for n in rec["nfs_sem_medicao"] + seg["nfs_sem_medicao"]]
+    assert sorted(ids) == list(range(1, 251))
+
+
 def test_nota_ambigua_nao_vira_sugestao(conn, cid, tmp_path):
     """Bloco 9 (decisao 3): NF so' proxima de uma medicao fica sem alocacao e sem fila; quem resolve
     e' o "vincular nota" da medicao."""
@@ -203,6 +217,8 @@ def test_nf_cancelada_desfaz_alocacao(conn, cid, tmp_path):
     assert m["estado"] == "protocolada" and m["notas"] == []   # nao volta sozinha
     rec = sincronizacao_rm.reconciliacao(conn)
     assert rec["alocacoes_desfeitas"][0]["motivo_desfazer"] == "NF cancelada no RM"
+    assert rec["totais"]["alocacoes_desfeitas"] == 1
+    assert sincronizacao_rm.reconciliacao(conn, desfeitas_desde=1)["alocacoes_desfeitas"] == []
     assert [x["medicao_id"] for x in rec["medicoes_sem_nf"]] == [mid]
     assert auditoria.verificar_cadeia(conn)
 
@@ -424,7 +440,11 @@ def test_rotas_rm(client_admin, tmp_path, monkeypatch):
     assert r.status_code == 200 and r.json()["estado"] == "success", r.text
     assert client_admin.get("/api/rm/status").json()["rodadas"][0]["estado"] == "success"
     assert set(client_admin.get("/api/rm/reconciliacao").json()) == {
-        "nfs_sem_medicao", "medicoes_sem_nf", "divergencias", "alocacoes_desfeitas"}
+        "nfs_sem_medicao", "medicoes_sem_nf", "divergencias", "alocacoes_desfeitas", "totais"}
+    # #22: a pagina seguinte pela URL; posicao negativa e' recusada
+    r = client_admin.get("/api/rm/reconciliacao?nfs_desde=200&desfeitas_desde=50")
+    assert r.status_code == 200 and r.json()["totais"] == {"nfs_sem_medicao": 0, "alocacoes_desfeitas": 0}
+    assert client_admin.get("/api/rm/reconciliacao?nfs_desde=-1").status_code == 422
 
 
 def test_nf_emitida_antes_do_protocolo_aloca_normalmente(conn, cid, tmp_path):

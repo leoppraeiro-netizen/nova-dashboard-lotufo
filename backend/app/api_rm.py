@@ -5,7 +5,7 @@ importado, spec §6); disparar e reconciliar sao `administrar`.
 """
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app import rm, sincronizacao_rm
 from app.api_auth import conexao
@@ -39,6 +39,8 @@ def sincronizar(usuario: dict = Depends(exigir("administrar")),
 
 
 @router.get("/reconciliacao")
-def reconciliacao(usuario: dict = Depends(exigir("administrar", com_csrf=False)),
+def reconciliacao(nfs_desde: int = Query(0, ge=0), desfeitas_desde: int = Query(0, ge=0),
+                  usuario: dict = Depends(exigir("administrar", com_csrf=False)),
                   conn: sqlite3.Connection = Depends(conexao)):
-    return sincronizacao_rm.reconciliacao(conn)
+    # #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas; `totais` traz o numero exato
+    return sincronizacao_rm.reconciliacao(conn, nfs_desde, desfeitas_desde)

@@ -585,14 +585,24 @@ def rodadas(conn, limite: int = 10) -> list[dict]:
         "SELECT * FROM rm_sincronizacoes ORDER BY id DESC LIMIT ?", (limite,))]
 
 
-def reconciliacao(conn) -> dict:
-    """RM x dashboard (spec §7 tela 8): o que esta' de um lado so'."""
-    nfs_sem_medicao = [dict(r) for r in conn.execute("""
-        SELECT n.* FROM notas_fiscais n
+PAGINA_NFS_SEM_MEDICAO = 200
+PAGINA_DESFEITAS = 50
+
+
+def reconciliacao(conn, nfs_desde: int = 0, desfeitas_desde: int = 0) -> dict:
+    """RM x dashboard (spec §7 tela 8): o que esta' de um lado so'.
+
+    #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas (200 e 50), a partir da posicao
+    `*_desde`, com o total exato em `totais`; as outras duas listas vem inteiras."""
+    filtro_nfs = """
+        FROM notas_fiscais n
         WHERE n.situacao='ativa'
           AND n.coligada IN (SELECT coligada_rm FROM entidades WHERE coligada_rm IS NOT NULL)
-          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=n.id AND a.desfeita_em IS NULL)
-        ORDER BY n.emissao DESC, n.id DESC LIMIT 200""")]
+          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=n.id AND a.desfeita_em IS NULL)"""
+    nfs_sem_medicao = [dict(r) for r in conn.execute(
+        f"SELECT n.* {filtro_nfs} ORDER BY n.emissao DESC, n.id DESC LIMIT ? OFFSET ?",
+        (PAGINA_NFS_SEM_MEDICAO, nfs_desde))]
+    total_nfs = conn.execute(f"SELECT COUNT(*) {filtro_nfs}").fetchone()[0]
     medicoes_sem_nf = [dict(r) for r in conn.execute("""
         SELECT m.id AS medicao_id, m.contrato_id, c.numero_instrumento, c.orgao, m.numero, m.tipo,
                m.competencia, m.estado, COALESCE(m.valor_atestado_centavos, m.valor_protocolado_centavos) AS valor_centavos
@@ -616,9 +626,15 @@ def reconciliacao(conn) -> dict:
                m.numero AS numero_medicao, m.estado
         FROM nf_alocacoes a JOIN notas_fiscais n ON n.id=a.nota_id
         JOIN medicoes m ON m.id=a.medicao_id JOIN contratos c ON c.id=m.contrato_id
-        WHERE a.desfeita_em IS NOT NULL ORDER BY a.desfeita_em DESC LIMIT 50""")]
+        WHERE a.desfeita_em IS NOT NULL ORDER BY a.desfeita_em DESC, a.id DESC LIMIT ? OFFSET ?""",
+        (PAGINA_DESFEITAS, desfeitas_desde))]
+    total_desfeitas = conn.execute("""
+        SELECT COUNT(*) FROM nf_alocacoes a JOIN notas_fiscais n ON n.id=a.nota_id
+        JOIN medicoes m ON m.id=a.medicao_id JOIN contratos c ON c.id=m.contrato_id
+        WHERE a.desfeita_em IS NOT NULL""").fetchone()[0]
     return {"nfs_sem_medicao": nfs_sem_medicao, "medicoes_sem_nf": medicoes_sem_nf,
-            "divergencias": divergencias, "alocacoes_desfeitas": desfeitas}
+            "divergencias": divergencias, "alocacoes_desfeitas": desfeitas,
+            "totais": {"nfs_sem_medicao": total_nfs, "alocacoes_desfeitas": total_desfeitas}}
 
 
 def agendar(intervalo_seg: int = INTERVALO_SEG) -> threading.Thread | None:
