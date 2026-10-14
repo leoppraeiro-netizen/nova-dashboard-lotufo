@@ -1,6 +1,7 @@
 """Pagina Medicoes com abas (09/10/2026): situacao por estado, marco de cada situacao (nunca o criado_em), a linha
 unica de medicao + reajuste, o contratante (sigla e sub-orgao) e as obras sem medicao aberta (prevista nao conta)."""
 import datetime
+import re
 
 import pytest
 
@@ -109,6 +110,7 @@ def test_resumo_linhas_marcos_e_contagens(conn, cenario):
     assert par["medicao_id"] == ids["a24"] and par["medicao_ids"] == [ids["a24"], ids["a24r"]]
     assert par["contratante"] == "SINFRA" and par["orgao_sub"] == "SUEF II" and par["marco"] == "2026-10-01"
     assert par["proximo_passo"] == "protocolar"
+    assert all(re.fullmatch(r"\d{4}-\d{2}", x["competencia"]) for x in r["linhas"])   # #155: a competencia da medicao
     assert r["contagens"] == {"sem-medicao": 1, "faturamento": 1, "aguardando-nota": 2, "enviar-nota": 2,
                               "aguardando-pagamento": 1}
     # obras ativas (a suspensa fica fora); a D so' tem prevista: sem medicao aberta, com a prevista mais antiga

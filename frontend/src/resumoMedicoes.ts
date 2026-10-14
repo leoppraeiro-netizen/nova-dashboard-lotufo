@@ -9,7 +9,7 @@ export type SituacaoOuSem = "sem-medicao" | Situacao;
 
 export type LinhaResumo = {
   situacao: Situacao; contrato_id: number; obra: string; contratante: string; orgao_sub: string | null;
-  medicao_id: number; medicao_ids: number[]; numero: number; titulo: string; proximo_passo: string;
+  medicao_id: number; medicao_ids: number[]; numero: number; competencia: string; titulo: string; proximo_passo: string;
   valor_centavos: number | null; marco: string | null; dias: number | null;
 };
 export type ObraResumo = {
