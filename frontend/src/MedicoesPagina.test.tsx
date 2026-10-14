@@ -56,11 +56,16 @@ describe("Medições com abas", () => {
     expect(within(abas).getByRole("link", { name: /Sem medição aberta/ }).textContent).toBe("Sem medição aberta3");
   });
 
-  it("aba provisória: a tabela filtrada, com estado vazio", async () => {
+  it("aba Aguardando nota: estado vazio sem medição, e a linha da medição que espera a nota", async () => {
     api.mockResolvedValue(RESUMO);
-    render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
-    expect(await screen.findByText("Nenhuma medição aguardando a nota.")).toBeTruthy();
+    const { unmount } = render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
+    expect(await screen.findByText("Nenhuma medição esperando nota.")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Medições por situação" })).toBeNull();
+    unmount();
+    api.mockResolvedValue({ ...RESUMO, linhas: [linha({ situacao: "aguardando-nota", proximo_passo: "anexar as notas" })] });
+    render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
+    const quadro = await screen.findByRole("region", { name: "Aguardando nota" });
+    expect(within(quadro).getByText("R$ 9.979.264,92")).toBeTruthy();
   });
 
   it("Iniciar processo: a obra com medição prevista abre essa medição; as outras, a nova medição", async () => {
