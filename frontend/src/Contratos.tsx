@@ -9,7 +9,8 @@ import {
 } from "./listaObras";
 import { fmtDias } from "./formato";
 import { brl } from "./Medicoes";
-import { Link, trocarBusca, type Busca, type Ir } from "./rota";
+import { trocarBusca, type Busca, type Ir } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura } from "./tempo";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";

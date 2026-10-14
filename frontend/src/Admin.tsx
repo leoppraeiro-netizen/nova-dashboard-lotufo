@@ -4,7 +4,7 @@ import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
   ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, contaRec, filtrarEventos, juntarPaginaRec, pessoaDoEvento, quantidadeRec,
-  reconciliacaoDaObra, rotuloAcao, rotuloObjeto, rotuloRec, urlPaginaRec,
+  reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, urlPaginaRec,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
 import { api, ApiErro } from "./api";
@@ -12,7 +12,8 @@ import { IconeAlerta } from "./icones";
 import { nomeDaObra, type ObraLista } from "./listaObras";
 import { tituloMedicao } from "./medicao";
 import { brl, ROTULO_ESTADO } from "./Medicoes";
-import { Link, trocarBusca, type AbaAdmin, type Busca } from "./rota";
+import { trocarBusca, type AbaAdmin, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora, fmtDataPura, fmtHora } from "./tempo";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";
@@ -87,15 +88,17 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
   const [status, setStatus] = useState<StatusRm | null>(null);
   const [erro, setErro] = useState("");
   const [rodando, setRodando] = useState(false);
+  const [concluida, setConcluida] = useState("");
 
   const carregar = () => api<StatusRm>("/api/rm/status").then(setStatus).catch(e => setErro(falhaDeCarga(e)));
   useEffect(() => { carregar(); }, []);
 
   async function sincronizar() {
-    setErro(""); setRodando(true);
+    setErro(""); setConcluida(""); setRodando(true);
     try {
       const r = await api<{ estado: string; erro?: string }>("/api/rm/sincronizar", { method: "POST" });
       if (r.estado === "failed") setErro(`A sincronização falhou: ${r.erro ?? "erro desconhecido"}`);
+      else if (r.estado === "success") setConcluida("Sincronização concluída.");
       await carregar();
       aoSincronizar();
     } catch (e) {
@@ -132,6 +135,7 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
       </div>
 
       {erro && <Erro texto={erro} />}
+      <div role="status">{concluida && !erro && <div className="cartao__corpo"><p className="campo__nota">{concluida}</p></div>}</div>
 
       {status && !status.configurado && (
         <div className="cartao__corpo">
@@ -760,6 +764,11 @@ function Auditoria({ busca }: { busca: Busca }) {
   const f = { acao: busca.acao ?? null, pessoa: busca.pessoa ?? null, desde: busca.desde ?? null };
   const quem = (p: string) => (p === "sistema" ? "sistema" : nomes?.get(Number(p)) ?? `usuário ${p}`);
   const eventos = audit ? filtrarEventos(audit.eventos, f) : [];
+  // o objeto e' link para a tela dele; sem tela, fica o texto
+  const objeto = (ev: Evento) => {
+    const rota = rotaDoObjeto(ev);
+    return rota ? <Link para={rota}>{rotuloObjeto(ev.entidade, ev.entidade_id)}</Link> : rotuloObjeto(ev.entidade, ev.entidade_id);
+  };
   // as opcoes do filtro em ordem alfabetica do rotulo em portugues (o valor segue sendo o codigo da acao)
   const acoes = audit ? [...new Set(audit.eventos.map(e => e.acao))].sort((a, b) => rotuloAcao(a).localeCompare(rotuloAcao(b), "pt-BR")) : [];
   const pessoas = audit ? [...new Set(audit.eventos.map(pessoaDoEvento))] : [];
@@ -835,7 +844,7 @@ function Auditoria({ busca }: { busca: Busca }) {
                       <td className="num">{fmtDataHora(ev.criado_em)}</td>
                       <td>{quem(pessoaDoEvento(ev))}</td>
                       <td>{rotuloAcao(ev.acao)}</td>
-                      <td>{rotuloObjeto(ev.entidade, ev.entidade_id)}</td>
+                      <td>{objeto(ev)}</td>
                     </tr>
                   ))}
                 </tbody>

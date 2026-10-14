@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  contagemRec, contaRec, filtrarEventos, juntarPaginaRec, reconciliacaoDaObra, rotuloAcao, urlPaginaRec, type Evento, type Reconciliacao,
+  contagemRec, contaRec, filtrarEventos, juntarPaginaRec, reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, urlPaginaRec, type Evento,
+  type Reconciliacao,
 } from "./administracao";
 
 const ev = (id: number, acao: string, criado_em: string, usuario_id: number | null): Evento =>
@@ -91,5 +92,18 @@ describe("administração", () => {
     expect(rotuloAcao("medicao.valor_atestado")).toBe("Atestado alterado");
     expect(rotuloAcao("envio.liberar")).toBe("Envio liberado à mão");
     expect(rotuloAcao("algo.novo_aqui")).toBe("Algo novo aqui");
+  });
+
+  it("auditoria: o objeto do evento leva à tela dele; sem tela, fica texto (#21)", () => {
+    expect(rotaDoObjeto({ entidade: "contrato", entidade_id: "7" })).toEqual({ tela: "obra", id: 7, aba: "medicoes" });
+    expect(rotaDoObjeto({ entidade: "medicao", entidade_id: "700", contrato_id: 7 })).toEqual({ tela: "medicao", obra: 7, id: 700 });
+    expect(rotaDoObjeto({ entidade: "protocolo", entidade_id: "3", contrato_id: 7 })).toEqual({ tela: "obra", id: 7, aba: "medicoes" });
+    expect(rotaDoObjeto({ entidade: "usuario", entidade_id: "2" })).toEqual({ tela: "admin", aba: "usuarios" });
+    // medicao/protocolo cuja obra a API nao achou, objeto sem id, entidade sem tela
+    expect(rotaDoObjeto({ entidade: "medicao", entidade_id: "700", contrato_id: null })).toBeNull();
+    expect(rotaDoObjeto({ entidade: "protocolo", entidade_id: "3" })).toBeNull();
+    expect(rotaDoObjeto({ entidade: "contrato", entidade_id: null })).toBeNull();
+    expect(rotaDoObjeto({ entidade: "cadastro", entidade_id: "1" })).toBeNull();
+    expect(rotaDoObjeto({ entidade: null, entidade_id: null })).toBeNull();
   });
 });

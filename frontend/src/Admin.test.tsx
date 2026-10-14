@@ -72,6 +72,21 @@ test("Auditoria: Carregar mais busca a página anterior pelo cursor, mantém os 
   expect(screen.getByText("cadeia íntegra")).toBeTruthy();
 });
 
+// Issue #20: o sucesso de "Sincronizar agora" não era anunciado
+test("Saúde: Sincronizar agora anuncia o sucesso numa região viva", async () => {
+  const status = { configurado: true, em_andamento: false, ultima_sincronizacao: null, ultimo_erro: null, rodadas: [] };
+  api.mockImplementation(async (url: string, opts?: { method?: string }) => {
+    if (url === "/api/rm/sincronizar" && opts?.method === "POST") return { estado: "success" };
+    if (url === "/api/rm/status") return status;
+    if (url === "/api/health") return {};
+    throw new Error("fora do recorte deste teste");
+  });
+  render(<Admin aba="saude" />);
+  fireEvent.click(await screen.findByRole("button", { name: "Sincronizar agora" }));
+  const aviso = await screen.findByText("Sincronização concluída.");
+  expect(aviso.closest("[role='status']")).not.toBeNull();
+});
+
 test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriores, em vez de dizer que não existe", async () => {
   api.mockImplementation(async (url: string) => {
     if (url === "/api/admin/usuarios") return [];

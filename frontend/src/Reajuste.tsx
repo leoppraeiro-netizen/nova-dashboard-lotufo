@@ -4,7 +4,7 @@ import { CartaoPleito, NovoPleito, type Pleito } from "./FluxoOficio";
 import { IconeAlerta } from "./icones";
 import { focarPorId } from "./foco";
 import { reajustePorDataBase, type CicloApi, type InstrumentoCadastro } from "./obra";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia as mesAno, fmtDataPura } from "./tempo";
 import { fmtPercentual } from "./formato";
 import Selo from "./Selo";

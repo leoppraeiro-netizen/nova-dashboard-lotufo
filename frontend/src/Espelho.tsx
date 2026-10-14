@@ -5,7 +5,7 @@ import { api, apiForm, ApiErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
 import { larDoEspelho, tituloMedicao } from "./medicao";
 import { brl } from "./Medicoes";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtTamanho as kb } from "./formato";
 // data-hora no fuso de Cuiaba (tempo.ts), e nao no do navegador; competencia em MM/AAAA
 import { fmtCompetencia as competenciaBR, fmtDataHora as dataHoraBR } from "./tempo";

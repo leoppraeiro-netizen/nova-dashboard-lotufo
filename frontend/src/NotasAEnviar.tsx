@@ -3,7 +3,8 @@ import CaixaAviso from "./CaixaAviso";
 import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
-import { ir, Link, trocarBusca, type Busca } from "./rota";
+import { ir, trocarBusca, type Busca } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura, hojeLocal } from "./tempo";
 import "./notas.css";
 

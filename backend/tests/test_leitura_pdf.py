@@ -220,7 +220,9 @@ def test_filtro_que_nao_sabemos_desfazer_fica_com_o_subprocesso():
         leitura_pdf.com_limite(pdf, "texto")     # 200
     except ValueError:                           # TextoInadequado ou pypdf: 422
         pass
-    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 3
+    # folga larga: com a CPU freada (13% sob carga) so' abrir o subprocesso leva segundos;
+    # o que o teste prova e' que termina, nao que termina rapido (issue #19)
+    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 20
 
 
 def test_com_limite_devolve_o_mesmo_que_a_leitura_no_processo():
