@@ -186,6 +186,9 @@
   .notas-v3 .ol-janela .ol-assunto, .notas-v3 .ol-janela .ol-corpo, .notas-v3 .ol-janela .ol-anexos,
   .notas-v3 .ol-janela + .campo__nota { margin-left: 0; }
   .notas-v3 .nota-secao { padding: 16px; gap: 12px; }
+  /* issue #170: a etapa 4 e' estreita no celular (cartao dentro de cartao); o texto do botao quebra de linha em vez de estourar o cartao */
+  .notas-v3 .nota-secao__acoes { min-width: 0; max-width: 100%; }
+  .notas-v3 .nota-secao__acoes .btn { height: auto; min-height: 32px; padding-top: 4px; padding-bottom: 4px; max-width: 100%; white-space: normal; text-align: left; }
   /* aba Enviar nota no celular (09/10/2026, com o trilho de 64px sobram ~311px): o valor desce para baixo do texto
      em vez de espremer a descricao numa coluna de uma palavra, e o valor grande do painel pode quebrar */
   .notas-v3 button.nota-cartao { flex-direction: column; align-items: flex-start; gap: 8px; }
