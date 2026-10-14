@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { contagemRec, filtrarEventos, reconciliacaoDaObra, rotuloAcao, type Evento, type Reconciliacao } from "./administracao";
+import {
+  contagemRec, contaRec, filtrarEventos, juntarPaginaRec, reconciliacaoDaObra, rotuloAcao, urlPaginaRec, type Evento, type Reconciliacao,
+} from "./administracao";
 
 const ev = (id: number, acao: string, criado_em: string, usuario_id: number | null): Evento =>
   ({ id, acao, entidade: null, criado_em, usuario_id });
@@ -16,13 +18,39 @@ describe("administração", () => {
     expect(filtrarEventos(eventos, { desde: "2026-09-28" }).map(e => e.id)).toEqual([1, 3]);
   });
 
-  it("contagem da reconciliação: no teto da API, 'ou mais'", () => {
-    expect(contagemRec("nfs", 200)).toBe("200 ou mais NFs sem medição");
+  it("contagem da reconciliação: o número exato; 'ou mais' só quando é piso", () => {
+    expect(contagemRec("nfs", 250)).toBe("250 NFs sem medição");
     expect(contagemRec("desfeitas", 14)).toBe("14 alocações desfeitas");
+    expect(contagemRec("desfeitas", 3, true)).toBe("3 ou mais alocações desfeitas");
+  });
+
+  // #22: a API manda as NFs sem medição e as alocações desfeitas em páginas, com o total exato junto
+  it("reconciliação paginada: o total vem da API, a página seguinte junta sem repetir", () => {
+    const nf = (id: number) => ({ id, coligada: 1, numero: String(id), serie: null, emissao: null, valor_centavos: 100, campo_livre1: null });
+    const desf = (medicao_id: number, numero_instrumento: string) => ({ medicao_id, desfeita_em: "2026-09-01 10:00:00", motivo_desfazer: "x",
+      numero: String(medicao_id), serie: null, numero_instrumento, numero_medicao: 1, estado: "recebida" });
+    const rec: Reconciliacao = { nfs_sem_medicao: [nf(1), nf(2)], medicoes_sem_nf: [], divergencias: [],
+      alocacoes_desfeitas: [desf(5, "161/2022")], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 } };
+    expect(contaRec(rec, rec, "nfs", false)).toEqual({ n: 3, piso: false, faltam: 1 });
+    expect(contaRec(rec, rec, "divergencias", false)).toEqual({ n: 0, piso: false, faltam: 0 });
+    expect(urlPaginaRec(rec, "nfs")).toBe("/api/rm/reconciliacao?nfs_desde=2");
+    expect(urlPaginaRec(rec, "desfeitas")).toBe("/api/rm/reconciliacao?desfeitas_desde=1");
+    // com a obra escolhida, a contagem das desfeitas é do que chegou e vira piso enquanto faltar página
+    const daObra = reconciliacaoDaObra(rec, { id: 7, numero_instrumento: "161/2022" });
+    expect(contaRec(rec, daObra, "desfeitas", true)).toEqual({ n: 1, piso: true, faltam: 1 });
+    expect(contaRec(rec, daObra, "nfs", true)).toEqual({ n: 0, piso: false, faltam: 0 });
+    // a página seguinte repete a NF 2 (o RM sincronizou no meio): entra uma vez só
+    const pagina: Reconciliacao = { nfs_sem_medicao: [nf(2), nf(3)], medicoes_sem_nf: [], divergencias: [],
+      alocacoes_desfeitas: [desf(9, "200/2023")], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 } };
+    const junta = juntarPaginaRec(rec, "nfs", pagina);
+    expect(junta.nfs_sem_medicao.map(n => n.id)).toEqual([1, 2, 3]);
+    expect(junta.alocacoes_desfeitas).toBe(rec.alocacoes_desfeitas);
+    expect(contaRec(junta, junta, "nfs", false)).toEqual({ n: 3, piso: false, faltam: 0 });
   });
 
   it("reconciliação de uma obra: pelo id, as desfeitas pelo instrumento, e sem as NFs soltas", () => {
     const rec: Reconciliacao = {
+      totais: { nfs_sem_medicao: 1, alocacoes_desfeitas: 1 },
       nfs_sem_medicao: [{ id: 1, coligada: 1, numero: "10", serie: null, emissao: null, valor_centavos: 100, campo_livre1: null }],
       medicoes_sem_nf: [
         { medicao_id: 5, contrato_id: 7, numero_instrumento: "161/2022", numero: 1, tipo: "execucao", competencia: "2026-08", estado: "recebida", valor_centavos: 1 },

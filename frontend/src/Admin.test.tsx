@@ -82,3 +82,23 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
   expect(await screen.findByText(/entre os já carregados/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Carregar mais" })).toBeTruthy();
 });
+
+// Issue #22: a reconciliação cortava as NFs sem medição em 200 ("200 ou mais"); agora a contagem é exata e
+// "Carregar mais" traz a página seguinte da API
+test("Reconciliação: a contagem é o total da API e Carregar mais traz as NFs seguintes", async () => {
+  const nf = (id: number) => ({ id, coligada: 1, numero: String(id), serie: null, emissao: null, valor_centavos: 100, campo_livre1: null });
+  const pagina = (nfs: ReturnType<typeof nf>[]) => ({ nfs_sem_medicao: nfs, medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
+                                                     totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 0 } });
+  api.mockImplementation(async (url: string) => {
+    if (url === "/api/admin/usuarios") return [];
+    if (url === "/api/contratos") return [];
+    if (url === "/api/rm/reconciliacao") return pagina([nf(1), nf(2)]);
+    if (url === "/api/rm/reconciliacao?nfs_desde=2") return pagina([nf(3)]);
+    throw new Error(`chamada inesperada: ${url}`);
+  });
+  render(<Admin aba="reconciliacao" busca={{ categoria: "nfs" }} />);
+  expect(await screen.findByText("2 de 3")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /Carregar mais/ }));
+  expect(await screen.findByText("3 linhas", { selector: ".cartao__dica" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Carregar mais/ })).toBeNull();
+});
