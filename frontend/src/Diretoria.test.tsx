@@ -46,6 +46,20 @@ describe("Carteira", () => {
     expect(screen.getByText("1 de 1 obras (19 ativas, 2 em encerramento, 1 suspensa) com farol em Atenção ou Crítico")).toBeTruthy();
   });
 
+  it("KPIs são lista nativa (ul/li), sem role explícito", async () => {
+    api.mockImplementation((url: string) => Promise.resolve(RESPOSTAS[url]));
+    render(<Diretoria ir={() => {}} />);
+    await screen.findByText("Onde está o dinheiro");
+    const itens = screen.getAllByRole("listitem");
+    expect(itens.length).toBeGreaterThanOrEqual(7);
+    itens.filter(i => i.classList.contains("kpi")).forEach(i => {
+      expect(i.tagName).toBe("LI");
+      expect(i.parentElement?.tagName).toBe("UL");
+      expect(i.hasAttribute("role")).toBe(false);
+    });
+    expect(screen.getByRole("list", { name: "O mês" }).tagName).toBe("UL");
+  });
+
   it("QDOP: exporta a planilha e mostra os motivos da obra", async () => {
     api.mockImplementation((url: string) => Promise.resolve(RESPOSTAS[url]));
     render(<Diretoria ir={() => {}} aba="qdop" />);
