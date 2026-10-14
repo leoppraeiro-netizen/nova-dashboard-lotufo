@@ -64,6 +64,10 @@ def test_admin_nao_se_desativa_nem_tira_o_proprio_perfil(client_admin):
     u = next(u for u in client_admin.get("/api/admin/usuarios").json() if u["id"] == eu)
     assert (u["ativo"], u["perfil"]) == (1, "admin")
 
+def test_com_outro_admin_ativo_desativar_admin_continua_valendo(client_admin):
+    uid = client_admin.post("/api/admin/usuarios", json={**NOVO, "perfil": "admin"}).json()["id"]
+    assert client_admin.put(f"/api/admin/usuarios/{uid}", json={"ativo": False}).status_code == 200
+
 def test_put_usuario_inexistente_404(client_admin):
     r = client_admin.put("/api/admin/usuarios/99999", json={"perfil": "diretoria"})
     assert r.status_code == 404, r.text
@@ -113,6 +117,27 @@ def test_put_usuario_apagado_no_meio_vira_404_e_nao_500(tmp_path, monkeypatch):
         assert not conn.in_transaction  # envelope desfeito, sem lock pendurado
         assert conn.execute("SELECT perfil FROM usuarios WHERE id=?",
                             (uid,)).fetchone()["perfil"] == "engenharia"
+    finally:
+        conn.close()
+
+
+def test_ultimo_admin_ativo_nao_sai_nem_em_corrida(tmp_path, monkeypatch):
+    """Issue #28 (revisor): dois admins se desativando ao mesmo tempo -- o `exigir` de cada um confere ANTES
+    do BEGIN IMMEDIATE. Aqui o pedido de A chega depois de B ja' ter desativado A; desativar ou rebaixar B
+    deixaria o sistema sem administrador ativo."""
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    conn = db.get_conn(); db.migrate(conn)
+    a = auth.criar_usuario(conn, "Admin A", "a@l.com", "senha-forte-123", "admin")
+    b = auth.criar_usuario(conn, "Admin B", "b@l.com", "senha-forte-123", "admin")
+    conn.execute("UPDATE usuarios SET ativo=0 WHERE id=?", (a,)); conn.commit()
+    try:
+        for corpo in (api_usuarios.UsuarioPatch(ativo=False), api_usuarios.UsuarioPatch(perfil="engenharia")):
+            with pytest.raises(HTTPException) as e:
+                api_usuarios.atualizar(b, corpo, {"id": a}, conn)
+            assert e.value.status_code == 409
+            assert not conn.in_transaction
+        r = conn.execute("SELECT perfil, ativo FROM usuarios WHERE id=?", (b,)).fetchone()
+        assert (r["perfil"], r["ativo"]) == ("admin", 1)
     finally:
         conn.close()
 
@@ -233,7 +258,7 @@ def test_rotas_novas_de_admin_negadas_a_diretoria_e_engenharia(client_admin):
 def test_trocar_a_propria_senha(client_admin):
     client_admin.post("/api/admin/usuarios", json=NOVO)
     outra = _entrar(client_admin, NOVO["email"], NOVO["senha"])
-    atual = _entrar(client_admin, NOVO["email"], NOVO["senha"])
+    _entrar(client_admin, NOVO["email"], NOVO["senha"])  # a sessao atual
     r = client_admin.post("/api/auth/senha", json={"senha_atual": "errada-errada", "senha_nova": "senha-nova-456"})
     assert r.status_code == 422, r.text
     r = client_admin.post("/api/auth/senha", json={"senha_atual": NOVO["senha"], "senha_nova": "curta"})

@@ -32,10 +32,13 @@ type Link = { id: number; nome: string; url: string };
 
 // Documentos complementares (09/10/2026): PDF a mais no envio (ex.: justificativa tecnica). Vai SEMPRE separado no
 // e-mail, fora do PDF da carta; por isso anexar ou remover nao desfaz o montado/assinado. Botao ou arrastar e soltar.
-function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: {
+// `emailMexido` (issue #28): remover remonta o e-mail com o texto montado de novo; a confirmacao avisa que o
+// texto editado se perde.
+function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar, emailMexido }: {
   protocoloId: number; extras: Extra[]; links: Link[]; ocupado: boolean; agir: (f: () => Promise<void>) => Promise<void>;
-  aoMudar: () => Promise<void>;
+  aoMudar: () => Promise<void>; emailMexido: boolean;
 }) {
+  const aviso = emailMexido ? "O texto do e-mail que você editou será montado de novo." : undefined;
   const [sobre, setSobre] = useState(false);
   const [linkNome, setLinkNome] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -79,7 +82,7 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <span className="nota-complementares__nome" title={x.nome}>{x.nome}</span>
               <span className="campo__nota">{Math.max(1, Math.round(x.tamanho / 1024))} KB</span>
-              <ConfirmarRemocao alvo={x.nome} ocupado={ocupado}
+              <ConfirmarRemocao alvo={x.nome} ocupado={ocupado} aviso={aviso}
                 aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/pecas/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
@@ -108,7 +111,7 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <a className="nota-complementares__nome" href={x.url} target="_blank" rel="noreferrer" title={x.url}>{x.nome}</a>
               <span className="campo__nota">link</span>
-              <ConfirmarRemocao alvo={`o link ${x.nome}`} ocupado={ocupado}
+              <ConfirmarRemocao alvo={`o link ${x.nome}`} ocupado={ocupado} aviso={aviso}
                 aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/links/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
@@ -171,6 +174,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
   const [outros, setOutros] = useState<Envio[] | null>(null);
   const [juntar, setJuntar] = useState<string[]>([]);
   const [conferencia, setConferencia] = useState<Conferencia>(null);
+  const [emailMexido, setEmailMexido] = useState(false);
 
   const carregar = useCallback(async () => {
     try { setDet(await api<Det>(`/api/notas/envio/${protocoloId}`)); setErro(""); } catch (e) { setErro(mensagem(e)); }
@@ -273,7 +277,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
 
   const complementares = (
     <Complementares protocoloId={protocoloId} extras={det.extras ?? []} links={det.previa.links ?? []} ocupado={ocupado}
-      agir={agir} aoMudar={carregar} />
+      agir={agir} aoMudar={carregar} emailMexido={emailMexido} />
   );
 
   const email = (
@@ -282,7 +286,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
       <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
-        aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
+        aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>
   );

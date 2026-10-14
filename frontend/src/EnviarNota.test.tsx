@@ -100,4 +100,16 @@ describe("Enviar a nota", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*o link relatorios\.zip/ }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/protocolos/3/links/5/remover", expect.objectContaining({ method: "POST" })));
   });
+
+  it("com o e-mail editado, a confirmação de remover avisa que o texto será montado de novo (revisor, #28)", async () => {
+    const comExtras = { ...det, extras: [{ id: 41, nome: "justificativa.pdf", tamanho: 4096 }] };
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comExtras : {}));
+    render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remover justificativa.pdf" }));
+    expect(screen.queryByText(/será montado de novo/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.change(screen.getByLabelText("Corpo da mensagem"), { target: { value: "Bom dia, texto meu." } });
+    fireEvent.click(screen.getByRole("button", { name: "Remover justificativa.pdf" }));
+    expect(screen.getByText("O texto do e-mail que você editou será montado de novo.")).toBeTruthy();
+  });
 });

@@ -83,6 +83,8 @@ describe("ComporEmail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
     fireEvent.click(screen.getByRole("button", { name: "Descartar o e-mail" }));
     expect(aoDescartar).toHaveBeenCalledTimes(1);
+    // quem abriu embutido não fecha a janela: o descarte volta o e-mail ao texto com que abriu (revisor, #28)
+    expect(screen.getByLabelText("Corpo da mensagem")).toHaveProperty("value", "Bom dia.");
     cleanup();
 
     const aoDescartar2 = vi.fn();

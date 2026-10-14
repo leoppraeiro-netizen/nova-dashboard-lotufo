@@ -218,10 +218,11 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
 // `bloqueado`: o envio nao pode sair nem tentado (o motivo esta' na tela de quem abriu). O que falta preencher nao
 // bloqueia o botao: o clique mostra o erro junto do campo (issue #11); `validarAntes` e' a parte de quem abriu
 // (ex.: a justificativa que fica acima do e-mail) -- mostra o proprio erro e devolve false se nao pode enviar.
-export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes, aoEnviar, aoDescartar, validarAntes, rotuloEnviar = "Enviar" }: {
+// `aoMexer`: avisa quem abriu se o e-mail difere do que abriu (ex.: para avisar antes de uma acao que remonta o e-mail).
+export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes, aoEnviar, aoDescartar, validarAntes, rotuloEnviar = "Enviar", aoMexer }: {
   inicial: Mensagem; anexos: { nome: string; tamanho?: number }[]; ocupado: boolean; bloqueado?: boolean;
   antes?: React.ReactNode; aoEnviar: (m: Mensagem) => void; aoDescartar: () => void; validarAntes?: () => boolean;
-  rotuloEnviar?: string;
+  rotuloEnviar?: string; aoMexer?: (mexido: boolean) => void;
 }) {
   const base = useId();
   const [tentou, setTentou] = useState(false);
@@ -252,11 +253,20 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
   }
 
   // issue #28: descartar o que a pessoa escreveu pede confirmacao; sem nada mudado desde que abriu, nao ha' o
-  // que perder e fecha direto.
+  // que perder e fecha direto. Confirmado, o e-mail volta ao que abriu (quem esta' embutido nao fecha a janela).
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const mexido = JSON.stringify(m) !== JSON.stringify(inicial);
+  const avisarMexido = useRef(aoMexer);
+  useEffect(() => { avisarMexido.current = aoMexer; });
+  useEffect(() => { avisarMexido.current?.(mexido); }, [mexido]);
   function descartar() {
-    if (JSON.stringify(m) === JSON.stringify(inicial)) aoDescartar();
+    if (!mexido) aoDescartar();
     else setConfirmarDescarte(true);
+  }
+  function confirmarDescartar() {
+    setConfirmarDescarte(false);
+    setM(inicial); setComCco(inicial.cco.length > 0); setTentou(false);
+    aoDescartar();
   }
 
   const campo = (c: Campo, direita?: React.ReactNode) => (
@@ -282,13 +292,13 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
       {confirmarDescarte && (
         <div className="ol-confirmar" role="group" aria-label="Confirmar o descarte">
           <span aria-live="polite">Descartar o que foi escrito neste e-mail? O texto não fica guardado.</span>
-          <button type="button" className="btn btn--pequeno btn--destrutivo" onClick={() => { setConfirmarDescarte(false); aoDescartar(); }}>
+          <button type="button" className="btn btn--pequeno btn--destrutivo" onClick={confirmarDescartar}>
             Descartar o e-mail
           </button>
           <button type="button" className="btn btn--pequeno" autoFocus onClick={() => setConfirmarDescarte(false)}>Continuar escrevendo</button>
         </div>
       )}
-      {campo("para",!comCco && <button type="button" className="ol-cco" onClick={() => setComCco(true)}>Cco</button>)}
+      {campo("para", !comCco && <button type="button" className="ol-cco" onClick={() => setComCco(true)}>Cco</button>)}
       {campo("copia")}
       {comCco && campo("cco")}
       <div className="ol-assunto">

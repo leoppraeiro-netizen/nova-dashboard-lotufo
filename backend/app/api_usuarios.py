@@ -98,6 +98,10 @@ def atualizar(alvo_id: ID, dados: UsuarioPatch,
         for campo, valor in novos.items():
             conn.execute(f"UPDATE usuarios SET {campo}=? WHERE id=?",
                          (int(valor) if campo == "ativo" else valor, alvo_id))
+        # Issue #28: a trava de cima nao cobre dois admins se desativando ao mesmo tempo (o `exigir` de cada um
+        # confere antes do BEGIN IMMEDIATE). Aqui, ja' sob lock: se a mudanca zera os admins ativos, desfaz.
+        if conn.execute("SELECT COUNT(*) FROM usuarios WHERE perfil='admin' AND ativo=1").fetchone()[0] == 0:
+            raise HTTPException(409, "A mudança deixaria o sistema sem nenhum administrador ativo.")
         auditoria.registrar(conn, usuario["id"], "usuario.atualizar", "usuario", str(alvo_id),
                             antes=dict(antes), depois=novos)
     return {"ok": True}
