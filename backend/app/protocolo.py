@@ -10,6 +10,7 @@ so' bloqueia o que e' erro (medicao encerrada, sem destinatario, anexos acima do
 """
 import datetime
 import json
+import os
 import re
 from dataclasses import dataclass
 from html import escape
@@ -29,8 +30,13 @@ ANEXO = "anexo"
 JUSTIFICATIVA_POS_ENVIO = "Pendência surgida entre a prévia e o envio; o e-mail já tinha saído"
 NUMERO_ORGAO_VAZIO = "Informe o número do protocolo no órgão"
 # A-13 (testes de quebra 10/10/2026): o link vira <a href> no e-mail oficial ao orgao; so' o OneDrive e o SharePoint
-# da Lotufo (o unico link em producao e' do primeiro). Comparacao exata do host: "...sharepoint.com.evil.test" nao passa.
-DOMINIOS_LINK = ("lotufoengmt-my.sharepoint.com", "lotufoengmt.sharepoint.com")
+# da Lotufo. Comparacao exata do host: "...sharepoint.com.evil.test" nao passa. Issue #118: os hosts vem de
+# DASH_SHAREPOINT_HOSTS (separados por virgula; repositorio publico); sem a variavel, nenhum link passa.
+VARIAVEL_HOSTS_LINK = "DASH_SHAREPOINT_HOSTS"
+
+
+def dominios_link() -> tuple[str, ...]:
+    return tuple(h for h in (x.strip().lower() for x in os.environ.get(VARIAVEL_HOSTS_LINK, "").split(",")) if h)
 
 
 @dataclass(frozen=True)
@@ -237,9 +243,12 @@ def adicionar_link(conn, usuario_id: int, protocolo_id: int, nome: str, url: str
         raise ValueError("Nome do arquivo acima de 200 caracteres")
     if not re.fullmatch(r"https://\S{8,2000}", url):
         raise ValueError("Cole o link completo do OneDrive (começa com https://)")
-    if (urlparse(url).hostname or "").lower() not in DOMINIOS_LINK:
-        raise ValueError("Cole um link do OneDrive ou SharePoint da Lotufo "
-                         "(lotufoengmt-my.sharepoint.com ou lotufoengmt.sharepoint.com)")
+    dominios = dominios_link()
+    if not dominios:
+        raise ValueError("Links do OneDrive ou SharePoint não estão liberados neste servidor: "
+                         "o administrador precisa configurar os endereços permitidos")
+    if (urlparse(url).hostname or "").lower() not in dominios:
+        raise ValueError(f"Cole um link do OneDrive ou SharePoint da Lotufo ({' ou '.join(dominios)})")
     p = _linha(conn, protocolo_id)
     _editavel(p)
     with db.mutacao(conn):

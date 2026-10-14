@@ -200,12 +200,13 @@ def test_zip_do_docusign_entra_como_documento_complementar(api):
     assert r.status_code == 415
 
 
-def test_link_do_onedrive_entra_no_corpo_antes_da_assinatura_e_vira_clicavel(svc):
+def test_link_do_onedrive_entra_no_corpo_antes_da_assinatura_e_vira_clicavel(svc, monkeypatch):
     c, ids = svc
+    monkeypatch.setenv("DASH_SHAREPOINT_HOSTS", "exemplo-my.sharepoint.com,exemplo.sharepoint.com")
     pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
-    url = "https://lotufoengmt-my.sharepoint.com/:u:/g/personal/leo/IQAbc?e=1&x=2"
+    url = "https://exemplo-my.sharepoint.com/:u:/g/personal/leo/IQAbc?e=1&x=2"
     with pytest.raises(ValueError, match="https://"):
-        protocolo.adicionar_link(c, ids["uid"], pid, "Documento juntado", "lotufoengmt-my.sharepoint.com/x")
+        protocolo.adicionar_link(c, ids["uid"], pid, "Documento juntado", "exemplo-my.sharepoint.com/x")
     with pytest.raises(ValueError, match="nome"):
         protocolo.adicionar_link(c, ids["uid"], pid, "  ", url)
     lid = protocolo.adicionar_link(c, ids["uid"], pid, "Documento juntado - 15ª Medição", url)
@@ -216,7 +217,7 @@ def test_link_do_onedrive_entra_no_corpo_antes_da_assinatura_e_vira_clicavel(svc
     assert [x["nome"] for x in d["previa"]["links"]] == ["Documento juntado - 15ª Medição"]
     assert all(a["nome"] != "Documento juntado - 15ª Medição" for a in d["previa"]["anexos"])   # nao e' anexo
     html = protocolo._html(corpo)
-    assert '<a href="https://lotufoengmt-my.sharepoint.com/:u:/g/personal/leo/IQAbc?e=1&amp;x=2">' in html
+    assert '<a href="https://exemplo-my.sharepoint.com/:u:/g/personal/leo/IQAbc?e=1&amp;x=2">' in html
     protocolo.remover_link(c, ids["uid"], pid, lid)
     assert "Arquivos por link" not in notas_envio.detalhe_envio(c, pid, hoje=HOJE)["previa"]["corpo"]
 
@@ -468,16 +469,17 @@ def test_envio_sem_o_reajuste_irmao_exige_justificativa(api):
 
 # --- testes de quebra 10/10/2026: A-13 (link de qualquer site) e A-11 (qualquer arquivo como .eml) ---
 
-def test_link_so_do_onedrive_ou_sharepoint_da_lotufo(api):
+def test_link_so_do_onedrive_ou_sharepoint_da_lotufo(api, monkeypatch):
     cl, c, ids = api
+    monkeypatch.setenv("DASH_SHAREPOINT_HOSTS", "exemplo-my.sharepoint.com,exemplo.sharepoint.com")
     pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
         ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
-    for url in ("https://exemplo-malicioso.test/x", "https://lotufoengmt-my.sharepoint.com.evil.test/abcdef"):
+    for url in ("https://exemplo-malicioso.test/x", "https://exemplo-my.sharepoint.com.evil.test/abcdef"):
         r = cl.post(f"/api/protocolos/{pid}/links", json={"nome": "Planilha", "url": url})
         assert r.status_code == 422, url
-        assert "lotufoengmt-my.sharepoint.com ou lotufoengmt.sharepoint.com" in r.json()["detail"]
+        assert "exemplo-my.sharepoint.com ou exemplo.sharepoint.com" in r.json()["detail"]
     r = cl.post(f"/api/protocolos/{pid}/links", json={"nome": "Planilha",
-                                                      "url": "https://lotufoengmt-my.sharepoint.com/:b:/g/abc"})
+                                                      "url": "https://exemplo-my.sharepoint.com/:b:/g/abc"})
     assert r.status_code == 200, r.text
     corpo = cl.get(f"/api/notas/envio/{pid}").json()["previa"]["corpo"]
     assert "exemplo-malicioso" not in corpo and "evil.test" not in corpo
