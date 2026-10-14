@@ -124,12 +124,12 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
         </label>
         <label className="campo nota-complementares__url">
           <span className="campo__nota">Link do OneDrive</span>
-          <input type="url" name="link_url" autoComplete="off" spellCheck={false} value={linkUrl} maxLength={2100} placeholder="https://lotufoengmt-my.sharepoint.com/…"
+          <input type="url" name="link_url" autoComplete="off" spellCheck={false} value={linkUrl} maxLength={2100} placeholder="https://…sharepoint.com/…"
             disabled={ocupado} onChange={ev => setLinkUrl(ev.target.value)} />
         </label>
         <button type="submit" className="btn btn--pequeno" disabled={ocupado || !linkNome.trim() || !linkUrl.trim()}>Adicionar link</button>
       </form>
-      <span className="campo__nota">Para arquivo que passa do limite do e-mail (25 MB somados): suba no seu OneDrive, copie o link de compartilhamento e cole aqui. O link entra no texto do e-mail. Cole um link do OneDrive ou SharePoint da Lotufo (lotufoengmt-my.sharepoint.com ou lotufoengmt.sharepoint.com).</span>
+      <span className="campo__nota">Para arquivo que passa do limite do e-mail (25 MB somados): suba no seu OneDrive, copie o link de compartilhamento e cole aqui. O link entra no texto do e-mail. Cole um link do OneDrive ou SharePoint da Lotufo; link de outro endereço é recusado.</span>
     </div>
   );
 }
