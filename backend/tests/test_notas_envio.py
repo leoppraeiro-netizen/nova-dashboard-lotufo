@@ -270,6 +270,27 @@ def test_remetente_fora_da_copia_pela_conta_do_outlook(svc, monkeypatch):
     assert copia == ["josi@l.com"]
 
 
+def test_copia_da_obra_soma_a_do_orgao_so_naquele_contrato(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(tempo, "hoje_local", lambda: HOJE)
+    c = db.get_conn(); db.migrate(c)
+    uid = auth.criar_usuario(c, "Leo", "leo@exemplo.com.br", "senha-forte-123", "admin")
+    ids = _cadastro(c, uid, assinados_para=["fiscal@orgao-a.exemplo.com.br"])
+    for obra in ("mtpar", "sinfra"):        # o engenheiro de cada obra; repetido e quem ja' esta' no Para nao duplicam
+        c.execute("UPDATE contratos SET copia_extras=? WHERE id=?",
+                  (json.dumps([f"eng.{obra}@l.com", "josi@l.com", "fiscal@orgao-a.exemplo.com.br"]), ids[obra]))
+    c.commit()
+    p_mt = notas_envio.iniciar(c, uid, ids["mtpar"], [ids["mtpar_exec"]], "254")
+    assert protocolo.previa_envio(c, [p_mt], hoje=HOJE)["copia"] == ["josi@l.com", "eng.mtpar@l.com",
+                                                                      "fiscal@orgao-a.exemplo.com.br"]
+    p_si = notas_envio.iniciar(c, uid, ids["sinfra"], [ids["sinfra_exec"]])
+    assert protocolo.previa_envio(c, [p_si], hoje=HOJE)["copia"] == ["josi@l.com", "leo.outlook@exemplo.com.br",
+                                                                      "eng.sinfra@l.com"]
+    p_vg = notas_envio.iniciar(c, uid, ids["vg"], [ids["vg_exec"]], "255")
+    assert protocolo.previa_envio(c, [p_vg], hoje=HOJE)["copia"] == []
+    c.close()
+
+
 # --- API: bloqueio, envio, por fora, aguardando pagamento ------------------------------------------
 
 def test_certidao_vencida_bloqueia_com_409(api):

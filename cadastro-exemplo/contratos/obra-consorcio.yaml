@@ -28,4 +28,5 @@ fiscais:
   email: fiscal@exemplo.gov.br
   desde: '2025-06-02'
 destinatarios_extras: []
+copia_extras: []
 instrumentos: []

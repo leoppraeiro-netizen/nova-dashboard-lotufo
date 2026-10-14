@@ -28,6 +28,7 @@ fiscais:
   email: fiscal@exemplo.gov.br
   desde: '2025-03-10'
 destinatarios_extras: []
+copia_extras: []
 instrumentos:
 - chave: ta-01
   tipo: aditivo_valor

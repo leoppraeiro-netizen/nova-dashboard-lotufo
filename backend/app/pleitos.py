@@ -321,7 +321,9 @@ def _destinatarios(conn, regras: dict, c: dict, hoje: datetime.date) -> tuple[li
     if f and f["email"] and f["email"] not in para:
         para.append(f["email"])
     para += [x for x in json.loads(c.get("destinatarios_extras") or "[]") if x not in para]
-    return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia = [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia += [x for x in json.loads(c.get("copia_extras") or "[]") if x not in copia]     # a da obra (14/10/2026)
+    return para, [x for x in copia if x not in para]
 
 
 def _anexos_envio(conn, p: dict) -> list[tuple[str, bytes]]:

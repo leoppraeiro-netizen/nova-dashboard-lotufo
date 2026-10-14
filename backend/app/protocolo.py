@@ -754,13 +754,16 @@ def _destinatarios(conn, regras: dict, e: Etapa, c: dict, hoje: datetime.date) -
     chave = "protocolo_assinados_para" if e.chave == "nota" and regras.get("protocolo_assinados_para") \
         else "protocolo_para"
     para = [str(x).lower() for x in (regras.get(chave) or [])]
+    # copia do orgao + a da obra (engenheiro da obra, 14/10/2026), sem repetir quem ja' esta' no Para
+    copia = [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia += [x for x in json.loads(c.get("copia_extras") or "[]") if x not in copia]
     if chave == "protocolo_assinados_para":     # nota da SINFRA (SUEF I/II, SUPU): so' o protocolo, sem fiscal
-        return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+        return para, [x for x in copia if x not in para]
     f = carta.fiscal_vigente(conn, c["id"], hoje.isoformat())
     if f and f["email"] not in para:
         para.append(f["email"])
     para += [x for x in json.loads(c.get("destinatarios_extras") or "[]") if x not in para]
-    return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    return para, [x for x in copia if x not in para]
 
 
 def previa_envio(conn, protocolo_ids: list[int], remetente: str | None = None,

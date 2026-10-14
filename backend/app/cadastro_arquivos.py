@@ -268,6 +268,8 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
                                          if str(x).strip()],
          "sem_reajuste": bool(bruto.get("sem_reajuste", False)),
          "destinatarios_extras": [str(e).strip().lower() for e in bruto.get("destinatarios_extras") or []],
+         # 2026-10-14: copia que muda por obra (engenheiro da obra); soma-se a protocolo_copia do orgao
+         "copia_extras": [str(e).strip().lower() for e in bruto.get("copia_extras") or []],
          "valor_original_centavos": 0, "percentual_direito_bp": 10000,
          # bloco 5: objeto por extenso (carta e QDOP) e comprovante do CNO (entra no pacote)
          "objeto_completo": (str(bruto["objeto_completo"]).strip() or None) if bruto.get("objeto_completo") else None,
