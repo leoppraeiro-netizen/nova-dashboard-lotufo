@@ -242,7 +242,7 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
               const { visiveis, mais } = motivosDaLinha(o.motivos, 1);
               return (
                 <li key={o.contrato_id}>
-                  <Selo classe={FAROL[o.farol].classe} forte={FAROL[o.farol].forte}>{FAROL[o.farol].rotulo}</Selo>
+                  <Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo>
                   <span className="obras-problema__texto">
                     <Link className="nome-link" para={{ tela: "obra", id: o.contrato_id, aba: "medicoes" }} ir={ir}>{o.obra}</Link>
                     <span>{visiveis[0]?.texto ?? o.motivo}</span>
@@ -322,7 +322,7 @@ function Qdop({ p, ir }: { p: Painel; ir: Ir }) {
                       embaixo, a vigencia */}
                   <td className="num">{data(o.termino)}<div className="campo__nota">vig. {data(o.vigencia)}</div></td>
                   <td className="sem-quebra">{o.status}</td>
-                  <td><Selo classe={FAROL[o.farol].classe} forte={FAROL[o.farol].forte}>{FAROL[o.farol].rotulo}</Selo></td>
+                  <td><Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo></td>
                   <td>{!o.motivos ? (o.motivo || "—") : visiveis.length === 0 ? "—" : (
                     <ul className="motivos">
                       {visiveis.map(x => <li key={`${x.tipo}-${x.texto}`}>{x.texto}</li>)}
