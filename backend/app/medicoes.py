@@ -4,6 +4,7 @@ Fase 2: transicoes manuais (importacao); fases 5-6 passam a mover nf_emitida/rec
 por deteccao. Regra de congelamento (spec §5): apos o 1o protocolo (marco externo),
 o valor PROTOCOLADO nao muda mais; o ATESTADO segue editavel (glosa).
 """
+import calendar
 import datetime
 import json
 import logging
@@ -536,12 +537,35 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
     for r in conn.execute("SELECT contrato_id, id FROM medicoes WHERE estado='prevista' "
                           "ORDER BY competencia, numero, id"):
         prevista_de.setdefault(r["contrato_id"], r["id"])
+    # #154: ultima medicao de execucao (a cancelada/desistida e a prevista nao contam), a prevista mais antiga e o
+    # maior numero ja usado (UNIQUE contrato+numero+tipo: a proxima e' a seguinte, ou a prevista)
+    ultima_de: dict[int, dict] = {}
+    for r in conn.execute("SELECT contrato_id, numero, competencia FROM medicoes WHERE tipo='execucao' AND estado "
+                          "NOT IN ('prevista','cancelada','desistida') ORDER BY competencia DESC, numero DESC"):
+        ultima_de.setdefault(r["contrato_id"], {"numero": r["numero"], "competencia": r["competencia"]})
+    prevista_dados: dict[int, dict] = {}
+    for r in conn.execute("SELECT contrato_id, numero, competencia FROM medicoes WHERE tipo='execucao' AND "
+                          "estado='prevista' ORDER BY competencia, numero, id"):
+        prevista_dados.setdefault(r["contrato_id"], {"numero": r["numero"], "competencia": r["competencia"]})
+    maior_numero = dict(conn.execute("SELECT contrato_id, MAX(numero) FROM medicoes WHERE tipo='execucao' "
+                                     "GROUP BY contrato_id").fetchall())
+
+    def ha_dias(competencia: str) -> int | None:
+        """Dias desde o FIM da competencia; competencia ainda em curso: nulo (a contagem nao comecou)."""
+        ano, mes = int(competencia[:4]), int(competencia[5:7])
+        dias = (hoje - datetime.date(ano, mes, calendar.monthrange(ano, mes)[1])).days
+        return dias if dias > 0 else None
     ativas = sorted((o for o in obras.values() if o["estado"] == "ativo"), key=lambda o: _chave_nome(o["obra"]))
     lista_obras = [{"contrato_id": o["id"], "obra": o["obra"], "contratante": o["contratante"],
                     "orgao_sub": o["orgao_sub"], "aberta": o["id"] in abertas, "prevista_id": prevista_de.get(o["id"]),
                     # A-21 (10/10/2026): a obra em encerramento segue na lista (mede a final), mas a tela nao a
                     # conta como "obra ativa" (a definicao de `avisos.ativos`, a do Inicio)
-                    "encerramento": bool(o["encerramento_iniciado_em"])}
+                    "encerramento": bool(o["encerramento_iniciado_em"]),
+                    "ultima": ultima_de.get(o["id"]),
+                    "ha_dias": ha_dias(ultima_de[o["id"]]["competencia"]) if o["id"] in ultima_de else None,
+                    "prevista": prevista_dados.get(o["id"]),
+                    "proxima": prevista_dados[o["id"]]["numero"] if o["id"] in prevista_dados
+                               else maior_numero.get(o["id"], 0) + 1}
                    for o in ativas]
     contagens = {"sem-medicao": sum(1 for o in lista_obras if not o["aberta"])}
     for s in ORDEM_SITUACAO:

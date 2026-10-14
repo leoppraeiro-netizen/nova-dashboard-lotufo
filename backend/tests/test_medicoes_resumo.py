@@ -133,6 +133,35 @@ def test_aba_aguardando_pagamento_conta_as_notas_da_tabela(conn, cenario):
     assert r["contagens"]["aguardando-pagamento"] == len(notas_envio.aguardando_pagamento(conn)) == 3
 
 
+def test_obra_sem_medicao_traz_ultima_ha_quanto_tempo_prevista_e_proxima(conn):
+    """#154: a aba "Sem medição aberta" mostra a última medição (nº e competência), há quanto tempo (desde o FIM da
+    competência), a prevista do cronograma e o nº da próxima. Sem medição anterior: tudo nulo e próxima = 1."""
+    c = conn
+    sinfra = _orgao(c, "sinfra-suef1", "SINFRA - SUEF I", "sinfra")
+    a, b, d, e = (_obra(c, n, sinfra) for n in ("A", "B", "D", "E"))
+    for cid, numero, comp, estado in ((a, 22, "2025-12", "recebida"), (a, 23, "2026-01", "recebida"),
+                                      (a, 24, "2026-09", "prevista"), (a, 25, "2026-10", "prevista"),
+                                      (b, 5, "2026-02", "recebida"), (b, 6, "2026-03", "cancelada"),
+                                      (d, 3, "2026-10", "recebida")):
+        c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) VALUES (?,?,'execucao',?,?)",
+                  (cid, numero, comp, estado))
+    # medição de projeto não entra na numeração da execução
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,9,'projeto','2026-08','recebida')", (b,))
+    c.commit()
+    obras = {o["obra"]: o for o in medicoes.resumo(conn, HOJE)["obras"]}
+    assert obras["A"]["ultima"] == {"numero": 23, "competencia": "2026-01"}
+    assert obras["A"]["ha_dias"] == (HOJE - datetime.date(2026, 1, 31)).days == 251
+    assert obras["A"]["prevista"] == {"numero": 24, "competencia": "2026-09"} and obras["A"]["proxima"] == 24
+    # a cancelada da B não conta como última; o nº 6 já existe (UNIQUE), então a próxima é a 7
+    assert obras["B"]["ultima"] == {"numero": 5, "competencia": "2026-02"} and obras["B"]["ha_dias"] == 223
+    assert obras["B"]["prevista"] is None and obras["B"]["proxima"] == 7
+    # competência ainda em curso: a contagem não começou
+    assert obras["D"]["ultima"] == {"numero": 3, "competencia": "2026-10"} and obras["D"]["ha_dias"] is None
+    assert obras["E"]["ultima"] is None and obras["E"]["ha_dias"] is None
+    assert obras["E"]["prevista"] is None and obras["E"]["proxima"] == 1
+
+
 def test_rota_do_resumo(client_admin):
     r = client_admin.get("/api/medicoes/resumo")
     assert r.status_code == 200, r.text
