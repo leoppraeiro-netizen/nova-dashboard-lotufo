@@ -304,8 +304,9 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             </Etapa>
 
             {/* consorcio com a FRC ainda por fazer: a etapa 3 fica aberta mesmo depois da nota da Lotufo, e (issue #148)
-                depois de gerada, ate' a assinada estar anexada: e' dali que se baixa a FRC para assinar */}
-            <Etapa n={3} situacao={sit(3)} aberta={frcPendente} resumo={m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
+                depois de gerada, ate' a assinada estar anexada: e' dali que se baixa a FRC para assinar. Medicao
+                encerrada (recebida, cancelada, desistida) nao tem mais o que fazer ali */}
+            <Etapa n={3} situacao={sit(3)} aberta={frcPendente && !FINAIS.includes(m.estado)} resumo={m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
               {sit(3) === "atual" && <p className="campo__nota">O sistema lê o RM a cada 1 hora e liga a nota sozinho. Se ela não aparecer, anexe o PDF aqui.</p>}
               <div id="notas">
                 <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
