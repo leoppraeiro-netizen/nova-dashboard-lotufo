@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import Admin from "./Admin";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 afterEach(() => { cleanup(); api.mockReset(); });
 

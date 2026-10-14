@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { CartaoPleito, NovoPleito, type Pleito, type TipoPleito } from "./FluxoOficio";
 import CaixaAviso from "./CaixaAviso";
 import { IconeAlerta } from "./icones";
@@ -99,7 +99,7 @@ export default function Prazos({ contratoId, podeEditar }: { contratoId: number;
           .catch(() => []);
         setDiasPedido(obras.find(o => o.id === contratoId)?.pedido_prorrogacao?.dias ?? null);
       } else setDiasPedido(null);
-    } catch (e) { setErro(e instanceof ApiErro ? e.message : String(e)); }
+    } catch (e) { setErro(mensagemDeErro(e)); }
   }, [contratoId]);
   useEffect(() => { void carregar(); }, [carregar]);
   // o oficio criado so' existe depois que a lista recarrega: tenta de novo a cada leitura

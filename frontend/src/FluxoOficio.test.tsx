@@ -4,7 +4,7 @@ import { CartaoPleito, type Pleito } from "./FluxoOficio";
 import { ir } from "./rota";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const PLEITO: Pleito = {
   id: 4, tipo: "prazo", rotulo: "Pedido de prorrogação", origem: "sistema", numero_oficio: "301/2026",
