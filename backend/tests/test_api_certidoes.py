@@ -27,6 +27,14 @@ def hoje_fixo(monkeypatch):
     monkeypatch.setattr(tempo, "hoje_local", lambda: HOJE)
 
 
+@pytest.fixture(autouse=True)
+def prazo_de_leitura_folgado(monkeypatch):
+    """Issue #19: com a CPU freada, a leitura em subprocesso (10 s) estourava e o upload
+    voltava 422 sem arquivar nada. Estes testes nao sao sobre o prazo (isso e' do
+    test_leitura_pdf): folga para todos os que sobem PDF."""
+    monkeypatch.setattr(leitura_pdf, "TEMPO_LIMITE_S", 60.0)
+
+
 def _login(client, perfil, email):
     conn = db.get_conn()
     auth.criar_usuario(conn, "U", email, "senha-forte-123", perfil)
@@ -310,12 +318,9 @@ def test_dedupe_confere_o_conteudo_e_substitui_arquivo_divergente(client_admin, 
     assert hashlib.sha256(d.content).hexdigest() == SHA_PDF
 
 
-def test_dedupe_preserva_arquivo_integro_ja_arquivado(client_admin, tmp_path, monkeypatch):
+def test_dedupe_preserva_arquivo_integro_ja_arquivado(client_admin, tmp_path):
     """A correcao do item 7 nao pode reescrever o que ja esta certo: conteudo igual,
     mesmo arquivo, sem regravar."""
-    # Issue #19: com a CPU freada, a leitura em subprocesso (10 s) estourava e o upload
-    # voltava 422 sem arquivar nada. O teste nao e' sobre o prazo: folga so' aqui.
-    monkeypatch.setattr(leitura_pdf, "TEMPO_LIMITE_S", 60.0)
     assert _upload(client_admin).status_code == 201
     alvo = tmp_path / "certidoes" / f"{SHA_PDF}.pdf"
     antes = alvo.stat().st_mtime_ns
