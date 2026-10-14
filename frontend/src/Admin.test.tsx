@@ -100,18 +100,18 @@ test("Backup: falha na cópia dos arquivos aparece e o selo vira Falhou", async 
 });
 
 // Revisão da #142: a cópia dos arquivos para fora roda em outra thread; parada ou falha dela também aparece
-test("Backup: cópia externa dos arquivos parada aparece e o selo vira Falhou", async () => {
+test("Backup: cópia externa dos arquivos que não termina aparece e o selo vira Falhou", async () => {
   api.mockImplementation(async (url: string) => {
     if (url === "/api/health") return { status: "ok", banco: "ok", backup: {
       ultimo_snapshot: "2026-10-13T10:00:00-04:00", ultimo_snapshot_erro: null,
       ultima_copia_arquivos: "2026-10-13T10:00:00-04:00", ultima_copia_arquivos_erro: null,
       ultima_copia_externa: "2026-10-13T03:00:00-04:00", ultima_copia_externa_erro: null,
       ultima_copia_externa_arquivos: null,
-      ultima_copia_externa_arquivos_erro: "2026-10-13T10:00:00-04:00: a cópia está parada há 3 horas (a pasta externa não responde)" } };
+      ultima_copia_externa_arquivos_erro: "2026-10-13T10:00:00-04:00: a cópia está rodando há 3 horas sem terminar" } };
     throw new Error(`fora deste teste: ${url}`);
   });
   render(<Admin aba="saude" />);
   expect(await screen.findByText(/Última cópia externa dos arquivos: a última tentativa falhou/)).toBeTruthy();
-  expect(screen.getByText(/parada há 3 horas/)).toBeTruthy();
+  expect(screen.getByText(/rodando há 3 horas sem terminar/)).toBeTruthy();
   expect(screen.getByText("Falhou")).toBeTruthy();
 });

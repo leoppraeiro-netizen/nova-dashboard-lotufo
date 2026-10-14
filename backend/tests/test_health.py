@@ -9,6 +9,16 @@ def test_health(client):
     assert "ultimo_snapshot" in corpo["backup"]
 
 
+def test_health_acusa_copia_dos_arquivos_que_nao_termina(client, monkeypatch):
+    # issue #55 / S1: o prazo e' conferido na leitura do health, nao pelo worker travado
+    import time
+    from app import backup
+    monkeypatch.setattr(backup, "_arquivos_fase", "local")
+    monkeypatch.setattr(backup, "_arquivos_desde", time.monotonic() - 3 * 3600)
+    corpo = client.get("/api/health").json()
+    assert corpo["backup"]["ultima_copia_arquivos_erro"] == "a cópia está rodando há 3 horas sem terminar"
+
+
 def test_health_503_quando_o_banco_nao_responde(client, monkeypatch):
     import sqlite3
     from app import db

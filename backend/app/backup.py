@@ -8,19 +8,22 @@
   7 diarios, 5 semanais, 12 mensais.
 - Arquivos ao lado do banco (issue #55): `notas`, `espelhos`, `modelos` e `evidencias` vao
   para `<backups>/arquivos/<pasta>/` e, havendo pasta externa, para
-  `<externo>/arquivos/<pasta>/`, a cada hora: a local depois do snapshot, na mesma
-  rodada; a externa numa thread propria (rede pendurada nao para o snapshot). Os nomes sao o sha256 do
-  conteudo e nunca mudam de conteudo: uma copia de cada arquivo serve a todos os
-  snapshots (o disco nao cresce 48 vezes) e o backup nunca apaga o que guardou (um
-  snapshot antigo pode citar arquivo que ja saiu da pasta de dados).
-- `ESTADO` guarda o resultado da ultima rodada; /api/health o expoe.
+  `<externo>/arquivos/<pasta>/`, num worker proprio (thread "backup-arquivos"), acordado
+  logo depois de cada snapshot: a thread do banco so' faz snapshot (e a copia externa
+  diaria do banco, como antes), entao copia lenta ou pendurada nao para os snapshots.
+  Os nomes sao o sha256 do conteudo e nunca mudam de conteudo: uma copia de cada arquivo
+  serve a todos os snapshots (o disco nao cresce 48 vezes) e o backup nunca apaga o que
+  guardou (um snapshot antigo pode citar arquivo que ja saiu da pasta de dados).
+- `ESTADO` guarda o resultado da ultima rodada; /api/health o expoe por `estado()`.
 """
 
 import datetime
+import errno
 import hashlib
 import logging
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import threading
@@ -38,7 +41,8 @@ _NOME = re.compile(r"dashboard-(\d{4})(\d{2})(\d{2})-\d{6}\.db$")
 CAMADAS = {"diarios": 7, "semanais": 5, "mensais": 12}
 PASTAS_ARQUIVOS = ("notas", "espelhos", "modelos", "evidencias")
 SUBPASTA_ARQUIVOS = "arquivos"  # dentro da pasta de backups e da pasta externa
-PRAZO_ARQUIVOS_EXTERNO_SEG = 2 * 3600  # copia externa dos arquivos rodando ha mais que isso = parada
+PRAZO_ARQUIVOS_SEG = 2 * 3600  # passada dos arquivos rodando ha mais que isso = acusada no health
+CONFERIR_DESTINO_SEG = 24 * 3600  # releitura completa do destino pelo sha256: uma vez por dia
 
 # Ultima rodada, para o health. Datas em ISO local; None = nunca nesta execucao.
 ESTADO: dict = {"ultimo_snapshot": None, "ultimo_snapshot_erro": None,
@@ -46,9 +50,14 @@ ESTADO: dict = {"ultimo_snapshot": None, "ultimo_snapshot_erro": None,
                 "ultima_copia_externa": None, "ultima_copia_externa_erro": None,
                 "ultima_copia_externa_arquivos": None, "ultima_copia_externa_arquivos_erro": None}
 
-# Inicio (time.monotonic) da copia externa dos arquivos em andamento; None = nenhuma. A thread do
-# snapshot olha isto para acusar no health uma copia pendurada num compartilhamento sem resposta.
-_externo_arquivos_desde: float | None = None
+# Worker dos arquivos (um por processo). Fase ("local"/"externa") e inicio (time.monotonic) da
+# passada em andamento, None = parado; `estado()` le isto na hora do /api/health para acusar a
+# passada que nao termina, sem depender do proprio worker (que e' quem pode estar travado).
+_arquivos_fase: str | None = None
+_arquivos_desde: float | None = None
+_thread_arquivos: threading.Thread | None = None
+_acordar_arquivos = threading.Event()
+_conferido_em: dict[str, float] = {}  # destino -> ultima releitura completa (time.monotonic)
 
 
 class SnapshotInvalido(Exception):
@@ -193,7 +202,26 @@ def rotacionar_externo(pasta_externa: Path) -> None:
 
 # --- arquivos ao lado do banco (issue #55) ---------------------------------------------
 
-def copiar_arquivos(raiz_origem: Path, raiz_destino: Path) -> int:
+class ErroArquivo(OSError):
+    """Falha da copia com mensagem nossa, ja' em portugues e sem caminho do servidor."""
+
+
+def _motivo(e: BaseException) -> str:
+    """O que vai ao health e a' tela: sem caminho absoluto (o log guarda o resto)."""
+    if isinstance(e, ErroArquivo):
+        return str(e)
+    if isinstance(e, PermissionError):
+        return "acesso negado"
+    if isinstance(e, FileNotFoundError):
+        return "arquivo ou pasta não encontrado"
+    if isinstance(e, OSError) and e.errno == errno.ENOSPC:
+        return "disco cheio"
+    if isinstance(e, TimeoutError):
+        return "a pasta não respondeu a tempo"
+    return "erro de leitura ou gravação (detalhes no log do servidor)"
+
+
+def copiar_arquivos(raiz_origem: Path, raiz_destino: Path, conferir: bool = False) -> int:
     """Copia `raiz_origem/<pasta>/*` para `raiz_destino/<pasta>/` nas PASTAS_ARQUIVOS.
 
     Serve aos dois sentidos: backup (dados -> backups/arquivos) e restauracao
@@ -202,8 +230,13 @@ def copiar_arquivos(raiz_origem: Path, raiz_destino: Path) -> int:
     `.tmp`, e' conferida pelo sha256 contra a origem e so' entao renomeada: ou o
     arquivo aparece inteiro, ou nao aparece. Origem cujo conteudo nao bate com o
     sha256 do proprio nome nao e' copiada (copiaria o defeito para o backup).
+
+    Sem `conferir`, arquivo do mesmo nome e tamanho no destino conta como presente (barato:
+    roda toda hora). Com `conferir`, o destino e' relido e comparado ao sha256; o estragado
+    e' substituido pela origem (o worker faz isso uma vez por dia; a restauracao, sempre).
+
     Um arquivo com problema nao impede os outros: todos sao tentados e, no fim, sobe
-    um OSError com os que ficaram sem copia. Devolve quantos arquivos copiou.
+    ErroArquivo com os que ficaram sem copia. Devolve quantos arquivos copiou.
     """
     copiados = 0
     falhas: list[str] = []
@@ -219,43 +252,62 @@ def copiar_arquivos(raiz_origem: Path, raiz_destino: Path) -> int:
             if not arquivo.is_file() or arquivo.name.endswith(".tmp"):
                 continue
             try:
-                if _copiar_um(arquivo, destino / arquivo.name):
+                if _copiar_um(arquivo, destino / arquivo.name, conferir):
                     copiados += 1
             except OSError as e:
-                falhas.append(f"{nome}/{arquivo.name} ({e})")
+                log.warning("arquivo sem copia: %s -> %s", arquivo, destino, exc_info=True)
+                falhas.append(f"{nome}/{arquivo.name} ({_motivo(e)})")
     if falhas:
         mais = f" e mais {len(falhas) - 3}" if len(falhas) > 3 else ""
-        raise OSError(f"{len(falhas)} arquivo(s) sem cópia: {'; '.join(falhas[:3])}{mais}")
+        raise ErroArquivo(f"{len(falhas)} arquivo(s) sem cópia: {'; '.join(falhas[:3])}{mais}")
     return copiados
 
 
-_PARCIAL_NOSSO = re.compile(r"\.\d+\.tmp$")  # `<nome>.<pid>.tmp`, so' o que _copiar_um cria
+# `<nome>.<pid>-<thread>-<aleatorio>.tmp`: so' o que _copiar_um cria. PID, thread e sufixo
+# aleatorio no nome: duas copias (outro processo, outra thread) nunca escrevem no mesmo parcial.
+_PARCIAL_NOSSO = re.compile(r"\.\d+-\d+-[0-9a-f]{8}\.tmp$")
+_NOME_SHA = re.compile(r"[0-9a-f]{64}")
 
 
 def _limpar_parciais_abandonados(destino: Path, agora: float) -> None:
-    """Sobra de copia interrompida (processo morto no meio): o PID muda na proxima
-    rodada, entao ninguem mais a renomeia. Mesmo corte de 1 hora dos snapshots."""
+    """Sobra de copia interrompida (processo morto no meio): ninguem mais a renomeia.
+
+    So' sai o parcial com mais de 1 hora E que nao esta' aberto: a copia ativa segura o
+    seu parcial aberto do primeiro byte ate' a conferencia, e no Windows (a producao) um
+    arquivo aberto nao se apaga -- o unlink falha e o parcial vivo fica.
+    """
     for sobra in destino.glob("*.tmp"):
         try:
             if _PARCIAL_NOSSO.search(sobra.name) and agora - sobra.stat().st_mtime > IDADE_TMP_SEG:
                 sobra.unlink(missing_ok=True)
         except OSError:
-            pass
+            pass  # aberto por uma copia viva (ou sumiu): nao e' sobra
 
 
-def _copiar_um(arquivo: Path, alvo: Path) -> bool:
-    """Copia um arquivo conferido; False se ja estava la."""
-    # o nome e' o sha256 do conteudo: mesmo nome e mesmo tamanho = mesmo arquivo
-    if alvo.exists() and alvo.stat().st_size == arquivo.stat().st_size:
-        return False
+def _copiar_um(arquivo: Path, alvo: Path, conferir: bool = False) -> bool:
+    """Copia um arquivo conferido; False se ja estava la (e, com `conferir`, integro)."""
+    com_sha = bool(_NOME_SHA.fullmatch(arquivo.stem))
+    if alvo.exists():
+        if not conferir:
+            # o nome e' o sha256 do conteudo: mesmo nome e mesmo tamanho = mesmo arquivo
+            if alvo.stat().st_size == arquivo.stat().st_size:
+                return False
+        elif _sha256(alvo) == (arquivo.stem if com_sha else _sha256(arquivo)):
+            return False
+        # tamanho diferente ou conteudo estragado: substitui pela origem conferida
     esperado = _sha256(arquivo)
-    if re.fullmatch(r"[0-9a-f]{64}", arquivo.stem) and arquivo.stem != esperado:
-        raise OSError("conteúdo não confere com o nome")
-    parcial = alvo.parent / f"{arquivo.name}.{os.getpid()}.tmp"
+    if com_sha and arquivo.stem != esperado:
+        raise ErroArquivo("conteúdo não confere com o nome")
+    parcial = alvo.parent / f"{arquivo.name}.{os.getpid()}-{threading.get_ident()}-{secrets.token_hex(4)}.tmp"
     try:
-        shutil.copyfile(arquivo, parcial)
-        if _sha256(parcial) != esperado:
-            raise OSError("cópia conferida diferente da original")
+        # "x": criacao exclusiva. O parcial fica aberto ate' conferido (ver _limpar_parciais_abandonados).
+        with open(parcial, "xb") as saida:
+            with open(arquivo, "rb") as entrada:
+                shutil.copyfileobj(entrada, saida, 1 << 20)
+            saida.flush()
+            os.fsync(saida.fileno())
+            if _sha256(parcial) != esperado:
+                raise ErroArquivo("cópia conferida diferente da original")
         parcial.replace(alvo)
     except BaseException:
         parcial.unlink(missing_ok=True)
@@ -275,11 +327,10 @@ def _copiou_hoje(pasta_externa: Path, hoje: datetime.date) -> bool:
 # --- rodada e agendamento ------------------------------------------------------------
 
 def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
-    """Uma rodada completa: snapshot + ensaio; arquivos na pasta local de backups; copia
-    externa do banco se ainda nao houve hoje. Os arquivos para FORA ficam em outra thread
-    (`rodada_arquivos_externo`): um compartilhamento pendurado nao pode parar os snapshots."""
+    """Rodada do banco: snapshot + ensaio; copia externa do banco se ainda nao houve hoje.
+    Os arquivos sao de outra thread (`rodada_arquivos`): copia lenta ou pendurada nao pode
+    parar os snapshots."""
     agora = tempo.para_local(tempo.agora_utc())
-    snapshot = None
     try:
         snapshot = criar_snapshot(origem_db, pasta_destino)
         ESTADO["ultimo_snapshot"] = agora.isoformat(timespec="seconds")
@@ -287,23 +338,8 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
     except Exception as e:
         ESTADO["ultimo_snapshot_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
         log.exception("snapshot falhou")
-    # Arquivos DEPOIS do snapshot: todo arquivo que ele cita ja estava no disco (o sistema
-    # grava o arquivo antes da linha do banco), entao a copia o alcanca. Copiam mesmo se o
-    # snapshot falhou (nao dependem dele). Disco local: nao pendura como a rede.
-    try:
-        copiar_arquivos(origem_db.parent, pasta_destino / SUBPASTA_ARQUIVOS)
-        ESTADO["ultima_copia_arquivos"] = agora.isoformat(timespec="seconds")
-        ESTADO["ultima_copia_arquivos_erro"] = None
-    except Exception as e:
-        ESTADO["ultima_copia_arquivos_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
-        log.exception("copia dos arquivos falhou")
-    desde = _externo_arquivos_desde
-    if desde is not None and time.monotonic() - desde > PRAZO_ARQUIVOS_EXTERNO_SEG:
-        horas = int((time.monotonic() - desde) // 3600)
-        ESTADO["ultima_copia_externa_arquivos_erro"] = (
-            f"{agora.isoformat(timespec='seconds')}: a cópia está parada há {horas} horas "
-            "(a pasta externa não responde)")
-    if pasta_externa is None or snapshot is None:
+        return
+    if pasta_externa is None:
         return
     try:
         # `exists()`/`glob()` num compartilhamento sem permissao levantam PermissionError
@@ -319,22 +355,80 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         log.exception("copia externa falhou")
 
 
-def rodada_arquivos_externo(origem_db: Path, pasta_externa: Path) -> None:
-    """Copia para fora so' os arquivos que faltam. Roda na sua propria thread: se o
-    compartilhamento pendurar, quem fica parada e' esta copia, nao o snapshot do banco
-    (que acusa no health a copia parada, ver `rodada`)."""
-    global _externo_arquivos_desde
-    agora = tempo.para_local(tempo.agora_utc())
-    _externo_arquivos_desde = time.monotonic()
-    try:
-        copiar_arquivos(origem_db.parent, pasta_externa / SUBPASTA_ARQUIVOS)
-        ESTADO["ultima_copia_externa_arquivos"] = agora.isoformat(timespec="seconds")
-        ESTADO["ultima_copia_externa_arquivos_erro"] = None
-    except Exception as e:
-        ESTADO["ultima_copia_externa_arquivos_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
-        log.exception("copia externa dos arquivos falhou")
-    finally:
-        _externo_arquivos_desde = None
+def rodada_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
+    """Uma passada dos arquivos: primeiro a pasta local de backups, depois a externa.
+
+    Roda no worker dos arquivos, uma passada por vez (nunca duas ao mesmo tempo no processo).
+    Comeca logo depois de cada snapshot (o worker e' acordado por ele): todo arquivo que o
+    snapshot cita ja estava no disco (o sistema grava o arquivo antes da linha do banco),
+    entao a passada seguinte o alcanca. `_arquivos_desde` marca a passada em andamento para
+    o health acusar a que nao termina (ver `estado`).
+    """
+    global _arquivos_fase, _arquivos_desde
+    destinos = [("local", "ultima_copia_arquivos", pasta_destino / SUBPASTA_ARQUIVOS)]
+    if pasta_externa is not None:
+        destinos.append(("externa", "ultima_copia_externa_arquivos", pasta_externa / SUBPASTA_ARQUIVOS))
+    for fase, chave, destino in destinos:
+        agora = tempo.para_local(tempo.agora_utc())
+        inicio = time.monotonic()
+        _arquivos_fase, _arquivos_desde = fase, inicio
+        ultima = _conferido_em.get(str(destino))
+        conferir = ultima is None or inicio - ultima > CONFERIR_DESTINO_SEG
+        try:
+            copiar_arquivos(origem_db.parent, destino, conferir=conferir)
+            if conferir:
+                _conferido_em[str(destino)] = inicio
+            ESTADO[chave] = agora.isoformat(timespec="seconds")
+            ESTADO[f"{chave}_erro"] = None
+        except Exception as e:
+            ESTADO[f"{chave}_erro"] = f"{agora.isoformat(timespec='seconds')}: {_motivo(e)}"
+            log.exception("copia dos arquivos falhou (%s)", fase)
+        finally:
+            _arquivos_fase, _arquivos_desde = None, None
+
+
+def estado() -> dict:
+    """O ESTADO como o /api/health o mostra, com o que so' se sabe na hora da leitura:
+    passada dos arquivos rodando alem do prazo, ou worker dos arquivos morto. Calculado
+    aqui (na thread do pedido) e nao no worker, que e' justamente quem pode estar travado."""
+    d = dict(ESTADO)
+    fase, desde = _arquivos_fase, _arquivos_desde
+    if desde is not None and time.monotonic() - desde > PRAZO_ARQUIVOS_SEG:
+        horas = int((time.monotonic() - desde) // 3600)
+        chave = "ultima_copia_arquivos_erro" if fase == "local" else "ultima_copia_externa_arquivos_erro"
+        d[chave] = f"a cópia está rodando há {horas} horas sem terminar"
+    t = _thread_arquivos
+    if t is not None and not t.is_alive():
+        d["ultima_copia_arquivos_erro"] = "a tarefa de cópia dos arquivos parou (veja o log do servidor)"
+    return d
+
+
+def _loop_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
+    while True:
+        _acordar_arquivos.wait(3600)  # acordado pelo snapshot; de hora em hora no pior caso
+        _acordar_arquivos.clear()
+        try:
+            rodada_arquivos(origem_db, pasta_destino, pasta_externa)
+        except Exception:  # rede de seguranca: o worker nao morre por excecao comum
+            log.exception("copia dos arquivos falhou fora do previsto")
+
+
+def _iniciar_worker_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
+    global _thread_arquivos
+    _thread_arquivos = threading.Thread(target=_loop_arquivos, args=(origem_db, pasta_destino, pasta_externa),
+                                        daemon=True, name="backup-arquivos")
+    _thread_arquivos.start()
+
+
+def _supervisionar_arquivos(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
+    """Worker dos arquivos morto: registra e sobe outro (a thread do banco chama a cada hora)."""
+    t = _thread_arquivos
+    if t is not None and not t.is_alive():
+        agora = tempo.para_local(tempo.agora_utc())
+        ESTADO["ultima_copia_arquivos_erro"] = (f"{agora.isoformat(timespec='seconds')}: a tarefa de "
+                                                "cópia dos arquivos tinha parado e foi reiniciada")
+        log.error("worker dos arquivos estava morto; reiniciando")
+        _iniciar_worker_arquivos(origem_db, pasta_destino, pasta_externa)
 
 
 def agendar_backup_horario(origem_db: Path, pasta_destino: Path,
@@ -345,18 +439,14 @@ def agendar_backup_horario(origem_db: Path, pasta_destino: Path,
                 rodada(origem_db, pasta_destino, pasta_externa)
             except Exception:  # rede de seguranca: a thread de backup nunca morre
                 log.exception("rodada de backup falhou fora do previsto")
-            time.sleep(3600)
-
-    def loop_arquivos_externo():
-        while True:
+            _acordar_arquivos.set()  # passada dos arquivos logo depois do snapshot
             try:
-                rodada_arquivos_externo(origem_db, pasta_externa)
+                _supervisionar_arquivos(origem_db, pasta_destino, pasta_externa)
             except Exception:
-                log.exception("copia externa dos arquivos falhou fora do previsto")
+                log.exception("supervisao do worker dos arquivos falhou")
             time.sleep(3600)
 
+    _iniciar_worker_arquivos(origem_db, pasta_destino, pasta_externa)
     t = threading.Thread(target=loop, daemon=True, name="backup")
     t.start()
-    if pasta_externa is not None:
-        threading.Thread(target=loop_arquivos_externo, daemon=True, name="backup-arquivos-externo").start()
     return t

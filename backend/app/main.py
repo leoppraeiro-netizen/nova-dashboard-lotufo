@@ -93,7 +93,7 @@ def create_app() -> FastAPI:
         except sqlite3.Error:
             logging.getLogger("app.health").exception("banco nao respondeu ao health")
             return JSONResponse(status_code=503, content={"status": "erro", "banco": "indisponivel"})
-        return {"status": "ok", "banco": "ok", "backup": dict(backup_mod.ESTADO)}
+        return {"status": "ok", "banco": "ok", "backup": backup_mod.estado()}
 
     @app.exception_handler(sqlite3.OperationalError)
     def banco_ocupado(request: Request, exc: sqlite3.OperationalError):

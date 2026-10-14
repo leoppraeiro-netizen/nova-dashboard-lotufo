@@ -2,6 +2,7 @@ import hashlib
 import os
 import sqlite3
 import time
+from pathlib import Path
 
 import pytest
 
@@ -207,6 +208,18 @@ def test_rodada_registra_erro_da_copia_sem_derrubar(tmp_path, monkeypatch):
 
 # --- arquivos ao lado do banco (issue #55): notas, espelhos, modelos e evidencias -----
 
+@pytest.fixture(autouse=True)
+def _worker_limpo(monkeypatch):
+    # estado do worker dos arquivos e' do modulo: cada teste comeca do zero
+    monkeypatch.setattr(backup, "_arquivos_fase", None)
+    monkeypatch.setattr(backup, "_arquivos_desde", None)
+    monkeypatch.setattr(backup, "_thread_arquivos", None)
+    monkeypatch.setattr(backup, "_conferido_em", {})
+    for chave in ("ultima_copia_arquivos", "ultima_copia_arquivos_erro",
+                  "ultima_copia_externa_arquivos", "ultima_copia_externa_arquivos_erro"):
+        monkeypatch.setitem(backup.ESTADO, chave, None)
+
+
 def _dados_com_arquivos(tmp_path):
     """Pasta de dados como a da producao: banco + as quatro pastas, nomes pelo sha256."""
     dados = tmp_path / "dados"; dados.mkdir()
@@ -229,10 +242,16 @@ def _arquivos_no(pasta):
     return sorted(a for a in pasta.rglob("*") if a.is_file()) if pasta.exists() else []
 
 
-def test_rodada_copia_as_quatro_pastas_para_o_backup(tmp_path):
+def _rodar(origem, destino, fora=None):
+    """O que as duas threads fazem a cada hora: snapshot e, em seguida, a passada dos arquivos."""
+    backup.rodada(origem, destino, fora)
+    backup.rodada_arquivos(origem, destino, fora)
+
+
+def test_passada_copia_as_quatro_pastas_para_o_backup(tmp_path):
     origem, gravados = _dados_com_arquivos(tmp_path)
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     for rel, conteudo in gravados.items():
         assert (destino / "arquivos" / rel).read_bytes() == conteudo, rel
     assert backup.ESTADO["ultima_copia_arquivos"] and backup.ESTADO["ultima_copia_arquivos_erro"] is None
@@ -242,7 +261,8 @@ def test_copia_ignora_temporario_em_andamento(tmp_path):
     origem, _ = _dados_com_arquivos(tmp_path)
     (tmp_path / "dados" / "notas" / "upload-123-abc.tmp").write_bytes(b"parcial")
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
+    assert (destino / "arquivos" / "notas").is_dir()
     assert list((destino / "arquivos" / "notas").glob("*.tmp")) == []
 
 
@@ -250,18 +270,20 @@ def test_restaurar_snapshot_devolve_banco_e_arquivos_coerentes(tmp_path):
     origem, gravados = _dados_com_arquivos(tmp_path)
     dados = tmp_path / "dados"
     destino = dados / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     snap = sorted(destino.glob("dashboard-*.db"))[-1]
 
-    # o pior dia: banco e pastas perdidos
+    # o pior dia: banco perdido, pastas vazias e um PDF estragado no lugar (mesmo tamanho)
     origem.unlink()
     for pasta in backup.PASTAS_ARQUIVOS:
         for a in (dados / pasta).iterdir():
             a.unlink()
+    rel_estragado = next(iter(gravados))
+    (dados / rel_estragado).write_bytes(b"x" * len(gravados[rel_estragado]))
 
-    # restauracao: o snapshot volta a ser o banco e as pastas voltam do backup
+    # restauracao como o runbook manda: snapshot volta a ser o banco, arquivos conferidos voltam
     origem.write_bytes(snap.read_bytes())
-    backup.copiar_arquivos(destino / "arquivos", dados)
+    backup.copiar_arquivos(destino / "arquivos", dados, conferir=True)
 
     conn = sqlite3.connect(origem)
     citados = [r[0] for r in conn.execute("SELECT caminho FROM docs")]
@@ -275,12 +297,12 @@ def test_arquivos_nao_se_multiplicam_por_snapshot(tmp_path):
     # 48 snapshots nao podem virar 48 copias dos PDFs: os nomes sao o sha256, uma copia basta
     origem, gravados = _dados_com_arquivos(tmp_path)
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     copia = destino / "arquivos" / next(iter(gravados))
     envelhecer(copia, 7200)
     antes = copia.stat().st_mtime
     time.sleep(1.1)
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     assert len(list(destino.glob("dashboard-*.db"))) == 2
     assert len(_arquivos_no(destino / "arquivos")) == len(gravados)
     assert copia.stat().st_mtime == antes  # ja' estava la': nao foi copiado de novo
@@ -290,36 +312,31 @@ def test_arquivo_que_saiu_dos_dados_continua_no_backup(tmp_path):
     # um snapshot antigo pode citar o arquivo; o backup nunca apaga o que guardou
     origem, gravados = _dados_com_arquivos(tmp_path)
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     rel = next(iter(gravados))
     (tmp_path / "dados" / rel).unlink()
     time.sleep(1.1)
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     assert (destino / "arquivos" / rel).exists()
 
 
-def test_copia_externa_leva_os_arquivos(tmp_path):
+def test_passada_leva_os_arquivos_para_fora(tmp_path):
     origem, gravados = _dados_com_arquivos(tmp_path)
     fora = tmp_path / "externo"
-    backup.rodada_arquivos_externo(origem, fora)
+    backup.rodada_arquivos(origem, tmp_path / "dados" / "backups", fora)
     for rel, conteudo in gravados.items():
         assert (fora / "arquivos" / rel).read_bytes() == conteudo, rel
     assert backup.ESTADO["ultima_copia_externa_arquivos"]
     assert backup.ESTADO["ultima_copia_externa_arquivos_erro"] is None
-    assert backup._externo_arquivos_desde is None  # terminou: nao conta como parada
+    assert backup._arquivos_desde is None  # terminou: nao conta como em andamento
 
 
 def test_copia_de_arquivo_corrompida_e_recusada(tmp_path, monkeypatch):
     # o nome e' o sha256: a copia so' conta se o que chegou ao destino bate com ele
     origem, _ = _dados_com_arquivos(tmp_path)
     destino = tmp_path / "dados" / "backups"
-
-    def copia_truncada(a, b):
-        with open(b, "wb") as f:
-            f.write(b"truncado")
-
-    monkeypatch.setattr(backup.shutil, "copyfile", copia_truncada)
-    backup.rodada(origem, destino, None)
+    monkeypatch.setattr(backup.shutil, "copyfileobj", lambda a, b, n=0: b.write(b"truncado"))
+    _rodar(origem, destino)
     assert "cópia conferida diferente da original" in backup.ESTADO["ultima_copia_arquivos_erro"]
     assert backup.ESTADO["ultimo_snapshot_erro"] is None  # o banco foi salvo mesmo assim
     assert _arquivos_no(destino / "arquivos") == []
@@ -332,7 +349,7 @@ def test_arquivo_com_defeito_nao_impede_os_outros(tmp_path):
     estragado = tmp_path / "dados" / "notas" / f"{'0' * 64}.pdf"
     estragado.write_bytes(b"conteudo trocado")
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     erro = backup.ESTADO["ultima_copia_arquivos_erro"]
     assert erro and estragado.name in erro
     assert "1 arquivo(s) sem cópia" in erro and "conteúdo não confere com o nome" in erro
@@ -346,63 +363,148 @@ def test_arquivos_copiam_mesmo_com_snapshot_falhando(tmp_path, monkeypatch):
     destino = tmp_path / "dados" / "backups"
     monkeypatch.setattr(backup, "criar_snapshot",
                         lambda o, d: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
-    backup.rodada(origem, destino, None)
+    _rodar(origem, destino)
     assert "locked" in backup.ESTADO["ultimo_snapshot_erro"]
     for rel in gravados:
         assert (destino / "arquivos" / rel).exists(), rel
 
 
-def test_rodada_do_snapshot_nao_toca_os_arquivos_la_fora(tmp_path):
-    # a copia externa dos arquivos e' de outra thread: compartilhamento pendurado nao para o snapshot
+def test_rodada_do_banco_nao_toca_os_arquivos(tmp_path, monkeypatch):
+    # S1: a thread do banco so' faz snapshot (e a copia externa do banco); arquivos sao do worker
     origem, _ = _dados_com_arquivos(tmp_path)
     fora = tmp_path / "externo"
+    monkeypatch.setattr(backup, "copiar_arquivos", lambda *a, **k: pytest.fail("copiou na thread do banco"))
     backup.rodada(origem, tmp_path / "dados" / "backups", fora)
     assert len(list(fora.glob("dashboard-*.db"))) == 1      # o banco saiu
-    assert not (fora / "arquivos").exists()                 # os arquivos sao da outra thread
 
 
-def test_falha_dos_arquivos_la_fora_fica_registrada(tmp_path, monkeypatch):
+def test_falha_dos_arquivos_la_fora_fica_registrada_sem_caminho(tmp_path, monkeypatch):
+    # S5: o erro que vai ao health e a' tela nao leva caminho absoluto do servidor
     origem, _ = _dados_com_arquivos(tmp_path)
-    monkeypatch.setattr(backup, "copiar_arquivos",
-                        lambda o, d: (_ for _ in ()).throw(OSError("cota cheia")))
-    backup.rodada_arquivos_externo(origem, tmp_path / "externo")
-    assert "cota cheia" in backup.ESTADO["ultima_copia_externa_arquivos_erro"]
-    assert backup._externo_arquivos_desde is None
+    fora = tmp_path / "externo"
+    real = backup.copiar_arquivos
+
+    def negado_fora(o, d, conferir=False):
+        if fora in d.parents:
+            raise PermissionError(13, "Acesso negado", str(d))
+        return real(o, d, conferir)
+
+    monkeypatch.setattr(backup, "copiar_arquivos", negado_fora)
+    backup.rodada_arquivos(origem, tmp_path / "dados" / "backups", fora)
+    erro = backup.ESTADO["ultima_copia_externa_arquivos_erro"]
+    assert erro.endswith(": acesso negado")
+    assert str(tmp_path) not in erro
+    assert backup.ESTADO["ultima_copia_arquivos_erro"] is None  # a local passou
+    assert backup._arquivos_desde is None
 
 
-def test_copia_externa_dos_arquivos_parada_aparece_no_health(tmp_path, monkeypatch):
-    # a outra thread esta pendurada ha 3 h no compartilhamento: o snapshot segue e acusa
+def test_motivo_de_arquivo_nao_leva_caminho(tmp_path, monkeypatch):
     origem, _ = _dados_com_arquivos(tmp_path)
-    monkeypatch.setattr(backup, "_externo_arquivos_desde", time.monotonic() - 3 * 3600)
-    monkeypatch.setitem(backup.ESTADO, "ultima_copia_externa_arquivos_erro", None)
     destino = tmp_path / "dados" / "backups"
-    backup.rodada(origem, destino, None)
-    assert len(list(destino.glob("dashboard-*.db"))) == 1
-    assert "a cópia está parada há 3 horas" in backup.ESTADO["ultima_copia_externa_arquivos_erro"]
+
+    def disco_cheio(a, b, n=0):
+        raise OSError(28, "No space left on device", str(tmp_path / "x"))
+
+    monkeypatch.setattr(backup.shutil, "copyfileobj", disco_cheio)
+    backup.rodada_arquivos(origem, destino, None)
+    erro = backup.ESTADO["ultima_copia_arquivos_erro"]
+    assert "disco cheio" in erro and str(tmp_path) not in erro
 
 
-def test_agendar_sobe_thread_propria_para_os_arquivos_la_fora(tmp_path, monkeypatch):
-    origem, _ = _dados_com_arquivos(tmp_path)
+def test_health_acusa_passada_que_nao_termina(monkeypatch):
+    # S1: calculado na leitura do health, nao pelo worker (que e' quem pode estar travado)
+    monkeypatch.setattr(backup, "_arquivos_fase", "externa")
+    monkeypatch.setattr(backup, "_arquivos_desde", time.monotonic() - 3 * 3600)
+    e = backup.estado()
+    assert e["ultima_copia_externa_arquivos_erro"] == "a cópia está rodando há 3 horas sem terminar"
+    assert e["ultima_copia_arquivos_erro"] is None
+    monkeypatch.setattr(backup, "_arquivos_fase", "local")
+    assert "rodando há 3 horas" in backup.estado()["ultima_copia_arquivos_erro"]
+    monkeypatch.setattr(backup, "_arquivos_desde", time.monotonic() - 60)
+    assert backup.estado()["ultima_copia_arquivos_erro"] is None  # dentro do prazo: nada
+
+
+class _ThreadMorta:
+    def is_alive(self): return False
+
+
+def test_worker_morto_aparece_e_e_reiniciado(tmp_path, monkeypatch):
+    # S6: a referencia do worker fica guardada; morto, o health acusa e a thread do banco o sobe de novo
+    monkeypatch.setattr(backup, "_thread_arquivos", _ThreadMorta())
+    assert "parou" in backup.estado()["ultima_copia_arquivos_erro"]
+    subidos = []
+    monkeypatch.setattr(backup, "_iniciar_worker_arquivos", lambda *a: subidos.append(a))
+    backup._supervisionar_arquivos(tmp_path / "d.db", tmp_path / "b", None)
+    assert len(subidos) == 1
+    assert "foi reiniciada" in backup.ESTADO["ultima_copia_arquivos_erro"]
+
+
+def test_agendar_sobe_worker_dos_arquivos_separado(tmp_path, monkeypatch):
     nomes = []
 
     class ThreadFalsa:
-        def __init__(self, target, daemon, name): nomes.append(name)
+        def __init__(self, target, daemon, name, args=()): nomes.append(name)
         def start(self): pass
 
     monkeypatch.setattr(backup.threading, "Thread", ThreadFalsa)
-    backup.agendar_backup_horario(origem, tmp_path / "b", tmp_path / "externo")
-    assert nomes == ["backup", "backup-arquivos-externo"]
-    nomes.clear()
-    backup.agendar_backup_horario(origem, tmp_path / "b", None)
-    assert nomes == ["backup"]
+    backup.agendar_backup_horario(tmp_path / "d.db", tmp_path / "b", tmp_path / "externo")
+    assert nomes == ["backup-arquivos", "backup"]
+
+
+def test_destino_estragado_do_mesmo_tamanho_e_trocado_na_conferencia(tmp_path):
+    # S2: nome e tamanho iguais nao bastam; uma vez por dia o destino e' relido pelo sha256
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada_arquivos(origem, destino, None)          # 1a passada: confere (nunca conferiu)
+    rel = next(iter(gravados))
+    copia = destino / "arquivos" / rel
+    copia.write_bytes(b"x" * len(gravados[rel]))           # estraga sem mudar o tamanho
+    backup.rodada_arquivos(origem, destino, None)          # dentro do dia: so' nome e tamanho
+    assert copia.read_bytes() != gravados[rel]
+    backup._conferido_em[str(destino / "arquivos")] -= backup.CONFERIR_DESTINO_SEG + 1
+    backup.rodada_arquivos(origem, destino, None)          # passou um dia: rele e troca
+    assert copia.read_bytes() == gravados[rel]
+    assert backup.ESTADO["ultima_copia_arquivos_erro"] is None
+
+
+def test_temporarios_de_copias_simultaneas_nao_colidem(tmp_path, monkeypatch):
+    # S3: PID, thread e sufixo aleatorio no nome do parcial
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    vistos = []
+    real = backup.shutil.copyfileobj
+
+    def espia(a, b, n=0):
+        vistos.append(Path(b.name).name)
+        return real(a, b, n)
+
+    monkeypatch.setattr(backup.shutil, "copyfileobj", espia)
+    rel = next(iter(gravados))
+    for alvo in ("a", "b"):
+        (tmp_path / alvo).mkdir()
+        backup._copiar_um(origem.parent / rel, tmp_path / alvo / Path(rel).name)
+    assert len(set(vistos)) == 2
+    assert all(backup._PARCIAL_NOSSO.search(v) for v in vistos)
 
 
 def test_parcial_abandonado_de_copia_e_limpo(tmp_path):
     origem, _ = _dados_com_arquivos(tmp_path)
     notas = tmp_path / "dados" / "backups" / "arquivos" / "notas"; notas.mkdir(parents=True)
-    velho = notas / f"{'a' * 64}.pdf.4242.tmp"; velho.write_bytes(b"parcial")
+    velho = notas / f"{'a' * 64}.pdf.4242-77-0123abcd.tmp"; velho.write_bytes(b"parcial")
     envelhecer(velho, 7200)
-    recente = notas / f"{'b' * 64}.pdf.4343.tmp"; recente.write_bytes(b"em andamento")
-    backup.rodada(origem, tmp_path / "dados" / "backups", None)
+    recente = notas / f"{'b' * 64}.pdf.4343-77-0123abcd.tmp"; recente.write_bytes(b"em andamento")
+    backup.rodada_arquivos(origem, tmp_path / "dados" / "backups", None)
     assert not velho.exists()
     assert recente.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="trava de arquivo aberto e' do Windows (a producao)")
+def test_parcial_velho_mas_aberto_nao_e_apagado(tmp_path):
+    # S4: copia ativa ha mais de 1 h segura o parcial aberto; a limpeza nao o apaga
+    notas = tmp_path / "notas"; notas.mkdir()
+    vivo = notas / f"{'c' * 64}.pdf.4444-77-0123abcd.tmp"
+    with open(vivo, "wb") as f:
+        f.write(b"copiando")
+        f.flush()
+        envelhecer(vivo, 7200)
+        backup._limpar_parciais_abandonados(notas, time.time())
+        assert vivo.exists()
