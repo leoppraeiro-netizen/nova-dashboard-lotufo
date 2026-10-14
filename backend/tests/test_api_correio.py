@@ -1,5 +1,5 @@
 import pytest
-from app import api_correio, correio, graph
+from app import api_correio, graph
 
 
 class _ThreadParada:
@@ -61,3 +61,14 @@ def test_diretoria_le_o_status_mas_nao_conecta(client):
     assert client.get("/api/correio/status").status_code == 200
     assert client.post("/api/correio/conectar").status_code == 403
     assert client.post("/api/correio/teste").status_code == 403
+
+
+def test_assinatura_png_cortada_ao_meio_da_422_em_portugues(client_admin):
+    """#33: o cabecalho PNG sozinho nao basta; arquivo truncado e' recusado e nada e' gravado."""
+    from tests.test_correio import _png
+    png = _png()
+    r = client_admin.post("/api/correio/assinatura", files={"arquivo": ("a.png", png[: len(png) // 2], "image/png")})
+    assert r.status_code == 422 and "incompleta ou corrompida" in r.json()["detail"]
+    assert client_admin.get("/api/correio/status").json()["assinatura"] is False
+    r = client_admin.post("/api/correio/assinatura", files={"arquivo": ("a.png", png, "image/png")})
+    assert r.status_code == 200 and r.json()["assinatura"] is True

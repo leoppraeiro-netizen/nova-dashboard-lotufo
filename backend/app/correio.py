@@ -13,10 +13,12 @@ import logging
 import os
 import re
 import secrets
+import struct
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -308,11 +310,95 @@ def _mime_imagem(dados: bytes) -> str | None:
     return None
 
 
+# Amostras por pixel de cada tipo de cor do PNG: cinza, RGB, paleta, cinza+alfa, RGBA.
+_PNG_CANAIS = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+_ADAM7 = ((0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2))
+
+
+def _png_integro(dados: bytes) -> bool:
+    """Percorre os blocos (tamanho e CRC de cada um), exige IHDR no inicio e IEND no fim, e descomprime o IDAT
+    ate' o fim, conferindo que da' exatamente o tamanho que o IHDR promete. Arquivo cortado ou com byte trocado
+    falha em algum desses pontos. Descomprime em pedacos e so' conta os bytes (nada fica na memoria)."""
+    pos, idat, ihdr, fim = 8, [], None, False
+    while pos < len(dados):
+        if pos + 12 > len(dados):
+            return False
+        tamanho, tipo = struct.unpack(">I4s", dados[pos:pos + 8])
+        corpo = dados[pos + 8:pos + 8 + tamanho]
+        if len(corpo) != tamanho or pos + 12 + tamanho > len(dados):
+            return False
+        (crc,) = struct.unpack(">I", dados[pos + 8 + tamanho:pos + 12 + tamanho])
+        if zlib.crc32(tipo + corpo) != crc:
+            return False
+        if ihdr is None and tipo != b"IHDR":
+            return False
+        if tipo == b"IHDR":
+            ihdr = corpo
+        elif tipo == b"IDAT":
+            idat.append(corpo)
+        elif tipo == b"IEND":
+            fim = True
+            break
+        pos += 12 + tamanho
+    if not fim or ihdr is None or len(ihdr) != 13 or not idat:
+        return False
+    largura, altura, prof, cor, _, _, entrelacado = struct.unpack(">IIBBBBB", ihdr)
+    if not largura or not altura or cor not in _PNG_CANAIS or entrelacado not in (0, 1):
+        return False
+    bits = _PNG_CANAIS[cor] * prof
+    passos = _ADAM7 if entrelacado else ((0, 0, 1, 1),)
+    esperado = 0
+    for x0, y0, dx, dy in passos:
+        w, h = (largura - x0 + dx - 1) // dx, (altura - y0 + dy - 1) // dy
+        if w and h:
+            esperado += h * (1 + (w * bits + 7) // 8)
+    d, total = zlib.decompressobj(), 0
+    try:
+        for pedaco in idat:
+            while pedaco:
+                saida = d.decompress(pedaco, 1 << 20)
+                total += len(saida)
+                if total > esperado or d.eof:
+                    break
+                pedaco = d.unconsumed_tail
+            if total > esperado or d.eof:
+                break
+        total += len(d.flush())
+    except zlib.error:
+        return False
+    return d.eof and total == esperado
+
+
+def _jpg_integro(dados: bytes) -> bool:
+    """Percorre os segmentos ate' o inicio da varredura (SOS), exige um quadro (SOF) antes dela e o marcador de
+    fim (EOI) depois. JPG cortado perde o EOI ou para no meio de um segmento."""
+    pos, quadro = 2, False
+    while True:
+        while pos < len(dados) and dados[pos] == 0xFF and pos + 1 < len(dados) and dados[pos + 1] == 0xFF:
+            pos += 1                                   # bytes de preenchimento entre marcadores
+        if pos + 4 > len(dados) or dados[pos] != 0xFF:
+            return False
+        marcador = dados[pos + 1]
+        (tamanho,) = struct.unpack(">H", dados[pos + 2:pos + 4])
+        if tamanho < 2 or pos + 2 + tamanho > len(dados):
+            return False
+        if 0xC0 <= marcador <= 0xCF and marcador not in (0xC4, 0xC8, 0xCC):
+            quadro = True
+        pos += 2 + tamanho
+        if marcador == 0xDA:
+            break
+    return quadro and dados.find(b"\xff\xd9", pos) != -1
+
+
 def gravar_assinatura(conn, usuario_id: int, dados: bytes) -> None:
-    if not _mime_imagem(dados):
+    mime = _mime_imagem(dados)
+    if not mime:
         raise ValueError("A assinatura tem que ser uma imagem PNG ou JPG")
     if len(dados) > ASSINATURA_MAX:
         raise ValueError("Imagem da assinatura acima de 1 MB")
+    if not (_png_integro(dados) if mime == "image/png" else _jpg_integro(dados)):
+        raise ValueError("A imagem da assinatura está incompleta ou corrompida. Salve a imagem de novo e "
+                         "suba outra vez.")
     with db.mutacao(conn):
         auditoria.registrar(conn, usuario_id, "correio.assinatura", "usuario", usuario_id, None,
                             {"tamanho": len(dados), "sha256": hashlib.sha256(dados).hexdigest()})
