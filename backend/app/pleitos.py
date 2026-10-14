@@ -15,12 +15,16 @@ from app import (arquivos, assinatura, auditoria, carta, correio, db, envio_rese
                  prazos, reajuste, tempo)
 
 TIPOS = ("reajuste", "prazo", "conclusao")
-TIPOS_ANEXO = ("planilha_calculo", "cronograma", "outro")
+# Pecas que o orgao pode pedir no pleito de reajuste, alem das da IN (cadastro: `pecas_pleito_reajuste`; issue #50,
+# apostilamento do reajuste anual da Prefeitura de Cuiaba). Mesmos valores do CHECK da migracao 037.
+PECAS_ORGAO = ("falencia", "contrato_social", "documento_representante", "balanco")
+TIPOS_ANEXO = ("planilha_calculo", "cronograma", "outro") + PECAS_ORGAO
 # IN 001/2024 art. 21 §1º: o pleito de reajuste leva memoria de calculo e cronograma; o de prazo, o cronograma.
 EXIGIDOS = {"reajuste": ("planilha_calculo", "cronograma"), "prazo": ("cronograma",), "conclusao": ()}
 ROTULO = {"reajuste": "Pleito de reajuste", "prazo": "Pedido de prorrogação", "conclusao": "Comunicação de conclusão"}
 ROTULO_ANEXO = {"planilha_calculo": "Memória de cálculo do reajuste", "cronograma": "Cronograma físico-financeiro",
-                "outro": "Outro anexo"}
+                "outro": "Outro anexo", "falencia": "Certidão de falência", "contrato_social": "Contrato social",
+                "documento_representante": "Documento do representante legal", "balanco": "Balanço patrimonial"}
 TIPO_ENVIO = {"reajuste": "pleito_reajuste", "prazo": "carta_prazo", "conclusao": "conclusao"}
 CHAVE_TEXTOS = {"reajuste": "pleito_reajuste", "prazo": "prazo", "conclusao": "conclusao"}
 MIN_JUSTIFICATIVA = 10
@@ -73,6 +77,17 @@ def _anexos_de(conn, pleito_id: int) -> list[dict]:
 
 def _bytes(rel: str) -> bytes:
     return arquivos.caminho_seguro(rel).read_bytes()
+
+
+def _exigidos(conn, p: dict) -> tuple[str, ...]:
+    """Anexos que o pleito cobra: os da IN e, no reajuste, as pecas que o orgao declara no cadastro."""
+    if p["tipo"] != "reajuste":
+        return EXIGIDOS[p["tipo"]]
+    # sem _orgao(): pleito do cadastro pode ser de contrato sem orgao, e o detalhe nao pode quebrar por isso
+    o = conn.execute("SELECT o.regras FROM contratos c JOIN orgaos o ON o.id=c.orgao_id WHERE c.id=?",
+                     (p["contrato_id"],)).fetchone()
+    regras = json.loads(o["regras"] or "{}") if o else {}
+    return EXIGIDOS["reajuste"] + tuple(t for t in (regras.get("pecas_pleito_reajuste") or []) if t in PECAS_ORGAO)
 
 
 def _medicao_final(conn, contrato_id: int) -> dict | None:
@@ -276,7 +291,7 @@ def pendencias(conn, p: dict, hoje: datetime.date) -> list[dict]:
         return []
     out = []
     presentes = {a["tipo"] for a in _anexos_de(conn, p["id"])}
-    for t in EXIGIDOS[p["tipo"]]:
+    for t in _exigidos(conn, p):
         if t not in presentes:
             out.append({"codigo": "anexo", "mensagem": f"{ROTULO_ANEXO[t]}: não anexado"})
     if p["tipo"] == "prazo" and _CHUVA.search(p["justificativa"] or "") and not conn.execute(
@@ -299,7 +314,7 @@ def detalhe(conn, pleito_id: int, hoje: datetime.date | None = None) -> dict:
     hoje = hoje or tempo.hoje_local()
     p = _linha(conn, pleito_id)
     return {**p, "rotulo": ROTULO[p["tipo"]], "anexos": _anexos_de(conn, pleito_id),
-            "exigidos": [{"tipo": t, "rotulo": ROTULO_ANEXO[t]} for t in EXIGIDOS[p["tipo"]]],
+            "exigidos": [{"tipo": t, "rotulo": ROTULO_ANEXO[t]} for t in _exigidos(conn, p)],
             "conferencia": json.loads(p["conferencia"] or "null"), "pendencias": pendencias(conn, p, hoje),
             "nome_documento": nome_documento(conn, p) if p["montado_arquivo"] else None}
 

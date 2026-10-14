@@ -264,6 +264,16 @@ def test_pecas_ordem_e_destinatario_da_carta_no_orgao(tmp_path):
         assert any(campo in e for e in erros), campo
 
 
+def test_pecas_do_pleito_de_reajuste_no_orgao(tmp_path):
+    """Issue #50: o orgao lista as pecas que o pleito de reajuste leva alem da memoria de calculo e do cronograma."""
+    ok = {**ORGAO, "pecas_pleito_reajuste": ["falencia", "contrato_social", "documento_representante", "balanco"]}
+    regras = ca.preparar(_escrever(tmp_path / "a", orgaos=[ok]))["orgaos"][0]["regras"]
+    assert regras["pecas_pleito_reajuste"] == ["falencia", "contrato_social", "documento_representante", "balanco"]
+    for ruim in (["falencia", "falencia"], ["certidao-inventada"], "balanco"):
+        erros = _erros(_escrever(tmp_path / "b", orgaos=[{**ORGAO, "pecas_pleito_reajuste": ruim}]))
+        assert any("pecas_pleito_reajuste" in e for e in erros), ruim
+
+
 def test_cno_inexistente_e_tratamento_invalido_sao_erro(tmp_path):
     c = {**CONTRATO, "cno_pdf": "anexos/mt-402/cno.pdf",
          "fiscais": [{"nome": "Ana", "email": "ana@orgao-a.exemplo.com.br", "desde": "2026-01-01", "tratamento": "Dona"}]}

@@ -146,7 +146,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 - 2026-09-23 Deciolândia, BR-163, Granito e Coxipó 3ª etapa: nenhum protocolo com certidão encontrado na caixa do Leonardo.
 - 2026-09-23 Cavalaria 6ª (11/09/2026) levou a falência no ZIP; a 3ª, a 4ª e as demais obras SINFRA de 14/09 não: tratado como incidente.
 - 2026-09-23 Testes frágeis com a CPU freada do `<servidor>` (cai a 13% sob carga): `test_cadastro_arquivos::test_espelho_valido_entra_normalizado_com_hash_dos_modelos` monta o .docx duas vezes e o `zipfile` grava o horário (hash muda se o segundo virar); `test_api_certidoes::test_dedupe_preserva_arquivo_integro_ja_arquivado` falhou uma vez na suíte inteira. Passam isolados. Corrigir o primeiro com `ZipInfo` de data fixa. O mesmo freio pode fazer a leitura de PDF (10 s em subprocesso) estourar em produção.
-- 2026-09-23 Apostilamento do reajuste anual da Prefeitura de Cuiabá pede falência, contrato social, documento do representante e balanço (Região Oeste, 25/06/2026): levar para o pleito de reajuste do bloco 7.
 
 ## Reestruturação: bloco 3, nota (plano `docs/superpowers/plans/2026-09-22-bloco-3-nota.md`)
 
