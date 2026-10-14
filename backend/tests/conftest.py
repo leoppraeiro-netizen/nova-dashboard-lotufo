@@ -192,3 +192,33 @@ def novo_contrato(dados: dict) -> int:
         return contratos.criar(conn, None, dados)
     finally:
         conn.close()
+
+
+# --- imagem de assinatura de mentira (issue #33) -----------------------------------------
+# Montadas so' com a biblioteca padrao: o que se testa e' a conferencia da estrutura do arquivo.
+
+def _png(largura=4, altura=2, cor=0, prof=8, plte=None, idat=None, idat_pela_metade=False, sobra=b""):
+    """PNG nao entrelacado; por padrao, integro (cinza 8 bits). `plte`: inclui o bloco de paleta (padrao: so'
+    quando cor=3); `idat`: troca a imagem comprimida; `idat_pela_metade`: blocos certos (CRC, IEND no fim), mas
+    a imagem comprimida para no meio; `sobra`: bytes depois do fim da imagem comprimida, dentro do IDAT."""
+    import struct
+
+    def bloco(tipo, dados):
+        return struct.pack(">I", len(dados)) + tipo + dados + struct.pack(">I", zlib.crc32(tipo + dados))
+    amostras = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[cor]
+    linha = b"\x00" + bytes(i % 251 for i in range((largura * amostras * prof + 7) // 8))
+    comprimido = zlib.compress(linha * altura) if idat is None else idat
+    if idat_pela_metade:
+        comprimido = comprimido[: len(comprimido) // 2]
+    paleta = bloco(b"PLTE", bytes(range(256)) * 3) if (cor == 3 if plte is None else plte) else b""
+    return (b"\x89PNG\r\n\x1a\n" + bloco(b"IHDR", struct.pack(">IIBBBBB", largura, altura, prof, cor, 0, 0, 0))
+            + paleta + bloco(b"IDAT", comprimido + sobra) + bloco(b"IEND", b""))
+
+
+def _jpg(antes_do_quadro=b""):
+    """JPG minimo bem formado: SOI, APP0, SOF0, SOS, dados da varredura e EOI. `antes_do_quadro`: bytes
+    (marcadores) inseridos entre o APP0 e o SOF0."""
+    sof = b"\xff\xc0" + bytes([0, 11, 8, 0, 1, 0, 1, 1, 1, 0x11, 0])
+    sos = b"\xff\xda" + bytes([0, 8, 1, 1, 0, 0, 0x3f, 0])
+    return (b"\xff\xd8" + b"\xff\xe0\x00\x04\x00\x00" + antes_do_quadro + sof + sos + b"\x12\x34\xff\x00\x56"
+            + b"\xff\xd9")

@@ -65,7 +65,7 @@ def test_diretoria_le_o_status_mas_nao_conecta(client):
 
 def test_assinatura_png_cortada_ao_meio_da_422_em_portugues(client_admin):
     """#33: o cabecalho PNG sozinho nao basta; arquivo truncado e' recusado e nada e' gravado."""
-    from tests.test_correio import _png
+    from tests.conftest import _png
     png = _png()
     r = client_admin.post("/api/correio/assinatura", files={"arquivo": ("a.png", png[: len(png) // 2], "image/png")})
     assert r.status_code == 422 and "incompleta ou corrompida" in r.json()["detail"]

@@ -2,9 +2,11 @@ import hashlib
 import json
 import urllib.error
 import urllib.request
+import zlib
 
 import pytest
 from app import auth, correio, db, graph
+from tests.conftest import _jpg, _png
 
 
 @pytest.fixture
@@ -190,30 +192,8 @@ def test_simulador_grava_em_pasta_e_nao_usa_rede(conn, tmp_path, monkeypatch):
     assert gravado["assunto"] == "Assunto" and gravado["anexos"][0]["nome"] == "a.txt"
 
 
-def _png(largura=4, altura=2, idat_pela_metade=False):
-    """PNG integro de verdade (cinza 8 bits), montado so' com a biblioteca padrao. `idat_pela_metade`: blocos
-    certos (CRC, IEND no fim), mas a imagem comprimida para no meio."""
-    import struct
-    import zlib
-
-    def bloco(tipo, dados):
-        return struct.pack(">I", len(dados)) + tipo + dados + struct.pack(">I", zlib.crc32(tipo + dados))
-    linhas = b"".join(b"\x00" + bytes(i % 256 for i in range(largura)) for _ in range(altura))
-    comprimido = zlib.compress(linhas)
-    if idat_pela_metade:
-        comprimido = comprimido[: len(comprimido) // 2]
-    return (b"\x89PNG\r\n\x1a\n" + bloco(b"IHDR", struct.pack(">IIBBBBB", largura, altura, 8, 0, 0, 0, 0))
-            + bloco(b"IDAT", comprimido) + bloco(b"IEND", b""))
-
-
-def _jpg():
-    """JPG minimo bem formado: SOI, APP0, SOF0, SOS, dados da varredura e EOI."""
-    sof = b"\xff\xc0" + bytes([0, 11, 8, 0, 1, 0, 1, 1, 1, 0x11, 0])
-    sos = b"\xff\xda" + bytes([0, 8, 1, 1, 0, 0, 0x3f, 0])
-    return b"\xff\xd8" + b"\xff\xe0\x00\x04\x00\x00" + sof + sos + b"\x12\x34\xff\x00\x56" + b"\xff\xd9"
-
-
 PNG = _png()
+JPG = _jpg()
 
 
 def test_cco_e_assinatura_vao_no_email_e_no_registro(conn, tmp_path, monkeypatch):
@@ -230,22 +210,40 @@ def test_cco_e_assinatura_vao_no_email_e_no_registro(conn, tmp_path, monkeypatch
         correio.gravar_assinatura(conn, 1, b"GIF89a nao e' png")
 
 
-@pytest.mark.parametrize("imagem", [_png(), _png(300, 40), _jpg()])
+@pytest.mark.parametrize("imagem", [
+    PNG,
+    _png(300, 40),
+    _png(30, 10, cor=6),                              # RGBA
+    _png(30, 10, cor=3, prof=4),                      # paleta de 4 bits, com PLTE
+    _png(30, 10, prof=16),                            # cinza de 16 bits
+    JPG,
+    _jpg(antes_do_quadro=b"\xff\x01\xff\xd0"),        # marcadores sem tamanho (TEM, RST0) antes do quadro
+], ids=["png", "png-maior", "png-rgba", "png-paleta", "png-16bits", "jpg", "jpg-marcador-sem-tamanho"])
 def test_assinatura_integra_continua_aceita(conn, imagem):
     correio.gravar_assinatura(conn, 1, imagem)
     assert correio.assinatura(1)[0] == imagem
 
 
 @pytest.mark.parametrize("imagem", [
-    _png()[: len(_png()) // 2],                                   # PNG cortado ao meio
-    _png()[:-12],                                                 # PNG sem o IEND
-    _png()[:40] + bytes([_png()[40] ^ 0xFF]) + _png()[41:],      # byte trocado: CRC nao bate
-    _png(300, 40, idat_pela_metade=True),                         # blocos certos, imagem comprimida pela metade
-    _jpg()[: len(_jpg()) // 2],                                   # JPG cortado ao meio
-    _jpg()[:-2],                                                  # JPG sem o EOI
-], ids=["png-metade", "png-sem-iend", "png-crc", "png-idat-curto", "jpg-metade", "jpg-sem-eoi"])
+    PNG[: len(PNG) // 2],                             # PNG cortado ao meio
+    PNG[:-12],                                        # PNG sem o IEND
+    PNG[:40] + bytes([PNG[40] ^ 0xFF]) + PNG[41:],    # byte trocado: CRC nao bate
+    _png(300, 40, idat_pela_metade=True),             # blocos certos, imagem comprimida pela metade
+    _png(sobra=b"lixo"),                              # sobra depois do fim da imagem comprimida
+    _png(30, 10, cor=3, plte=False),                  # paleta sem o bloco PLTE
+    _png(cor=3, prof=16),                             # profundidade que nao existe para paleta
+    JPG[: len(JPG) // 2],                             # JPG cortado ao meio
+    JPG[:-2],                                         # JPG sem o EOI
+], ids=["png-metade", "png-sem-iend", "png-crc", "png-idat-curto", "png-sobra", "png-paleta-sem-plte",
+        "png-profundidade", "jpg-metade", "jpg-sem-eoi"])
 def test_assinatura_truncada_ou_corrompida_e_recusada(conn, imagem):
     with pytest.raises(ValueError, match="incompleta ou corrompida"):
         correio.gravar_assinatura(conn, 1, imagem)
     assert correio.assinatura(1) is None
 
+
+def test_png_que_promete_imagem_enorme_e_recusado_sem_descomprimir(conn):
+    """Arquivo pequeno que declara 5000 x 5000 RGBA (~100 MB descomprimidos): recusado pelo tamanho prometido."""
+    with pytest.raises(ValueError, match="grande demais"):
+        correio.gravar_assinatura(conn, 1, _png(5000, 5000, cor=6, idat=zlib.compress(b"\x00" * 1000)))
+    assert correio.assinatura(1) is None
