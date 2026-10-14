@@ -118,10 +118,15 @@ def test_dois_cliques_simultaneos_pedem_um_codigo_so(client_admin, monkeypatch):
         if respostas:
             break
         api_correio.time.sleep(0.1)
+    # Contrato: enquanto o primeiro espera a Microsoft, o segundo recebe "aguardando" SEM codigo (a tela nao mostra
+    # codigo nenhum e consulta de novo a cada 5 s); quando o primeiro termina, o codigo e' o mesmo para os dois.
+    assert len(respostas) == 1 and respostas[0].json()["login"] == {
+        "estado": "aguardando", "user_code": None, "verification_uri": None}
     liberar.set()
     for t in ts:
         t.join(5)
     assert len(pedidos) == 1 and len(respostas) == 2 and all(r.status_code == 200 for r in respostas)
+    assert respostas[1].json()["login"]["user_code"] == "ABCD-1234"
     assert client_admin.get("/api/correio/status").json()["login"]["user_code"] == "ABCD-1234"
 
 
@@ -131,6 +136,23 @@ def test_falha_da_microsoft_ao_pedir_codigo_desfaz_a_reserva(client_admin, monke
     monkeypatch.setattr(graph, "iniciar_device_code", fora_do_ar)
     assert client_admin.post("/api/correio/conectar").status_code == 502
     assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+
+
+def test_resposta_incompleta_ou_thread_que_nao_sobe_desfaz_a_reserva(client_admin, monkeypatch):
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: {"user_code": "X"})
+    r = client_admin.post("/api/correio/conectar")
+    assert r.status_code == 502 and r.json()["detail"] == "Não foi possível pedir o código à Microsoft; tente de novo"
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+
+    class _ThreadQueFalha(_ThreadParada):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(api_correio.threading, "Thread", _ThreadQueFalha)
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: {
+        "device_code": "d", "user_code": "ABCD-1234", "verification_uri": "u", "expires_in": 900, "interval": 5})
+    assert client_admin.post("/api/correio/conectar").status_code == 502
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+    assert not api_correio._CODIGO
 
 
 def test_acompanhamento_de_codigo_velho_nao_apaga_o_conectado_do_novo(monkeypatch):

@@ -77,23 +77,27 @@ def conectar(usuario: dict = Depends(exigir("editar_cadastros"))):
             _CODIGO.pop(uid, None)
     if aguardando:
         return _status(uid)
+    # Da reserva ate' o acompanhamento rodando, qualquer falha (Microsoft, resposta incompleta, thread que nao sobe)
+    # desfaz a reserva: o "aguardando" nunca fica preso sem ninguem para conclui-lo ou expira-lo.
     try:
         d = graph.iniciar_device_code(cfg["tenant"], cfg["client_id"], correio.ESCOPOS_LOGIN)
+        login = {"estado": "aguardando", "user_code": d["user_code"], "verification_uri": d["verification_uri"]}
+        acompanhamento = threading.Thread(target=_acompanhar, daemon=True, args=(
+            uid, cfg, d["device_code"], int(d["interval"]), time.time() + int(d["expires_in"])))
+        with _LOCK:
+            _LOGINS[uid] = login
+            _CODIGO[uid] = d["device_code"]
+        acompanhamento.start()
     except Exception as e:
-        with _LOCK:             # desfaz a reserva: a pessoa pode tentar de novo
+        with _LOCK:
+            _CODIGO.pop(uid, None)
             if antes is None:
                 _LOGINS.pop(uid, None)
             else:
                 _LOGINS[uid] = antes
         if isinstance(e, graph.ErroGraph):
             raise HTTPException(502, str(e)) from None
-        raise
-    with _LOCK:
-        _LOGINS[uid] = {"estado": "aguardando", "user_code": d["user_code"],
-                        "verification_uri": d["verification_uri"]}
-        _CODIGO[uid] = d["device_code"]
-    threading.Thread(target=_acompanhar, daemon=True,
-                     args=(uid, cfg, d["device_code"], d["interval"], time.time() + d["expires_in"])).start()
+        raise HTTPException(502, "Não foi possível pedir o código à Microsoft; tente de novo") from None
     return _status(uid)
 
 
