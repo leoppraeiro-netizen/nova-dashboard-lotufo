@@ -386,6 +386,30 @@ def test_lista_traz_a_irma_em_outro_envio_so_onde_medicao_e_reajuste_vao_juntos(
     assert sinfra["irmas"] == []
 
 
+def test_irma_bloqueada_ou_com_envio_montado_nao_e_oferecida(svc):
+    """/code-review da PR do #172: o registro por fora nao pode contornar o bloqueio da irma nem descartar o envio
+    montado dela; rascunho continua permitindo."""
+    c, ids = svc
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_reaj"]])
+    irmas = lambda: next(x for x in _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+                         if x["medicao_ids"] == [ids["sinfra_exec"]])["irmas"]
+    assert [i["medicao_id"] for i in irmas()] == [ids["sinfra_reaj"]]               # rascunho: oferece
+    c.execute("UPDATE protocolos SET situacao='montado' WHERE id=?", (pid,)); c.commit()
+    assert irmas() == []
+    c.execute("UPDATE protocolos SET situacao='descartado' WHERE id=?", (pid,)); c.commit()
+    _validade(c, "federal", "2026-09-10")                    # vencida: bloqueia a irma (e o envio dela)
+    assert irmas() == []
+
+
+def test_envio_por_fora_recusa_medicoes_de_contratos_diferentes(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["vg_exec"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and r.json()["detail"] == "Medição de outro contrato"
+    assert c.execute("SELECT COUNT(*) FROM medicoes WHERE estado='protocolada'").fetchone()[0] == 0
+
+
 def test_irma_no_mesmo_envio_nao_e_oferecida_de_novo(svc):
     c, ids = svc
     sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])

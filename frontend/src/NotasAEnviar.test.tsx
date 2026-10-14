@@ -75,6 +75,18 @@ describe("Notas a enviar", () => {
 
     it("a irmã com nota emitida vem marcada e o registro leva as duas medições", async () => {
       expect(await registrar(false)).toEqual(["637", "638"]);
+      expect((await screen.findByRole("status")).textContent)
+        .toBe("Envio registrado: MT-388 · 14ª medição + Reajuste da 14ª Medição foram para Aguardando pagamento.");
+    });
+
+    it("desmarcar e cancelar não deixa a irmã desmarcada na próxima abertura", async () => {
+      api.mockResolvedValue({ envios: [envio("c12:m637", "MT-388", "SINFRA", { irmas })], contadores: { Todas: 1, SINFRA: 1 } });
+      render(<NotasAEnviar busca={{}} podeEditar />);
+      fireEvent.click(await screen.findByText("Registrar envio feito por fora"));
+      fireEvent.click(screen.getByLabelText(ROTULO));
+      fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+      fireEvent.click(screen.getByText("Registrar envio feito por fora"));
+      expect((screen.getByLabelText(ROTULO) as HTMLInputElement).checked).toBe(true);
     });
 
     it("desmarcada, o registro leva só a medição do envio", async () => {

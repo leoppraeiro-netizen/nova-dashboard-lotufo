@@ -290,7 +290,8 @@ describe("Etapa do envio na página da medição", () => {
     expect((screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)") as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
-    await waitFor(() => expect(aoMudar).toHaveBeenCalledWith("Envio registrado: a nota foi para Aguardando pagamento."));
+    await waitFor(() => expect(aoMudar).toHaveBeenCalledWith(
+      "Envio registrado: esta nota e a do Reajuste da 7ª Medição foram para Aguardando pagamento."));
     expect((apiForm.mock.calls[0][1] as FormData).getAll("medicao_ids")).toEqual(["631", "632"]);
     expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/iniciar")).toBe(false);
   });

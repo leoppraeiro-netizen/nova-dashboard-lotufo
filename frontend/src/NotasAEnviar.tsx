@@ -175,9 +175,16 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
   );
 }
 
+/** Aviso da pagina da medicao depois do registro por fora: a irma que foi junto e' dita pelo nome. */
+export function avisoPorFora(juntas: Irma[]): string {
+  return juntas.length ? `Envio registrado: esta nota e a do ${juntas.map(i => i.titulo).join(", ")} foram para Aguardando pagamento.`
+    : "Envio registrado: a nota foi para Aguardando pagamento.";
+}
+
 /** "Registrar envio feito por fora": o e-mail ja' saiu pelo Outlook; data (obrigatoria), observacao e o .eml.
  *  `irmas` (issue #172): onde medicao e reajuste vao juntos, a irma fora deste envio entra marcada no mesmo registro. */
-export function EnvioPorFora({ medicaoIds, irmas = [], aoFeito }: { medicaoIds: number[]; irmas?: Irma[]; aoFeito: () => void }) {
+export function EnvioPorFora({ medicaoIds, irmas = [], aoFeito }: { medicaoIds: number[]; irmas?: Irma[];
+  aoFeito: (irmasJuntas: Irma[]) => void }) {
   const [aberto, setAberto] = useState(false);
   const [data, setData] = useState(hojeLocal());
   const [obs, setObs] = useState("");
@@ -189,7 +196,8 @@ export function EnvioPorFora({ medicaoIds, irmas = [], aoFeito }: { medicaoIds: 
   async function gravar(ev: React.FormEvent) {
     ev.preventDefault();
     const fd = new FormData();
-    for (const id of [...medicaoIds, ...irmas.map(i => i.medicao_id).filter(id => !fora.includes(id))]) fd.append("medicao_ids", String(id));
+    const juntas = irmas.filter(i => !fora.includes(i.medicao_id));
+    for (const id of [...medicaoIds, ...juntas.map(i => i.medicao_id)]) fd.append("medicao_ids", String(id));
     fd.append("enviado_em", data);
     fd.append("observacao", obs);
     if (eml) fd.append("eml", eml);
@@ -197,13 +205,13 @@ export function EnvioPorFora({ medicaoIds, irmas = [], aoFeito }: { medicaoIds: 
     try {
       await apiForm("/api/notas/envio-externo", fd);
       setAberto(false);
-      aoFeito();
+      aoFeito(juntas);
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
   return (
     <div className="nota-porfora">
-      <button type="button" className="botao-link" onClick={() => setAberto(true)}>Registrar envio feito por fora</button>
+      <button type="button" className="botao-link" onClick={() => { setFora([]); setAberto(true); }}>Registrar envio feito por fora</button>
       <p className="nota-porfora__dica">Quando o e-mail já saiu pelo Outlook: informe a data e anexe o e-mail enviado.</p>
       {aberto && (
         <div className="ol-modal-fundo" role="presentation" onMouseDown={() => setAberto(false)}>
@@ -281,7 +289,8 @@ function Painel({ e, aoMudar, podeEditar }: { e: Envio; aoMudar: (msg?: string) 
         </button>
         {erro && <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erro}</p>}
         {!bloqueado && <EnvioPorFora medicaoIds={e.medicao_ids} irmas={e.irmas}
-          aoFeito={() => aoMudar(`Envio registrado: ${e.obra} · ${e.descricao} foi para Aguardando pagamento.`)} />}
+          aoFeito={js => aoMudar(`Envio registrado: ${e.obra} · ${[e.descricao, ...js.map(i => i.titulo)].join(" + ")} `
+            + `${js.length ? "foram" : "foi"} para Aguardando pagamento.`)} />}
       </div>}
     </section>
   );
