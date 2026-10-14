@@ -9,7 +9,7 @@ import hashlib
 
 import pytest
 
-from app import auth, db, tempo
+from app import auth, db, leitura_pdf, tempo
 # O montador de PDF de mentira (1 pagina, xref com offsets reais) mora no conftest.
 # Aqui ele passou a ser NECESSARIO no gate 2: o upload agora abre o arquivo com o
 # pypdf antes de arquivar, e "%PDF-" seguido de qualquer coisa nao passa mais.
@@ -310,10 +310,13 @@ def test_dedupe_confere_o_conteudo_e_substitui_arquivo_divergente(client_admin, 
     assert hashlib.sha256(d.content).hexdigest() == SHA_PDF
 
 
-def test_dedupe_preserva_arquivo_integro_ja_arquivado(client_admin, tmp_path):
+def test_dedupe_preserva_arquivo_integro_ja_arquivado(client_admin, tmp_path, monkeypatch):
     """A correcao do item 7 nao pode reescrever o que ja esta certo: conteudo igual,
     mesmo arquivo, sem regravar."""
-    _upload(client_admin)
+    # Issue #19: com a CPU freada, a leitura em subprocesso (10 s) estourava e o upload
+    # voltava 422 sem arquivar nada. O teste nao e' sobre o prazo: folga so' aqui.
+    monkeypatch.setattr(leitura_pdf, "TEMPO_LIMITE_S", 60.0)
+    assert _upload(client_admin).status_code == 201
     alvo = tmp_path / "certidoes" / f"{SHA_PDF}.pdf"
     antes = alvo.stat().st_mtime_ns
     _upload(client_admin)
