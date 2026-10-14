@@ -50,14 +50,14 @@ describe("Carteira", () => {
     api.mockImplementation((url: string) => Promise.resolve(RESPOSTAS[url]));
     render(<Diretoria ir={() => {}} />);
     await screen.findByText("Onde está o dinheiro");
-    const itens = screen.getAllByRole("listitem");
-    expect(itens.length).toBeGreaterThanOrEqual(7);
-    itens.filter(i => i.classList.contains("kpi")).forEach(i => {
+    const kpis = screen.getAllByRole("listitem").filter(i => i.classList.contains("kpi"));
+    expect(kpis.length).toBe(7);
+    kpis.forEach(i => {
       expect(i.tagName).toBe("LI");
       expect(i.parentElement?.tagName).toBe("UL");
       expect(i.hasAttribute("role")).toBe(false);
     });
-    expect(screen.getByRole("list", { name: "O mês" }).tagName).toBe("UL");
+    ["Onde está o dinheiro", "O mês"].forEach(n => expect(screen.getByRole("list", { name: n }).tagName).toBe("UL"));
   });
 
   it("QDOP: exporta a planilha e mostra os motivos da obra", async () => {
