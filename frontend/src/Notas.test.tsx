@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Notas } from "./Notas";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const medicao = { id: 1, numero: 27, tipo: "execucao", competencia: "2026-08", estado: "espelho_enviado" } as any;
 
@@ -29,6 +29,26 @@ describe("Notas", () => {
     expect(screen.queryByText(/Vincular nota do RM/)).toBeNull();
     // sem nota vinculada, declarar completas nao aparece
     expect(screen.queryByRole("button", { name: /Declarar completas/ })).toBeNull();
+  });
+
+  it("gravar a justificativa muda o rótulo e desabilita o botão enquanto a chamada roda", async () => {
+    api.mockResolvedValueOnce({
+      ...DADOS, faltam: 0,
+      esperadas: [{ ...DADOS.esperadas[0], nota_id: 5 }],
+      notas: [{ nota_id: 5, coligada: 1, numero: "2288", serie: null, emissao: "2026-09-14", valor_centavos: 71919072,
+                valor_pdf_centavos: 71919072, origem_nota: "pdf", confirmacao: "aguardando_rm", documento_id: 3,
+                conferencia: [{ campo: "iss", espelho: 1438381, nota: 1438581, grau: "divergente" }],
+                justificativa: null, leitura: "cuiaba", municipio: "Cuiabá", regra: "pdf", recebido_centavos: 0 }],
+      pode_declarar: false,
+    });
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Justificar" }));
+    fireEvent.change(screen.getByLabelText(/Justificativa da divergência/), { target: { value: "Arredondamento do município" } });
+    api.mockReturnValueOnce(new Promise(() => {}));   // a chamada nunca termina
+    fireEvent.click(screen.getByRole("button", { name: "Gravar justificativa" }));
+    const botao = await screen.findByRole("button", { name: "Gravando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
   });
 
   it("a tabela de notas é densa: cabe a 1024 px sem rolar (B-04, 10/10/2026)", async () => {

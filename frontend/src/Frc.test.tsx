@@ -4,7 +4,7 @@ import { FrcConsorcio } from "./Frc";
 import { ItensEnvio } from "./NotasAEnviar";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 
 const item = (empresa: string, municipio: string, extra: Record<string, unknown> = {}) => ({
   chave: `${empresa}-${municipio}`, empresa, municipio, esperado_centavos: 81887199, situacao: "falta", documento_id: null,

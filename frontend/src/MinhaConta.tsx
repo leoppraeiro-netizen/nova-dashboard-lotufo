@@ -184,7 +184,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
           <input id="senha-confirmar" type="password" required minLength={10} autoComplete="new-password" value={senha.confirmar}
                  onChange={e => setSenha({ ...senha, confirmar: e.target.value })} />
         </div>
-        <button type="submit" className="btn btn--primario" disabled={ocupado}>Trocar senha</button>
+        <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Trocando…" : "Trocar senha"}</button>
       </form>
       {erroSenha && <div className="cartao__corpo"><p role="alert">{erroSenha}</p></div>}
       <p className={senhaTrocada ? "cartao__corpo" : "sr-only"} role="status">{senhaTrocada}</p>

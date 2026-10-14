@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import AguardandoPagamento from "./AguardandoPagamento";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const linha = (extra: Record<string, unknown> = {}) => ({
   medicao_id: 635, contrato_id: 13, obra: "Complexo Xtreme", orgao: "MTPAR", descricao: "15ª medição",

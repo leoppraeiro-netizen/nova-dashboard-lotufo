@@ -475,7 +475,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
                                   <input id={`reg-comp-${e.entidade_id}`} type="month" required value={reg.competencia}
                                     onChange={ev => setReg({ ...reg, competencia: ev.target.value })} />
                                 </div>
-                                <button type="submit" className="btn btn--primario btn--pequeno" disabled={ocupado || !reg.arquivo}>Gravar regularidade</button>
+                                <button type="submit" className="btn btn--primario btn--pequeno" disabled={ocupado || !reg.arquivo}>{ocupado ? "Gravando…" : "Gravar regularidade"}</button>
                                 <button type="button" className="btn btn--pequeno"
                                   onClick={() => { setFoco(`reg-anexar-${e.entidade_id}`); setReg(null); setErroReg(""); }}>Voltar</button>
                               </form>

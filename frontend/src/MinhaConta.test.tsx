@@ -44,6 +44,16 @@ describe("MinhaConta › Trocar senha", () => {
     fireEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
   }
 
+  it("enquanto a troca roda, o botão diz que está trocando e fica desabilitado", async () => {
+    api.mockImplementation((url: string) =>
+      url === "/api/correio/status" ? Promise.resolve({ configurado: true, conectado: false, login: NENHUM }) : new Promise(() => {}));
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não conectada");
+    preencher("senha-velha-123", "senha-nova-456", "senha-nova-456");
+    const botao = await screen.findByRole("button", { name: "Trocando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+  });
+
   it("manda a atual e a nova para /api/auth/senha", async () => {
     api.mockImplementation(async (url: string) =>
       url === "/api/correio/status" ? { configurado: true, conectado: false, login: NENHUM } : { ok: true });

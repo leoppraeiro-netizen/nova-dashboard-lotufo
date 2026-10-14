@@ -288,7 +288,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-justificativa" name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
               value={justificar.texto} onChange={ev => setJustificar({ ...justificar, texto: ev.target.value })} />
           </div>
-          <button type="submit" className="btn btn--primario" disabled={ocupado}>Gravar justificativa</button>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Gravando…" : "Gravar justificativa"}</button>
           <button type="button" className="btn" onClick={() => setJustificar(null)}>Voltar</button>
         </form>
       )}
@@ -333,7 +333,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-valor" name="valor" autoComplete="off" spellCheck={false} className="entrada--media entrada--num num" required inputMode="decimal" placeholder="Ex.: 50.000,00…"
               value={manual.valor} onChange={ev => setManual({ ...manual, valor: ev.target.value })} />
           </div>
-          <button type="submit" className="btn btn--primario" disabled={ocupado}>Registrar nota</button>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Registrando…" : "Registrar nota"}</button>
           <button type="button" className="btn" onClick={() => setManual(null)}>Deixar só o arquivo</button>
         </form>
       )}
@@ -362,7 +362,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-declarar" name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
               value={declarar} onChange={ev => setDeclarar(ev.target.value)} />
           </div>
-          <button type="submit" className="btn btn--pequeno" disabled={ocupado}>Declarar completas</button>
+          <button type="submit" className="btn btn--pequeno" disabled={ocupado}>{ocupado ? "Gravando…" : "Declarar completas"}</button>
         </form>
       )}
 
