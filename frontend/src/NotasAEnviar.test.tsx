@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import NotasAEnviar from "./NotasAEnviar";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 
 const envio = (chave: string, obra: string, grupo: string, extra: Record<string, unknown> = {}) => ({
   chave, contrato_id: 12, obra, orgao: grupo, orgao_sub: null, familia: "sinfra", grupo, a_pedido: false,

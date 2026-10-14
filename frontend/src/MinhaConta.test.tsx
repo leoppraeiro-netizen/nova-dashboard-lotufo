@@ -1,11 +1,12 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MinhaConta from "./MinhaConta";
+import { ApiErro } from "./api";
 
 // vi.mock e' icado para o topo do arquivo: a funcao falsa precisa nascer em vi.hoisted para
 // existir quando a fabrica do mock rodar.
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const NENHUM = { estado: "nenhum", user_code: null, verification_uri: null };
 const ENG = { id: 2, nome: "Maria", email: "maria@lotufo.com", perfil: "engenharia" };
@@ -43,6 +44,25 @@ describe("MinhaConta › Trocar senha", () => {
     fireEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
   }
 
+  it("enquanto a troca roda, o botão diz que está trocando e fica desabilitado", async () => {
+    api.mockImplementation((url: string) =>
+      url === "/api/correio/status" ? Promise.resolve({ configurado: true, conectado: false, login: NENHUM }) : new Promise(() => {}));
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não conectada");
+    preencher("senha-velha-123", "senha-nova-456", "senha-nova-456");
+    const botao = await screen.findByRole("button", { name: "Trocando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+  });
+
+  it("outra ação em curso (conectar) desabilita 'Trocar senha' sem mudar o rótulo dele", async () => {
+    api.mockImplementation((url: string) =>
+      url === "/api/correio/status" ? Promise.resolve({ configurado: true, conectado: false, login: NENHUM }) : new Promise(() => {}));
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não conectada");
+    fireEvent.click(screen.getByRole("button", { name: /Conectar/ }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Trocar senha" }) as HTMLButtonElement).disabled).toBe(true));
+  });
+
   it("manda a atual e a nova para /api/auth/senha", async () => {
     api.mockImplementation(async (url: string) =>
       url === "/api/correio/status" ? { configurado: true, conectado: false, login: NENHUM } : { ok: true });
@@ -57,7 +77,7 @@ describe("MinhaConta › Trocar senha", () => {
   it("confirmação diferente não manda nada; erro do servidor aparece na tela", async () => {
     api.mockImplementation(async (url: string) => {
       if (url === "/api/correio/status") return { configurado: true, conectado: false, login: NENHUM };
-      throw new Error("Senha atual não confere");
+      throw new ApiErro(400, "Senha atual não confere");
     });
     render(<MinhaConta usuario={ENG} />);
     await screen.findByText("Não conectada");

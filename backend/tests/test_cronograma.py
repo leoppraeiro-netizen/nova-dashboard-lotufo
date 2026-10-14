@@ -1,5 +1,6 @@
 import pytest
 from app import auditoria, auth, contratos, cronograma, db
+from tests.apoio_corrida import ConexaoComCorrida
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
@@ -88,34 +89,6 @@ def test_versoes_de_contratos_diferentes_nao_se_misturam(conn, cid):
     assert cronograma.previsto_efetivo(conn, cid) == {"2099-01": 10_00}
     assert cronograma.previsto_efetivo(conn, outro) == {"2099-01": 20_00}
 
-class _CursorMaterializado:
-    """Cursor ja lido: devolve as linhas capturadas antes da corrida."""
-    def __init__(self, linhas):
-        self._linhas = linhas
-    def fetchone(self):
-        return self._linhas[0] if self._linhas else None
-    def fetchall(self):
-        return self._linhas
-
-class _ConexaoComCorrida:
-    """Devolve o SELECT MAX(numero) JA OBSOLETO (tirado antes da corrida).
-
-    Desde a fase 3 nova_versao roda inteira sob BEGIN IMMEDIATE (db.mutacao), entao a
-    outra conexao nao consegue mais inserir NO MEIO dela -- ficaria travada ate o
-    busy_timeout. A interferencia commita antes da chamada sob teste e aqui se injeta
-    a leitura antiga: a corrida provada (numero calculado sobre leitura obsoleta) e' a
-    mesma.
-    """
-    def __init__(self, real, linhas_antigas):
-        self._real, self._linhas, self._armada = real, linhas_antigas, True
-    def execute(self, sql, params=()):
-        if self._armada and "MAX(NUMERO)" in sql.upper():
-            self._armada = False
-            return _CursorMaterializado(self._linhas)
-        return self._real.execute(sql, params)
-    def __getattr__(self, nome):
-        return getattr(self._real, nome)
-
 def test_numero_duplicado_por_corrida_vira_erro_de_dominio(conn, cid):
     """SELECT MAX(numero) + INSERT nao e' atomico entre requisicoes: quem perde a
     corrida colide no UNIQUE (contrato_id, numero). Tem que virar ValueError (422),
@@ -127,7 +100,7 @@ def test_numero_duplicado_por_corrida_vira_erro_de_dominio(conn, cid):
                   "VALUES (?,1,'manual')", (cid,))
     outro.commit()
     with pytest.raises(ValueError, match="concorrentemente"):
-        cronograma.nova_versao(_ConexaoComCorrida(conn, antigas), 1, cid,
+        cronograma.nova_versao(ConexaoComCorrida(conn, antigas, "MAX(NUMERO)"), 1, cid,
                                [("2099-01", 10_00)], "manual")
     conn.rollback()
     # so a versao do vencedor ficou, e sem itens orfaos da tentativa perdida

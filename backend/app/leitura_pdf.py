@@ -569,6 +569,8 @@ def _trabalho(pdf: bytes, modo: str, envia, opcoes=None) -> None:
         elif modo == "dormir":
             time.sleep(60)
             valor = None
+        elif modo == "morrer":           # GANCHO DE TESTE: morte sem resposta (OOM-killer, crash nativo)
+            os._exit(3)
         else:
             raise ValueError(f"modo desconhecido: {modo}")
         resposta = ("ok", valor)

@@ -5,7 +5,7 @@ import MedicoesPagina from "./MedicoesPagina";
 import type { LinhaResumo, ResumoMedicoes } from "./resumoMedicoes";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 
 const usuario = { id: 1, nome: "Leonardo Praeiro", email: "l@l.com", perfil: "admin" } as Usuario;
 
@@ -79,5 +79,25 @@ describe("Medições com abas", () => {
     render(<MedicoesPagina aba="resumo" busca={{}} usuario={{ ...usuario, perfil: "diretoria" }} />);
     await screen.findByRole("region", { name: "Todas as obras" });
     expect(screen.queryByRole("button", { name: /Iniciar processo/ })).toBeNull();
+  });
+
+  it("os filtros da aba Enviar nota vêm da URL e vão para a URL (sobrevivem ao recarregar)", async () => {
+    const env = (chave: string, obra: string) => ({
+      chave, contrato_id: 12, obra, orgao: "SINFRA", orgao_sub: null, familia: "sinfra", grupo: "SINFRA", a_pedido: false,
+      medicao_ids: [637], descricao: "14ª medição", notas: [{ numero: "2340", natureza: "execucao", valor_centavos: 100 }],
+      valor_centavos: 100, emitida_em: "2026-10-08", dias: 1, situacao: "pronto", aviso: null, protocolo_id: null, itens: [] });
+    api.mockImplementation(async (c: string) => c.includes("a-enviar")
+      ? { envios: [env("a", "MT-388"), env("b", "Granito")], contadores: { Todas: 2, SINFRA: 2 } } : RESUMO);
+    window.history.replaceState(null, "", "/medicoes/enviar-nota");
+    const { unmount } = render(<MedicoesPagina aba="enviar-nota" busca={{}} usuario={usuario} />);
+    const caixa = await screen.findByRole("searchbox", { name: "Buscar nota ou obra" });
+    fireEvent.change(caixa, { target: { value: "granito" } });
+    expect(window.location.search).toBe("?q=granito");
+    unmount();
+    // recarregar: a busca da URL reabre a lista ja' filtrada
+    render(<MedicoesPagina aba="enviar-nota" busca={Object.fromEntries(new URLSearchParams(window.location.search))} usuario={usuario} />);
+    const de = await screen.findByRole("searchbox", { name: "Buscar nota ou obra" }) as HTMLInputElement;
+    expect(de.value).toBe("granito");
+    expect(screen.queryByText("MT-388")).toBeNull();
   });
 });

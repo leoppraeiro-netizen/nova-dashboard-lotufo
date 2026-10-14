@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { brl, contar } from "./formato";
 import type { Usuario } from "./Login";
-import { Link, type Ir, type Rota } from "./rota";
+import { type Ir, type Rota } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura, fmtMesExtenso } from "./tempo";
 import "./inicio.css";
 
@@ -80,7 +81,7 @@ export default function Inicio({ usuario, ir }: { usuario: Usuario; ir: Ir }) {
     let vivo = true;
     api<PainelInicio>("/api/inicio/painel")
       .then(d => { if (vivo) setP(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, []);
 

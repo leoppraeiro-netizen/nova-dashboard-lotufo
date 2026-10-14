@@ -4,7 +4,8 @@ import { IconeAjustes, IconeAlerta, IconeCifrao, IconeDocumento, IconeGrade, Ico
   IconeSeta, IconeSino } from "./icones";
 import type { Usuario } from "./Login";
 import { menuDe, ROTULO, rotaDoItem, rotuloPerfil, type ItemMenu } from "./navegacao";
-import { Link, type Ir } from "./rota";
+import { type Ir } from "./rota";
+import { Link } from "./Link";
 import Simbolo from "./Simbolo";
 
 // Casca de todas as telas logadas (09/10/2026, prototipo aprovado pelo Leo; mecanismo copiado do trilho do

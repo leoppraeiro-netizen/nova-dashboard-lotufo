@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ComporEmail from "./ComporEmail";
+import { ir } from "./rota";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
@@ -66,5 +67,24 @@ describe("ComporEmail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(validarAntes).toHaveBeenCalled();
     expect(aoEnviar).not.toHaveBeenCalled();
+  });
+
+  it("e-mail editado e não enviado pede confirmação ao trocar de tela (issue #27)", async () => {
+    api.mockResolvedValue([]);
+    window.history.replaceState(null, "", "/notas/envio/3");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<ComporEmail ocupado={false} anexos={[]} aoEnviar={() => {}} aoDescartar={() => {}}
+      inicial={{ para: ["a@b.com"], copia: [], cco: [], assunto: "Emissão NF", corpo: "Bom dia." }} />);
+    ir({ tela: "avisos" });   // intacto: não pergunta
+    expect(confirmar).not.toHaveBeenCalled();
+    window.history.replaceState(null, "", "/notas/envio/3");
+    fireEvent.change(screen.getByLabelText("Assunto"), { target: { value: "Outro assunto" } });
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    ir({ tela: "avisos" }, { forcar: true });   // desfecho de ação concluída: não pergunta
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/avisos");
+    vi.restoreAllMocks();
   });
 });

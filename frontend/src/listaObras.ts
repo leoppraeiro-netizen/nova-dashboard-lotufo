@@ -9,7 +9,7 @@ export type ObraLista = {
   id: number; orgao: string; numero_instrumento: string; nome_curto?: string | null; estado: string;
   encerramento_iniciado_em?: string | null; entidade_id?: number | null;
   valor_vigente_centavos?: number | null; execucao_fim_vigente?: string | null; vigencia_fim_vigente?: string | null;
-  dias_execucao?: number | null; dias_vigencia?: number | null; vigencia_automatica?: boolean;
+  dias_execucao?: number | null; dias_vigencia?: number | null; vigencia_automatica?: boolean; paralisada_desde?: string | null;
   pedido_prorrogacao?: { enviado_em: string; numero_oficio: string | null; dias: number | null } | null;
 };
 
@@ -60,14 +60,14 @@ const GRAVIDADE: Record<string, number> = { critico: 0, acao: 1, atencao: 2 };
  *  data em que parou). Nivel que o servidor inventar conta como atencao, como no selo dos avisos. */
 export function prazoDaObra(o: ObraLista, avisos: Aviso[] = []): PrazoObra {
   const p: PrazoObra = { execucao: null, vigencia: null, total: avisos.length, criticos: 0,
-    paralisada: o.estado === "suspenso", paralisadaDesde: null };
+    paralisada: o.estado === "suspenso", paralisadaDesde: o.paralisada_desde ?? null };
   const pior = (atual: Nivel | null, n: Nivel): Nivel => atual === null || GRAVIDADE[n] < GRAVIDADE[atual] ? n : atual;
   for (const a of avisos) {
     if (a.nivel === "critico") p.criticos += 1;
     const n: Nivel = GRAVIDADE[a.nivel] === undefined ? "atencao" : a.nivel;
     if (a.tipo === "execucao_vencendo" || a.tipo === "instrumento_pendente") p.execucao = pior(p.execucao, n);
     else if (a.tipo === "vigencia_vencendo") p.vigencia = pior(p.vigencia, n);
-    else if (a.tipo === "obra_paralisada") { p.paralisada = true; p.paralisadaDesde = a.data ?? p.paralisadaDesde; }
+    else if (a.tipo === "obra_paralisada") { p.paralisada = true; p.paralisadaDesde = p.paralisadaDesde ?? a.data ?? null; }
   }
   return p;
 }

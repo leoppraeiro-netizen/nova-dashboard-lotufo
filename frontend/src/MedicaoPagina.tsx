@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { baseDosValores } from "./formato";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import Espelho from "./Espelho";
 import { BarraEtapas, Etapa, EnvioDaMedicao, etapaDe, situacaoDa } from "./Etapas";
 import { FrcConsorcio } from "./Frc";
@@ -13,7 +13,8 @@ import { FormDesmarcarFinal, FormEstado, FormFinal, FormProtocoloManual, FormRec
 import { brl, Estado, type Medicao } from "./Medicoes";
 import { Notas } from "./Notas";
 import { ProtocolosDaMedicao, useProtocolos } from "./Protocolo";
-import { Link, type Origem, type Rota } from "./rota";
+import { type Origem, type Rota } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora, fmtDataPura } from "./tempo";
 import { Migalhas, VoltarOrigem } from "./Topo";
 
@@ -68,7 +69,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
     const g = geracao.current;
     setCab(null); setMedicoes(null); setErro(""); setFeito(""); setPainel(null);
     api<Cabecalho>(`/api/contratos/${contratoId}/cabecalho`).then(c => { if (g === geracao.current) setCab(c); }).catch(() => {});
-    carregar().catch(e => { if (g === geracao.current) setErro(e instanceof ApiErro ? e.message : String(e)); });
+    carregar().catch(e => { if (g === geracao.current) setErro(mensagemDeErro(e)); });
     return () => { geracao.current += 1; };
   }, [contratoId, medicaoId, carregar]);
 
@@ -97,7 +98,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
       await protocolos.carregar();
     } catch (e) {
       setErro(gravou ? "Gravado, mas a página não recarregou — recarregue para ver o resultado."
-        : e instanceof ApiErro ? e.message : String(e));
+        : mensagemDeErro(e));
     } finally { setSalvando(false); }
     return gravou;
   };
@@ -129,7 +130,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
       <>{cabeca}<div className="pagina">
         <div className="form-inline">
           <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />Não foi possível abrir a medição: {erro}</p>
-          <button type="button" className="btn" onClick={() => { setErro(""); void carregar().catch(e => setErro(e instanceof ApiErro ? e.message : String(e))); }}>Tentar de novo</button>
+          <button type="button" className="btn" onClick={() => { setErro(""); void carregar().catch(e => setErro(mensagemDeErro(e))); }}>Tentar de novo</button>
         </div>
       </div></>
     );
@@ -315,7 +316,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             </Etapa>
 
             <Etapa n={4} situacao={sit(4)} resumo={m.protocolos.length > 0 ? `enviada em ${fmtDataPura(m.protocolos[m.protocolos.length - 1].data)}` : undefined}>
-              {sit(4) === "atual" && <EnvioDaMedicao medicaoId={m.id} podeEditar={podeEditar} versaoDocs={versaoNotas + versaoFrc}                aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }} />}
+              {sit(4) === "atual" && <EnvioDaMedicao medicaoId={m.id} podeEditar={podeEditar} versaoDocs={versaoNotas + versaoFrc}
+                aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }} />}
               {/* o historico dos envios so' depois de enviada: na etapa da vez, o envio acima ja' e' o caminho */}
               {sit(4) === "feita" && <ProtocolosDaMedicao contratoId={contratoId} medicaoId={m.id} dados={protocolos.dados} erro={protocolos.erro}
                 carregar={protocolos.carregar} podeEditar={podeEditar} aoMudar={() => void carregar().catch(() => {})}

@@ -251,7 +251,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
       }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
       if (embutido) embutido.aoConcluir(`Nota enviada às ${fmtHora(new Date().toISOString())}.`);
-      else ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { enviada: `${e.obra} · ${e.descricao}` } });
+      else ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { enviada: `${e.obra} · ${e.descricao}` }, forcar: true });
     });
   }
 
@@ -260,7 +260,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
     setOutros(null); setJuntar([]);
     if (pid === protocoloId) await carregar();
     else if (embutido) embutido.aoTrocar(pid);
-    else ir({ tela: "notas-envio", id: pid });
+    else ir({ tela: "notas-envio", id: pid }, { forcar: true });
   });
 
   const abrirJuntar = () => agir(async () => {
@@ -440,7 +440,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
 
         <div className="nota-rodape">
           {motivo && <p className={`nota-rodape__motivo nota-rodape__motivo--${det.bloqueio ? "bloqueio" : !justOk ? "atencao" : "neutro"}`}>{motivo}</p>}
-          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} aoFeito={() => embutido ? embutido.aoConcluir("Envio registrado: a nota foi para Aguardando pagamento.") : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` } })} />}
+          {!det.bloqueio && <EnvioPorFora medicaoIds={e.medicao_ids} aoFeito={() => embutido ? embutido.aoConcluir("Envio registrado: a nota foi para Aguardando pagamento.") : ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { registrada: `${e.obra} · ${e.descricao}` }, forcar: true })} />}
         </div>
         {e.familia === "mtpar" && (
           <p className="nota-porfora__dica">Depois do envio a nota vai para Aguardando pagamento com a marca “sem protocolo SIGA”; o número é registrado lá.</p>

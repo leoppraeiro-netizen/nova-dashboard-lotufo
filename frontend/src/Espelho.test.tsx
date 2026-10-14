@@ -2,12 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiErro } from "./api";
 import Espelho from "./Espelho";
+import { ir } from "./rota";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error {
-  status: number; corpo?: unknown;
-  constructor(status = 0, mensagem = "", corpo?: unknown) { super(mensagem); this.status = status; this.corpo = corpo; }
-} }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const REGRA = { situacao: "ativa", saidas: 4, entradas: [
   { chave: "medicao", rotulo: "Valor da medição", natureza: "medicao" },
@@ -36,6 +34,22 @@ describe("Espelho", () => {
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
     expect(await screen.findByText(/fluxo antigo/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Gerar espelho/ })).toBeNull();
+  });
+
+  it("o formulário só conta como rascunho depois de preenchido (guarda de saída)", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    window.history.replaceState(null, "", "/obras/1");
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} abrirForm />);
+    await screen.findByLabelText("Nº da medição");
+    ir({ tela: "avisos" });                       // aberto e vazio: sai sem perguntar
+    expect(confirmar).not.toHaveBeenCalled();
+    window.history.replaceState(null, "", "/obras/1");
+    fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/obras/1");
+    confirmar.mockRestore();
   });
 
   it("conferir manda número, competência e valores e renderiza uma linha por nota", async () => {

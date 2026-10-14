@@ -55,3 +55,24 @@ def test_auditoria_ha_mais_falso_quando_a_pagina_pega_o_ultimo(client_admin):
 def test_auditoria_cursor_invalido_e_422_nao_500(client_admin):
     for cursor in (0, -1, 2 ** 63):
         assert client_admin.get("/api/admin/auditoria", params={"antes_de": cursor}).status_code == 422
+
+
+def test_auditoria_traz_a_obra_da_medicao_e_do_protocolo(client_admin):
+    from app import auditoria
+    from tests.conftest import novo_contrato
+    cid = novo_contrato({"orgao": "SINFRA", "numero_instrumento": "IC 1/2026", "objeto": "Obra",
+                         "valor_original": "100.000,00"})
+    mid = client_admin.post(f"/api/contratos/{cid}/medicoes",
+                            json={"numero": 1, "tipo": "execucao", "competencia": "2026-07"}).json()["id"]
+    conn = db.get_conn()
+    with db.mutacao(conn):
+        pid = conn.execute("INSERT INTO protocolos (contrato_id, etapa, natureza, usuario_id) VALUES (?,?,?,1)",
+                           (cid, "unico", "execucao")).lastrowid
+        auditoria.registrar(conn, None, "protocolo.criar", "protocolo", pid)
+        auditoria.registrar(conn, None, "medicao.protocolo", "medicao", 99999)  # medicao que nao existe mais
+    conn.close()
+    por_acao = {e["acao"]: e for e in client_admin.get("/api/admin/auditoria").json()["eventos"]}
+    assert por_acao["medicao.criar"]["entidade_id"] == str(mid) and por_acao["medicao.criar"]["contrato_id"] == cid
+    assert por_acao["protocolo.criar"]["contrato_id"] == cid
+    assert por_acao["medicao.protocolo"]["contrato_id"] is None
+    assert por_acao["auth.login"]["contrato_id"] is None

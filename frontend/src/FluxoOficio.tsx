@@ -1,9 +1,10 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import ErroCampo from "./ErroCampo";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 import { FormMotivo } from "./MedicaoAtos";
 import { fmtTamanho as mb } from "./formato";
@@ -35,7 +36,7 @@ type Previa = { para: string[]; copia: string[]; assunto: string; corpo: string;
 const MIN_JUSTIFICATIVA = 10;        // o servidor recusa menos que isso (pleitos.MIN_JUSTIFICATIVA)
 
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 
 // Os anexos do oficio como checklist (F-67). Tudo o que o servidor lista em `exigidos` e' exigido, entao sem
@@ -122,6 +123,7 @@ export function CartaoPleito({ p, podeEditar, aoMudar, desfecho, contexto }: {
   const [descartando, setDescartando] = useState(false);
   useEffect(() => { setCorpo(p.corpo_carta || p.corpo_padrao || ""); }, [p.id, p.corpo_carta, p.corpo_padrao]);
   const editavel = podeEditar && p.origem === "sistema" && !["enviado", "descartado"].includes(p.situacao);
+  useRascunho(editavel && corpo.trim() !== (p.corpo_carta || p.corpo_padrao || "").trim());   // carta editada e ainda nao montada
 
   async function agir(f: () => Promise<unknown>) {
     setOcupado(true); setErro(""); setReserva(null);

@@ -4,7 +4,7 @@ import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 // Cada cartao tem fluxo proprio; aqui so' importa que, ao avisar a pagina, ela releia o que os outros mostram.
 vi.mock("./Espelho", () => ({ default: () => null }));
 vi.mock("./Frc", () => ({ FrcConsorcio: () => null }));

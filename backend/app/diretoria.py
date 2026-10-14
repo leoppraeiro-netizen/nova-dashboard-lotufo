@@ -22,7 +22,6 @@ ESPERANDO_NOTA = ("espelho_gerado", "espelho_enviado")
 ESPERANDO_PROTOCOLO = ("nota_emitida",)
 PROTOCOLADAS = ("protocolada", "nf_emitida")
 FORA = ("cancelada", "desistida", "prevista")
-TERMINO_DIAS = 183
 FAIXAS = (("ate_30", 0, 30), ("de_31_a_60", 31, 60), ("mais_60", 61, None))
 TOLERANCIA_CENTAVOS = 100      # titulo pago com ate R$ 1,00 de diferenca nao e' divida (arredondamento do RM)
 AVISO_NOTA_MINIMO = 1_000_000  # nota em aberto so' vira aviso a partir de R$ 10 mil na cota; o resto so' soma
@@ -260,9 +259,7 @@ def _carteira(conn, ms: list[dict], hoje: datetime.date) -> dict:
     return {"saldo_centavos": saldo, "ritmo_mensal_centavos": ritmo_mes,
             "meses_de_producao": round(saldo / ritmo_mes, 1) if ritmo_mes > 0 else None,
             "por_orgao": [{"orgao": k, "saldo_centavos": v, "fracao": v / saldo if saldo else 0}
-                          for k, v in sorted(por_orgao.items(), key=lambda kv: -kv[1])],
-            "terminando": sorted([x for x in linhas if x["dias"] is not None and 0 <= x["dias"] <= TERMINO_DIAS],
-                                 key=lambda x: x["dias"])}
+                          for k, v in sorted(por_orgao.items(), key=lambda kv: -kv[1])]}
 
 
 def _obras(conn, hoje: datetime.date, avisos: list[dict]) -> list[dict]:
@@ -273,7 +270,9 @@ def _obras(conn, hoje: datetime.date, avisos: list[dict]) -> list[dict]:
     out = []
     for linha in qdop.linhas(conn, hoje):
         av = por_obra.get(linha["contrato_id"], [])
-        farol = "vermelho" if any(a["nivel"] == "critico" for a in av) else "amarelo" if av else "verde"
+        # D10: o farol separa os niveis do aviso: critico = vermelho; acao = acao; o resto (atencao) = atencao
+        niveis = {a["nivel"] for a in av}
+        farol = "vermelho" if "critico" in niveis else "acao" if "acao" in niveis else "atencao" if av else "verde"
         # A5 (mapa de 2026-09-28; backlog de 2026-09-25): os motivos um a um, na ordem dos avisos (nivel e
         # dias), sem o prefixo com o nome da obra, que a linha ja' mostra. `motivo` fica para o QDOP exportado.
         prefixo = f"{av[0]['obra']}: " if av and av[0].get("obra") else None
@@ -348,10 +347,10 @@ def avisos_pagamento(conn, hoje: datetime.date | None = None) -> list[dict]:
         dias, prazo = (hoje - _d(m["protocolo_em"])).days, prazos_q3[m["orgao_id"]]
         if dias > prazo:
             if m["tipo"] == "nota":
-                texto = f"{m['obra']}: NF {m['nf']} emitida há {dias} dias sem pagamento no RM"
+                texto = f"NF {m['nf']} emitida há {dias} dias sem pagamento no RM"
             else:
                 titulo = f"Reajuste da {m['numero']}ª Medição" if m["tipo"] == "reajuste" else f"{m['numero']}ª Medição"
-                texto = f"{m['obra']}: {titulo} protocolada há {dias} dias"
+                texto = f"{titulo} protocolada há {dias} dias"
             # A12 (2026-09-28): a medicao, para o aviso levar ao recebimento dela; a nota do RM nao tem medicao
             out.append({**_av.aviso("pagamento_atrasado", "acao",
                                     f"{texto}; o prazo normal do órgão é {prazo} dias",

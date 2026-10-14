@@ -4,7 +4,7 @@ import { ApiErro } from "./api";
 import EnviarNota from "./EnviarNota";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status: number; constructor(status: number, mensagem: string) { super(mensagem); this.status = status; } } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const det = {
   envio: { chave: "c20:m631-m632", contrato_id: 20, obra: "MT-401", orgao: "SINFRA", orgao_sub: "SUEF II", familia: "sinfra",
@@ -154,5 +154,17 @@ describe("Enviar a nota", () => {
       await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
       expect(screen.getByText(AVISO)).toBeTruthy();
     });
+  });
+
+  it("a lixeira do e-mail editado pergunta antes de sair da tela (issue #27)", async () => {
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
+    window.history.replaceState(null, "", "/notas/envio/3");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<EnviarNota protocoloId={3} podeEditar />);
+    fireEvent.change(await screen.findByLabelText("Assunto"), { target: { value: "Outro" } });
+    fireEvent.click(screen.getByRole("button", { name: /Descartar/ }));
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    vi.restoreAllMocks();
   });
 });
