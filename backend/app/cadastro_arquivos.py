@@ -255,6 +255,14 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
         falha("lei", f"use uma de {LEIS}")
     if bruto.get("status") not in STATUS:
         falha("status", f"use um de {STATUS}")
+    copia_extras = bruto.get("copia_extras") or []
+    if not isinstance(copia_extras, list):
+        falha("copia_extras", "use uma lista de e-mails (um por linha, com hífen)")
+        copia_extras = []
+    copia_extras = [str(e).strip().lower() for e in copia_extras]
+    for em in copia_extras:
+        if not _EMAIL.match(em):
+            falha("copia_extras", f"e-mail inválido: {em!r}")
 
     c = {"nome_curto": nome, "numero_instrumento": str(bruto.get("numero_instrumento") or ""),
          "orgao": bruto.get("orgao"), "entidade": bruto.get("entidade"),
@@ -269,7 +277,7 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
          "sem_reajuste": bool(bruto.get("sem_reajuste", False)),
          "destinatarios_extras": [str(e).strip().lower() for e in bruto.get("destinatarios_extras") or []],
          # 2026-10-14: copia que muda por obra (engenheiro da obra); soma-se a protocolo_copia do orgao
-         "copia_extras": [str(e).strip().lower() for e in bruto.get("copia_extras") or []],
+         "copia_extras": copia_extras,
          "valor_original_centavos": 0, "percentual_direito_bp": 10000,
          # bloco 5: objeto por extenso (carta e QDOP) e comprovante do CNO (entra no pacote)
          "objeto_completo": (str(bruto["objeto_completo"]).strip() or None) if bruto.get("objeto_completo") else None,
