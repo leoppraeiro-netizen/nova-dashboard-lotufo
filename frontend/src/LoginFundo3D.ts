@@ -105,10 +105,9 @@ function ponte() {
   for (const x of [-70.8, -35, 0, 35, 70.8]) L([x, YD + .01, -6.3], [x, YD + .01, 6.3], 2);
   for (let x = -65; x <= 65; x += 10) for (const s of [-1, 1]) L([x, 12, s * 6.6], [x, 10.6, s * 6.6], 2);
   for (const x of [-52.5, -17.5, 17.5, 52.5]) { const s = x < 0 ? -1 : 1; L([x, YD + .87, s * 6.7], [x, YD + 9, s * 6.7], 1); L([x, YD + 9, s * 6.7], [x, YD + 9, s * 4.7], 1); L([x, YD + 8.8, s * 4.7], [x, YD + 8.8, s * 4.1], 1); }
-  // pista dos aterros seguindo alem da tela, passos de 8 m
-  via((s, j, o, y) => [s * (104 + j * 8), y, o],
-    [[-7.5, YD, 1], [7.5, YD, 1], [-5.4, YD + .01, 2], [5.4, YD + .01, 2], [-25.9, 0, 2], [25.9, 0, 2]],
-    [[0, YD + .01]], [[[-25.9, 0], [-7.5, YD], [7.5, YD], [25.9, 0]]]);
+  // cotas: vaos e altura do pilar
+  for (let i = 0; i < 4; i++) { const a = -70 + 35 * i, b = a + 35; cota([a, 9.8, -9], [b, 9.8, -9], [0, -3.4, 0]); }
+  cota([38, g(35), -9], [38, 8, -9], [3, 0, 0]);
   return S;
 }
 
@@ -229,8 +228,8 @@ const OBRAS = [
 ];
 
 const ESTILO = [{ cor: "#E0E7FF", w: 1.8, op: 1 }, { cor: "#8B93F5", w: 1.1, op: 1 }, { cor: "#5753C9", w: .8, op: .9 }];
-// devagar e sem arranco: senoide em vez de cubica (pico de velocidade ~pela metade)
-const DES = 24, PARA = 5, SAI = 2.5, CICLO = DES + PARA + SAI;
+// sem arranco: senoide em vez de cubica (pico de velocidade ~pela metade)
+const DES = 16, PARA = 4, SAI = 2, CICLO = DES + PARA + SAI;
 const ease = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
 
 /**
@@ -298,7 +297,7 @@ export function iniciarFundo(canvas: HTMLCanvasElement, parado: boolean, aoFalha
     const buf = (o.gc.attributes.instanceStart as THREE.InterleavedBufferAttribute).data;
     (buf.array as Float32Array).set(o.todas.subarray(ini * 6, n * 6)); buf.needsUpdate = true; o.gc.instanceCount = m;
     o.mc.opacity = lt < DES ? 1 : Math.max(0, 1 - (lt - DES) / 1.5);
-    const az = o.az0 + lt * .012, d = o.raio / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * o.zoom, e = o.elev;
+    const az = o.az0 + lt * .02, d = o.raio / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * o.zoom, e = o.elev;
     fog.near = d - o.raio * .3; fog.far = d + o.raio * 1.4;
     const c = new THREE.Vector3(o.alvo[0], o.alvo[1], o.alvo[2]);
     camera.position.set(c.x + d * Math.cos(e) * Math.cos(az), c.y + d * Math.sin(e), c.z + d * Math.cos(e) * Math.sin(az)); camera.lookAt(c);
