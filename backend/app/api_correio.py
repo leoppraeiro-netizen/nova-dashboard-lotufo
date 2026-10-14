@@ -61,8 +61,9 @@ def conectar(usuario: dict = Depends(exigir("editar_cadastros"))):
                                  "(DASH_GRAPH_CLIENT_ID / DASH_GRAPH_TOKENS_DIR) — ver docs/runbook.md")
     uid = usuario["id"]
     with _LOCK:
-        if _LOGINS.get(uid, {}).get("estado") == "aguardando":
-            return _status(uid)
+        aguardando = _LOGINS.get(uid, {}).get("estado") == "aguardando"
+    if aguardando:          # _status pega a mesma trava (nao reentrante): chamar so' depois de solta-la
+        return _status(uid)
     try:
         d = graph.iniciar_device_code(cfg["tenant"], cfg["client_id"], correio.ESCOPOS_LOGIN)
     except graph.ErroGraph as e:

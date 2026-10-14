@@ -1,5 +1,9 @@
+import threading
+
 import pytest
 from app import api_correio, graph
+
+_THREAD = threading.Thread          # a fixture troca threading.Thread pela parada; o teste do clique duplo usa a real
 
 
 class _ThreadParada:
@@ -33,6 +37,26 @@ def test_conectar_devolve_o_codigo_so_para_quem_pediu(client_admin, monkeypatch)
         "expires_in": 900, "interval": 5, "message": ""})
     r = client_admin.post("/api/correio/conectar").json()
     assert r["login"]["user_code"] == "ABCD-1234" and r["login"]["estado"] == "aguardando"
+
+
+def test_conectar_de_novo_enquanto_aguarda_devolve_o_mesmo_codigo_sem_travar(client_admin, monkeypatch):
+    # 14/10/2026: o segundo clique pegava a trava dentro da propria trava e o servidor parava de responder
+    # o estado da conta para todo mundo, ate' reiniciar.
+    pedidos = []
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: pedidos.append(1) or {
+        "device_code": "d", "user_code": "ABCD-1234", "verification_uri": "https://microsoft.com/devicelogin",
+        "expires_in": 900, "interval": 5, "message": ""})
+    client_admin.post("/api/correio/conectar")
+    resposta = {}
+    t = _THREAD(target=lambda: resposta.update(r=client_admin.post("/api/correio/conectar")), daemon=True)
+    t.start()
+    t.join(5)
+    if t.is_alive():
+        api_correio._LOCK.release()      # solta a trava presa para nao pendurar os outros testes
+        pytest.fail("o segundo clique em Conectar travou o servidor")
+    assert resposta["r"].status_code == 200 and resposta["r"].json()["login"]["user_code"] == "ABCD-1234"
+    assert len(pedidos) == 1                                     # nao pede outro codigo a' Microsoft
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "aguardando"
 
 
 def test_teste_envia_para_a_propria_pessoa_e_registra(client_admin, tmp_path, monkeypatch):
