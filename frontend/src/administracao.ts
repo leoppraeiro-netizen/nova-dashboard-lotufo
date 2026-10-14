@@ -59,26 +59,34 @@ export function contaRec(rec: Reconciliacao, d: Reconciliacao, c: CategoriaRec, 
   return { n: d[pag.campo].length, piso: haMais, haMais };
 }
 
-/** O endereco da pagina seguinte de um grupo paginado: depois da ultima linha que ja' chegou. Na NF vai tambem a
- *  emissao que a tela recebeu (vazia = sem data): a sincronizacao pode ter mudado a do banco desde entao. */
+/** O endereco da pagina seguinte de um grupo paginado: depois do id da ultima linha que ja' chegou (as NFs vem da
+ *  API pelo id, que nao muda; a tela as reordena pela emissao com `nfsPorEmissao`). */
 export function urlPaginaRec(rec: Reconciliacao, c: CategoriaRec): string {
   const pag = PAGINADOS[c]!;
-  if (pag.campo === "nfs_sem_medicao") {
-    const ult = rec.nfs_sem_medicao[rec.nfs_sem_medicao.length - 1];
-    return `/api/rm/reconciliacao?nfs_apos=${ult.id}&nfs_emissao=${encodeURIComponent(ult.emissao ?? "")}`;
-  }
-  return `/api/rm/reconciliacao?${pag.parametro}=${rec.alocacoes_desfeitas[rec.alocacoes_desfeitas.length - 1].id}`;
+  const lista = rec[pag.campo];
+  return `/api/rm/reconciliacao?${pag.parametro}=${lista[lista.length - 1].id}`;
 }
 
-/** Junta a pagina seguinte de um grupo ao que ja' chegou; o total e o `ha_mais` passam a ser os da pagina nova.
- *  As outras listas ficam como estavam. */
+/** Junta a pagina seguinte de um grupo ao que ja' chegou, descartando o id que ja' esta' na tela; o total e o
+ *  `ha_mais` passam a ser os da pagina nova. As outras listas ficam como estavam. */
 export function juntarPaginaRec(rec: Reconciliacao, c: CategoriaRec, pagina: Reconciliacao): Reconciliacao {
   const pag = PAGINADOS[c]!;
   const totais = { ...rec.totais, [pag.campo]: pagina.totais[pag.campo] };
   const ha_mais = { ...rec.ha_mais, [pag.campo]: pagina.ha_mais[pag.campo] };
+  const novas = <T extends { id: number }>(ja: T[], vindas: T[]) => {
+    const ids = new Set(ja.map(x => x.id));
+    return [...ja, ...vindas.filter(x => !ids.has(x.id))];
+  };
   return pag.campo === "nfs_sem_medicao"
-    ? { ...rec, totais, ha_mais, nfs_sem_medicao: [...rec.nfs_sem_medicao, ...pagina.nfs_sem_medicao] }
-    : { ...rec, totais, ha_mais, alocacoes_desfeitas: [...rec.alocacoes_desfeitas, ...pagina.alocacoes_desfeitas] };
+    ? { ...rec, totais, ha_mais, nfs_sem_medicao: novas(rec.nfs_sem_medicao, pagina.nfs_sem_medicao) }
+    : { ...rec, totais, ha_mais, alocacoes_desfeitas: novas(rec.alocacoes_desfeitas, pagina.alocacoes_desfeitas) };
+}
+
+/** As NFs sem medicao na ordem da tela: da emissao mais recente a mais antiga, as sem data por ultimo (empate: a que
+ *  chegou depois primeiro). */
+export function nfsPorEmissao(nfs: NfSolta[]): NfSolta[] {
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  return [...nfs].sort((a, b) => cmp(b.emissao ?? "", a.emissao ?? "") || b.id - a.id);
 }
 
 /** A quantidade de um grupo: "37", ou "3 ou mais" quando o numero e' piso. */

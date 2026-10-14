@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  contagemRec, contaRec, filtrarEventos, juntarPaginaRec, reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, urlPaginaRec, type Evento,
+  contagemRec, contaRec, filtrarEventos, juntarPaginaRec, nfsPorEmissao, reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, urlPaginaRec, type Evento,
   type Reconciliacao,
 } from "./administracao";
 
@@ -35,10 +35,8 @@ describe("administração", () => {
       ha_mais: { nfs_sem_medicao: true, alocacoes_desfeitas: true } };
     expect(contaRec(rec, rec, "nfs", false)).toEqual({ n: 3, piso: false, haMais: true });
     expect(contaRec(rec, rec, "divergencias", false)).toEqual({ n: 0, piso: false, haMais: false });
-    // a NF leva a emissão que a tela recebeu (vazia quando sem data); a desfeita, só o id
-    expect(urlPaginaRec(rec, "nfs")).toBe("/api/rm/reconciliacao?nfs_apos=4&nfs_emissao=");
-    expect(urlPaginaRec({ ...rec, nfs_sem_medicao: [{ ...nf(4), emissao: "2026-08-01T00:00:00-04:00" }] }, "nfs"))
-      .toBe("/api/rm/reconciliacao?nfs_apos=4&nfs_emissao=2026-08-01T00%3A00%3A00-04%3A00");
+    // o cursor é o id da última linha que chegou (o id não muda; a emissão, o RM regrava)
+    expect(urlPaginaRec(rec, "nfs")).toBe("/api/rm/reconciliacao?nfs_apos=4");
     expect(urlPaginaRec(rec, "desfeitas")).toBe("/api/rm/reconciliacao?desfeitas_apos=5");
     // com a obra escolhida, a contagem das desfeitas é do que chegou e vira piso enquanto houver página
     const daObra = reconciliacaoDaObra(rec, { id: 7, numero_instrumento: "161/2022" });
@@ -52,6 +50,16 @@ describe("administração", () => {
     expect(junta.nfs_sem_medicao.map(n => n.id)).toEqual([9, 4, 2]);
     expect(junta.alocacoes_desfeitas).toBe(rec.alocacoes_desfeitas);
     expect(contaRec(junta, junta, "nfs", false)).toEqual({ n: 3, piso: false, haMais: false });
+    // gate Sol S2: linha que já está na tela não entra de novo (nem NF, nem desfeita)
+    const repetida = { ...pagina, nfs_sem_medicao: [nf(4), nf(1)], alocacoes_desfeitas: [desf(5, "161/2022"), desf(3, "161/2022")] };
+    expect(juntarPaginaRec(rec, "nfs", repetida).nfs_sem_medicao.map(n => n.id)).toEqual([9, 4, 1]);
+    expect(juntarPaginaRec(rec, "desfeitas", repetida).alocacoes_desfeitas.map(x => x.id)).toEqual([5, 3]);
+  });
+
+  it("NFs sem medição na tela: da emissão mais recente à mais antiga, as sem data por último", () => {
+    const nf = (id: number, emissao: string | null) => ({ id, coligada: 1, numero: String(id), serie: null, emissao, valor_centavos: 1, campo_livre1: null });
+    expect(nfsPorEmissao([nf(1, "2026-08-01"), nf(2, null), nf(3, "2026-09-01"), nf(4, "2026-08-01")]).map(n => n.id))
+      .toEqual([3, 4, 1, 2]);
   });
 
   it("reconciliação de uma obra: pelo id, as desfeitas pelo instrumento, e sem as NFs soltas", () => {

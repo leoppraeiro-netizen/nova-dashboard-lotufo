@@ -3,7 +3,7 @@ import { contar } from "./formato";
 import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
-  ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, contaRec, filtrarEventos, juntarPaginaRec, pessoaDoEvento, quantidadeRec,
+  ABAS_ADMIN, campoDoErroDeUsuario, CATEGORIAS_REC, contagemRec, contaRec, filtrarEventos, juntarPaginaRec, nfsPorEmissao, pessoaDoEvento, quantidadeRec,
   reconciliacaoDaObra, rotaDoObjeto, rotuloAcao, rotuloObjeto, rotuloRec, urlPaginaRec,
   type CategoriaRec, type Evento, type Reconciliacao,
 } from "./administracao";
@@ -442,7 +442,7 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
               <thead><tr><th scope="col">NF</th><th scope="col" className="col-num">Coligada</th><th scope="col">Emissão</th>
                 <th scope="col" className="col-num">Valor</th><th scope="col">Campo livre 1 (RM)</th></tr></thead>
               <tbody>
-                {d.nfs_sem_medicao.slice(0, quantas(d.nfs_sem_medicao.length)).map((n, i) => (
+                {nfsPorEmissao(d.nfs_sem_medicao).slice(0, quantas(d.nfs_sem_medicao.length)).map((n, i) => (
                   <tr key={n.id} className={`linha${i % 2 === 1 ? " par" : ""}`}>
                     <td className="num">{n.numero}{n.serie ? `/${n.serie}` : ""}</td><td className="col-num num">{n.coligada}</td>
                     <td className="num">{n.emissao ? fmtDataPura(n.emissao) : "sem data"}</td>

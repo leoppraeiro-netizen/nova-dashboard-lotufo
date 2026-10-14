@@ -589,50 +589,45 @@ PAGINA_NFS_SEM_MEDICAO = 200
 PAGINA_DESFEITAS = 50
 
 
-def _pagina(conn, sql_de: str, chave: tuple[str, str], cursor: tuple | None, tamanho: int) -> tuple[list[dict], bool]:
-    """Uma pagina por cursor (keyset): as linhas depois de `cursor` na ordem (chave[0] DESC, chave[1] DESC), e se
-    ha' mais. Pelo cursor, e nao pela posicao, a lista nao repete nem pula linha quando a sincronizacao a muda
-    entre uma pagina e outra."""
-    a, b = chave
-    onde, params = ("", ()) if cursor is None else (f" AND ({a}, {b}) < (?, ?)", cursor)
+def _pagina(conn, sql_de: str, chave: tuple[str, ...], cursor: tuple | None, tamanho: int) -> tuple[list[dict], bool]:
+    """Uma pagina por cursor (keyset): as linhas depois de `cursor` na ordem `chave` (cada coluna DESC), e se ha'
+    mais. A chave tem de ser imutavel: pelo cursor, e nao pela posicao, a lista nao repete nem pula linha quando a
+    sincronizacao a muda entre uma pagina e outra."""
+    onde, params = ("", ()) if cursor is None else (
+        f" AND ({', '.join(chave)}) < ({', '.join('?' * len(chave))})", cursor)
     linhas = [dict(r) for r in conn.execute(
-        f"{sql_de}{onde} ORDER BY {a} DESC, {b} DESC LIMIT ?", (*params, tamanho + 1))]
+        f"{sql_de}{onde} ORDER BY {', '.join(c + ' DESC' for c in chave)} LIMIT ?", (*params, tamanho + 1))]
     return linhas[:tamanho], len(linhas) > tamanho
 
 
-def reconciliacao(conn, nfs_apos: int | None = None, nfs_emissao: str | None = None,
-                  desfeitas_apos: int | None = None) -> dict:
+def reconciliacao(conn, nfs_apos: int | None = None, desfeitas_apos: int | None = None) -> dict:
     """RM x dashboard (spec §7 tela 8): o que esta' de um lado so'.
 
-    #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas (200 e 50, das mais recentes), depois da
-    ultima linha que a tela ja' tem, com o total exato em `totais` e `ha_mais`; as outras duas listas vem inteiras.
-    O cursor das NFs e' o par (emissao, id) que a tela RECEBEU (`nfs_emissao` vazio = sem data): a sincronizacao
-    regrava a emissao das NFs, e reler a do banco faria a pagina seguinte pular ou repetir linhas. O das desfeitas
-    e' so' o id: `desfeita_em` nao muda depois de gravada. Cursor incompleto ou desfeita que nao existe e' ValueError.
+    #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas (200 e 50), depois da ultima linha que a tela
+    ja' tem, com o total exato em `totais` e `ha_mais`; as outras duas listas vem inteiras. O cursor e' so' o que
+    nao muda: as NFs paginam pelo id (das que chegaram por ultimo as mais antigas; a sincronizacao regrava a
+    emissao, e paginar por ela pularia ou repetiria NF), e a tela as ordena pela emissao no que ja' chegou; as
+    desfeitas, por (desfeita_em, id), que nao mudam depois de gravados. Desfeita que nao existe e' ValueError.
 
     Tudo e' lido num retrato so' do banco (uma transacao de leitura): a lista e o total nao se desencontram se a
     sincronizacao gravar no meio."""
     if conn.in_transaction:
-        return _reconciliacao(conn, nfs_apos, nfs_emissao, desfeitas_apos)
+        return _reconciliacao(conn, nfs_apos, desfeitas_apos)
     conn.execute("BEGIN")
     try:
-        return _reconciliacao(conn, nfs_apos, nfs_emissao, desfeitas_apos)
+        return _reconciliacao(conn, nfs_apos, desfeitas_apos)
     finally:
         conn.rollback()   # so' leitura: nada a gravar
 
 
-def _reconciliacao(conn, nfs_apos: int | None, nfs_emissao: str | None, desfeitas_apos: int | None) -> dict:
+def _reconciliacao(conn, nfs_apos: int | None, desfeitas_apos: int | None) -> dict:
     de_nfs = """
         FROM notas_fiscais n
         WHERE n.situacao='ativa'
           AND n.coligada IN (SELECT coligada_rm FROM entidades WHERE coligada_rm IS NOT NULL)
           AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=n.id AND a.desfeita_em IS NULL)"""
-    if (nfs_apos is None) != (nfs_emissao is None):
-        raise ValueError("A página seguinte das NFs precisa do id e da emissão da última NF carregada.")
-    cursor_nfs = None if nfs_apos is None else (nfs_emissao, nfs_apos)
-    # emissao vazia vai para o fim, como o NULL no DESC
-    nfs_sem_medicao, mais_nfs = _pagina(conn, f"SELECT n.* {de_nfs}", ("COALESCE(n.emissao, '')", "n.id"),
-                                        cursor_nfs, PAGINA_NFS_SEM_MEDICAO)
+    nfs_sem_medicao, mais_nfs = _pagina(conn, f"SELECT n.* {de_nfs}", ("n.id",),
+                                        None if nfs_apos is None else (nfs_apos,), PAGINA_NFS_SEM_MEDICAO)
     total_nfs = conn.execute(f"SELECT COUNT(*) {de_nfs}").fetchone()[0]
     medicoes_sem_nf = [dict(r) for r in conn.execute("""
         SELECT m.id AS medicao_id, m.contrato_id, c.numero_instrumento, c.orgao, m.numero, m.tipo,
