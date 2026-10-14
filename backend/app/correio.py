@@ -346,6 +346,8 @@ def _png_integro(dados: bytes) -> bool:
                 return False
             idat.append(corpo)
         elif tipo == b"IEND":
+            if tamanho or pos + 12 != len(dados):      # IEND vazio e no fim do arquivo, sem nada depois
+                return False
             fim = True
             break
         if idat and tipo != b"IDAT":
@@ -365,7 +367,7 @@ def _png_integro(dados: bytes) -> bool:
         if w and h:
             esperado += h * (1 + (w * bits + 7) // 8)
     if esperado > _PNG_MAX_PIXELS_BYTES:
-        raise ValueError("Imagem da assinatura grande demais: use uma imagem de no máximo 4000 x 4000 pixels")
+        raise ValueError("Imagem da assinatura grande demais: reduza as dimensões e suba de novo")
     d, total, entrada = zlib.decompressobj(), 0, b"".join(idat)
     try:
         while entrada and not d.eof and total <= esperado:   # em pedacos: so' conta, nada fica na memoria
@@ -377,30 +379,56 @@ def _png_integro(dados: bytes) -> bool:
 
 
 def _jpg_integro(dados: bytes) -> bool:
-    """Percorre os segmentos ate' o inicio da varredura (SOS), exige um quadro (SOF) antes dela e o marcador de
-    fim (EOI) depois. JPG cortado perde o EOI ou para no meio de um segmento. Nao decodifica a imagem: byte
-    trocado dentro dos dados da varredura nao e' detectado."""
-    pos, quadro = 2, False
-    while True:
-        while pos < len(dados) and dados[pos] == 0xFF and pos + 1 < len(dados) and dados[pos + 1] == 0xFF:
-            pos += 1                                   # bytes de preenchimento entre marcadores
-        if pos + 2 > len(dados) or dados[pos] != 0xFF:
+    """Percorre o arquivo inteiro ate' o marcador de fim (EOI): segmentos com tamanho, quadro (SOF) valido antes
+    da primeira varredura (SOS), dados de cada varredura (com `FF 00`, RSTn e preenchimento) e os segmentos entre
+    varreduras (JPG progressivo). So' vale o EOI que e' marcador de verdade, depois de tudo completo; JPG cortado
+    para no meio de um segmento ou da varredura. Nao decodifica a imagem: byte trocado dentro dos dados da
+    varredura nao e' detectado."""
+    pos, n, quadro, varredura = 2, len(dados), False, False
+    while pos < n:
+        if dados[pos] != 0xFF:
+            if not varredura:
+                return False
+            pos = dados.find(b"\xff", pos)             # dados da varredura: so' interessa o proximo FF
+            if pos == -1:
+                return False
+            continue
+        if pos + 1 >= n:
             return False
         marcador = dados[pos + 1]
-        if marcador == 0x01 or 0xD0 <= marcador <= 0xD8:   # TEM, RSTn e SOI: marcadores sem tamanho
+        if marcador == 0xFF:                           # preenchimento
+            pos += 1
+            continue
+        if marcador == 0xD9:                           # EOI
+            return quadro and varredura
+        if marcador == 0x00 or 0xD0 <= marcador <= 0xD7:   # FF 00 e RSTn: so' dentro da varredura
+            if not varredura:
+                return False
             pos += 2
             continue
-        if pos + 4 > len(dados):
+        if marcador == 0x01 or (marcador == 0xD8 and not varredura):   # TEM e SOI: sem tamanho
+            pos += 2
+            continue
+        if pos + 4 > n:
             return False
         (tamanho,) = struct.unpack(">H", dados[pos + 2:pos + 4])
-        if tamanho < 2 or pos + 2 + tamanho > len(dados):
+        if tamanho < 2 or pos + 2 + tamanho > n:
             return False
         if 0xC0 <= marcador <= 0xCF and marcador not in (0xC4, 0xC8, 0xCC):
+            corpo = dados[pos + 4:pos + 2 + tamanho]
+            if len(corpo) < 6:
+                return False
+            precisao, altura, largura, componentes = struct.unpack(">BHHB", corpo[:6])
+            if (tamanho != 8 + 3 * componentes or not precisao or not altura or not largura
+                    or not componentes):
+                return False
             quadro = True
+        elif marcador == 0xDA:
+            if not quadro:
+                return False
+            varredura = True
         pos += 2 + tamanho
-        if marcador == 0xDA:
-            break
-    return quadro and dados.find(b"\xff\xd9", pos) != -1
+    return False
 
 
 def gravar_assinatura(conn, usuario_id: int, dados: bytes) -> None:
