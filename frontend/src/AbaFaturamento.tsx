@@ -17,7 +17,8 @@ const maiorParada = (ls: LinhaResumo[]) => Math.max(...ls.map(l => l.dias ?? -1)
  *  parado; empate pelo nome). Dentro do grupo, a ordem do servidor. */
 function agruparFaturamento(linhas: LinhaResumo[]): GrupoFaturamento[] {
   const m = new Map<string, LinhaResumo[]>();
-  for (const l of linhas) m.set(l.contratante, [...(m.get(l.contratante) ?? []), l]);
+  // o servidor manda contratante nulo quando a obra nao esta' mais ativa no cadastro
+  for (const l of linhas) { const c = l.contratante ?? "Órgão sem cadastro"; m.set(c, [...(m.get(c) ?? []), l]); }
   return [...m.entries()]
     .map(([contratante, ls]) => ({ contratante, linhas: ls, soma: ls.reduce((s, l) => s + (l.valor_centavos ?? 0), 0) }))
     .sort((a, b) => maiorParada(b.linhas) - maiorParada(a.linhas) || a.contratante.localeCompare(b.contratante, "pt-BR"));

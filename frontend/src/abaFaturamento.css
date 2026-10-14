@@ -21,6 +21,9 @@
 
 @media (max-width: 767px) {
   .fat-grupo__cabeca { font-size: 15px; }
+}
+/* ate' 900px as quatro colunas deixariam o nome da obra sem espaco: valor, parada e botao descem */
+@media (max-width: 900px) {
   .fat-linha { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
   .fat-linha > :first-child { grid-column: 1 / -1; }
   .fat-linha__valor { text-align: left; }

@@ -84,6 +84,12 @@ describe("Aba Enviar ao faturamento", () => {
     expect(screen.queryByRole("button", { name: /Iniciar processo/ })).toBeNull();
   });
 
+  it("contratante nulo (obra fora do cadastro ativo) não derruba a aba", async () => {
+    api.mockResolvedValue(resumo([linha({ contratante: null as unknown as string })]));
+    render(<MedicoesPagina aba="faturamento" busca={{}} usuario={usuario} />);
+    expect(await screen.findByRole("region", { name: /^Órgão sem cadastro · 1 medição/ })).toBeTruthy();
+  });
+
   it("empate de parada desempata pelo nome; sem marco conta como o menos parado", async () => {
     api.mockResolvedValue(resumo([
       linha({ medicao_id: 1, contratante: "Zeta", dias: 3 }), linha({ medicao_id: 2, contratante: "Alfa", dias: 3 }),
