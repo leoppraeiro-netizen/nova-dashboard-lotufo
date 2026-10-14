@@ -5,6 +5,8 @@ das seis certidoes e' testada em test_leitura_certidao.py contra textos reais.
 """
 import base64
 import pathlib
+import re
+import unicodedata
 import zlib
 
 import pytest
@@ -87,8 +89,16 @@ def test_regexes_nao_explodem_com_espacos_ate_o_teto():
     import time
     for palavra in ("validade", "expedição", "emissão", "válida até",
                     "código de controle da certidão"):
-        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"  # noqa: F841
+        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"
         inicio = time.perf_counter()
+        # A leitura real normaliza os espacos antes de casar (`plano`), entao `ler` sozinha nao
+        # estressa o padrao; por isso tambem se casa cada regex de campo contra o texto CRU.
+        with pytest.raises(leitura_certidao.Recusa):
+            leitura_certidao.ler(texto)
+        cru = "".join(c for c in unicodedata.normalize("NFD", texto.upper()) if not unicodedata.combining(c))
+        for campos in leitura_certidao._CAMPOS.values():
+            for regex in campos.values():
+                re.search(regex, cru)
         # 3 s, e nao 1 s: a assercao e' "milissegundos contra dezenas de SEGUNDOS", e
         # nesta maquina compartilhada um orcamento apertado falha por carga alheia, nao
         # por regressao (M7 da revisao final).
