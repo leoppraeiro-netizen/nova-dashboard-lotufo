@@ -5,6 +5,7 @@
 - Árvore de **produção** (`-Raiz` de `scripts\rodar_producao.ps1`, padrão `C:\DashboardLotufo`), ACL restrita a SYSTEM + Administradores:
   - Banco: `C:\DashboardLotufo\dados\dashboard.db` (+ `-wal`/`-shm`).
   - Snapshots locais: `C:\DashboardLotufo\dados\backups\dashboard-AAAAMMDD-HHMMSS.db` — um no boot e um por hora, 48 mais recentes. Cada snapshot passa por ensaio de restauração (abre e roda `integrity_check`) antes de valer.
+  - Arquivos no backup (issue #55): a cada rodada, depois do snapshot, as pastas `dados\notas`, `dados\espelhos`, `dados\modelos` e `dados\evidencias` são copiadas para `dados\backups\arquivos\<pasta>\` (e, junto com a cópia externa diária, para `<pasta externa>\arquivos\<pasta>\`). Os nomes são o sha256 do conteúdo: só o que falta é copiado, cada cópia é conferida pelo hash e nada é apagado, então uma cópia de cada arquivo serve a todos os snapshots e o espaço ocupado é o das próprias pastas, não 48 vezes isso. O health mostra `ultima_copia_arquivos` e `ultima_copia_arquivos_erro`.
   - Cópia externa (`-BackupExterno`, outro volume ou compartilhamento): uma por dia, com `.sha256` ao lado conferido relendo o destino. Retenção em camadas: 7 diárias, 5 semanais, 12 mensais. **A tarefa roda como SYSTEM**, que chega à rede como a conta de computador (`<servidor>$`): o compartilhamento precisa dar gravação a essa conta (no servidor de arquivos, permissão de compartilhamento e NTFS para `<servidor>$`). Enquanto não tiver, o health mostra `ultima_copia_externa_erro` com "Acesso negado" e os snapshots ficam só no disco local.
   - Logs: `C:\DashboardLotufo\logs\dashboard.log` (app + uvicorn), rotação à meia-noite, 30 dias.
   - PDFs de certidão: `dados\certidoes\<sha256>.pdf`.
@@ -33,14 +34,15 @@ Uma vez só, como administrador, com o servidor de dev e qualquer uvicorn parado
 - Watchdog: `scripts\instalar_watchdog.ps1` registra a tarefa do watchdog (SYSTEM, a cada 3 min) que roda `scripts\watchdog.ps1` — confere `/api/health` e, se cair, reinicia a tarefa principal (o reinício automático embutido da tarefa não cobriu a queda de 2026-09-10: timeout, não "falha"). **Antes de qualquer parada/deploy manual, crie o sentinela `C:\DashboardLotufo\watchdog.pause` para o watchdog não reerguer no meio; apague ao terminar.** Log: `C:\DashboardLotufo\logs\watchdog.log`. Remover: `Unregister-ScheduledTask -TaskName <tarefa-do-watchdog> -Confirm:$false`.
 
 ## Saúde
-`GET /api/health` toca o banco (503 se não responder) e devolve a última rodada de backup: `ultimo_snapshot`, `ultimo_snapshot_erro`, `ultima_copia_externa`, `ultima_copia_externa_erro`. Cópia externa com data de ontem ou erro preenchido = olhar o log.
+`GET /api/health` toca o banco (503 se não responder) e devolve a última rodada de backup: `ultimo_snapshot`, `ultimo_snapshot_erro`, `ultima_copia_arquivos`, `ultima_copia_arquivos_erro`, `ultima_copia_externa`, `ultima_copia_externa_erro`. Cópia externa com data de ontem ou erro preenchido = olhar o log.
 
 ## Restaurar o banco a partir de um snapshot
 1. Parar o servidor (tarefa agendada e qualquer uvicorn em 8080/8443).
 2. Mover `dashboard.db`, `-wal` e `-shm` atuais para uma pasta de quarentena.
 3. Copiar o snapshot escolhido (local ou externo; conferir o `.sha256` com `Get-FileHash`) para `C:\DashboardLotufo\dados\dashboard.db`.
 4. `backend\.venv\Scripts\python -c "import sqlite3; print(sqlite3.connect(r'C:\DashboardLotufo\dados\dashboard.db').execute('PRAGMA integrity_check').fetchone())"` → `('ok',)`.
-5. Subir o servidor; as migrações pendentes rodam sozinhas em `create_app()`.
+5. Devolver os arquivos que o banco cita (notas, espelhos, modelos, evidências), da cópia local ou da externa (`<pasta externa>\arquivos`), sem apagar o que já está em `dados`: `cd backend; .venv\Scripts\python -c "from pathlib import Path; from app import backup; print(backup.copiar_arquivos(Path(r'C:\DashboardLotufo\dados\backups\arquivos'), Path(r'C:\DashboardLotufo\dados')), 'arquivos copiados')"`. Só copia o que falta e confere cada um pelo sha256.
+6. Subir o servidor; as migrações pendentes rodam sozinhas em `create_app()`.
 
 ## HTTP ou HTTPS
 Decisão de 2026-09-02: produção em **HTTP na porta 80** (`http://<servidor>`), com `-SemTls` em `rodar_producao.ps1` e `instalar_autostart.ps1`. Ninguém precisa instalar certificado; a senha trafega em claro só dentro da rede interna. `DASH_SEM_TLS=1` tira a flag `secure` do cookie de sessão (o resto continua igual). Voltar a HTTPS = reinstalar a tarefa sem `-SemTls` e seguir a seção abaixo. Liberar a porta no firewall do servidor (uma vez, como administrador):
