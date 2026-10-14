@@ -637,3 +637,35 @@ def test_comprovante_que_nao_e_pdf_ou_passa_do_limite_e_recusado_em_portugues(ap
     assert r.status_code == 413 and r.json()["detail"] == "Arquivo acima do limite de 10 MB"
     p = c.execute("SELECT numero_orgao, comprovante_arquivo FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert p["numero_orgao"] is None and p["comprovante_arquivo"] is None
+
+
+# --- issue #100: os anexos da previa conferidos tambem no Enviar a nota ------------------------------
+
+def test_nf_anexada_depois_da_previa_recusa_o_envio_da_nota_sem_reservar(api, tmp_path):
+    """Revisor adversarial na PR #92: a tela Enviar a nota manda os anexos que a pessoa viu; NF anexada a' medicao
+    com a previa aberta faz o servidor recusar antes de reservar, com a mesma mensagem do protocolo."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    vistos = [{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]
+    assert vistos
+    rel, sha = arquivos.gravar_bytes("notas", _pdf("FRC ASSINADA"), "pdf")
+    c.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, numero_nf, item_id, arquivo, sha256, "
+              "tamanho) VALUES (?,?,?,?,?,?,?,?,?)",
+              (ids["sinfra_exec"], "operacao", "fatura", "FRC 77.pdf", "77", f"pdf:{sha}", rel, sha, 10))
+    c.commit()
+    assert len(cl.get(f"/api/notas/envio/{pid}").json()["previa"]["anexos"]) == len(vistos) + 1
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, anexos=vistos))
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == ("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
+                                  "o que vai no e-mail")
+    p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    assert not list((tmp_path / "sim").glob("enviados/*.json"))
+    # a previa nova (com a FRC) envia
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    r = cl.post(f"/api/notas/envio/{pid}/enviar",
+                json=_corpo(d, anexos=[{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]))
+    assert r.status_code == 200, r.text

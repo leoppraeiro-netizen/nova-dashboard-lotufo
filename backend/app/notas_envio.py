@@ -282,12 +282,14 @@ def detalhe_envio(conn, protocolo_id: int, remetente: str | None = None, hoje: d
 
 
 def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[str], assunto: str, corpo: str,
-           justificativa: str | None, cco: list[str] | None = None) -> int:
-    """Envia pelo Outlook de quem esta' logado e marca `protocolada` (protocolo.enviar). Bloqueio -> protocolo.Bloqueio."""
+           justificativa: str | None, cco: list[str] | None = None, anexos_previa: list[dict] | None = None) -> int:
+    """Envia pelo Outlook de quem esta' logado e marca `protocolada` (protocolo.enviar). Bloqueio -> protocolo.Bloqueio.
+    `anexos_previa` (issue #100): os anexos que a tela mostrou; se o servidor montar outros, recusa antes de reservar."""
     p = protocolo._linha(conn, protocolo_id)
     if p["etapa"] not in ("nota", "unico"):
         raise ValueError("Este protocolo não é de envio de nota")
-    return protocolo.enviar(conn, usuario, [protocolo_id], para, copia, assunto, corpo, justificativa, cco=cco)
+    return protocolo.enviar(conn, usuario, [protocolo_id], para, copia, assunto, corpo, justificativa, cco=cco,
+                            anexos_previa=anexos_previa)
 
 
 # --- envio feito por fora --------------------------------------------------------------------------

@@ -9,7 +9,7 @@ from app import envio_reserva, graph, notas_envio, protocolo
 from app.api_auth import conexao
 from app.api_espelhos import _emails
 from app.api_medicoes import ID, MAX_INT64, _contrato_existe
-from app.api_protocolos import _existe
+from app.api_protocolos import AnexoVistoIn, _existe
 from app.permissoes import exigir
 
 router = APIRouter()
@@ -28,6 +28,8 @@ class EnviarIn(BaseModel):
     assunto: str = Field(min_length=1, max_length=300)
     corpo: str = Field(max_length=20000)
     justificativa: str | None = Field(default=None, max_length=2000)
+    # issue #100: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado
+    anexos: list[AnexoVistoIn] | None = Field(default=None, max_length=200)
 
 
 class NumeroIn(BaseModel):
@@ -72,7 +74,8 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
     try:
         eid = notas_envio.enviar(conn, {"id": usuario["id"], "email": usuario["email"]}, pid, _emails(dados.para),
                                  _emails(dados.copia), dados.assunto.strip(), dados.corpo, dados.justificativa,
-                                 cco=_emails(dados.cco))
+                                 cco=_emails(dados.cco),
+                                 anexos_previa=None if dados.anexos is None else [a.model_dump() for a in dados.anexos])
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None
