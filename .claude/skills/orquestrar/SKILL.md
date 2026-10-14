@@ -71,6 +71,8 @@ Modelos: trabalhadora em `sonnet` (padrão do agente) ou `opus` quando a issue t
      issue (`gh issue comment`);
    - a PR **não toca** `.github/`, `scripts/deploy.ps1`, `.claude/` nem `backend/migrations/`
      (`gh pr view <M> --json files -q '.files[].path'`): se tocar, fica para o Leo mergear;
+   - a issue **não tem** label `redesenho`: tela refeita pelo Higgsfield é mergeada e posta no ar só com a
+     aprovação do Leo; se tiver, não ligar o auto-merge e dizer no resumo que a PR espera o Leo;
    - a CI existe e está rodando ou verde (`gh pr checks <M>`): CI ausente é recusa, não aprovação.
    Passou em tudo: `gh pr merge <M> --auto --merge` e comentar na issue "PR #M com auto-merge ligado".
    Falhou em alguma: comentar na **issue** qual trava segurou, pôr `precisa-do-leo` na issue e seguir.

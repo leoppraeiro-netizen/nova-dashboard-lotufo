@@ -48,6 +48,8 @@ digita pouco e confere; regra, cadastro e instrumento são do Leo, em arquivo ve
 
 - A fila é o GitHub Issues. Issue com label `decisao` espera resposta do Leo; `precisa-do-leo` espera ele
   olhar uma PR ou falha; `parar` em qualquer issue aberta pausa a orquestradora.
+  `sessao-manual` é trabalho feito com o Leo (dado de produção, Outlook dele): a orquestradora não pega.
+  `redesenho` é tela refeita pelo Higgsfield: a orquestradora implementa, mas nunca liga o auto-merge.
 - **Orquestradora** (decidido em 13/10/2026): sessão fixa do Leo na pasta principal, em `master`, modelo Opus.
   Quando ele diz "rodada" ou "até acabar", a skill `orquestrar` pega até 10 issues elegíveis, abre uma
   **trabalhadora** por issue (agente `trabalhadora`, worktree próprio, Sonnet; Opus se a issue tem `risco:*`),

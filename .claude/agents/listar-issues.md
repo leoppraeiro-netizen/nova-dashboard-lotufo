@@ -1,6 +1,6 @@
 ---
 name: listar-issues
-description: Lista e ordena as issues abertas do GitHub que a orquestradora pode pegar (sem label decisao, parar ou precisa-do-leo). Só lê; devolve uma tabela. Usado pela skill orquestrar no início de cada rodada.
+description: Lista e ordena as issues abertas do GitHub que a orquestradora pode pegar (sem label decisao, parar, precisa-do-leo ou sessao-manual). Só lê; devolve uma tabela. Usado pela skill orquestrar no início de cada rodada.
 model: haiku
 tools: Bash
 disallowedTools: Write, Edit
@@ -18,7 +18,7 @@ não edita issue, não comenta, não cria nada.
      -q '.[] | {n: .number, t: .title, l: [.labels[].name], c: (.body | test("## Critérios de aceite"))}'
    ```
 
-2. Tirar da lista toda issue com label `decisao`, `parar` ou `precisa-do-leo`.
+2. Tirar da lista toda issue com label `decisao`, `parar`, `precisa-do-leo` ou `sessao-manual`.
 3. Ordenar o que sobrou, nesta ordem de prioridade:
    1. `bug`
    2. `ui`
@@ -32,6 +32,6 @@ Uma tabela em português, uma linha por issue, nesta ordem, com as colunas:
 `número | título | labels | tem critérios de aceite (sim/não) | modelo sugerido`.
 Modelo sugerido: `opus` se a issue tem qualquer label `risco:*`; senão `sonnet`.
 
-Depois da tabela, uma linha: "Excluídas: N com decisao, N com precisa-do-leo, N com parar". Se houver qualquer
+Depois da tabela, uma linha: "Excluídas: N com decisao, N com precisa-do-leo, N com sessao-manual, N com parar". Se houver qualquer
 issue aberta com label `parar`, a primeira linha da resposta é **"PARAR: issue #N tem o label parar"** e a tabela
 vem depois mesmo assim. Nada além disso.
