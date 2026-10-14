@@ -6,6 +6,12 @@
 - Copia externa (outro volume ou compartilhamento, `DASH_BACKUP_EXTERNO`): uma vez
   por dia, com `.sha256` ao lado, conferida relendo o destino. Retencao em camadas:
   7 diarios, 5 semanais, 12 mensais.
+- Arquivos ao lado do banco (issue #55): `notas`, `espelhos`, `modelos` e `evidencias` vao
+  para `<backups>/arquivos/<pasta>/` a cada rodada, depois do snapshot, e para
+  `<externo>/arquivos/<pasta>/` junto com a copia externa. Os nomes sao o sha256 do
+  conteudo e nunca mudam de conteudo: uma copia de cada arquivo serve a todos os
+  snapshots (o disco nao cresce 48 vezes) e o backup nunca apaga o que guardou (um
+  snapshot antigo pode citar arquivo que ja saiu da pasta de dados).
 - `ESTADO` guarda o resultado da ultima rodada; /api/health o expoe.
 """
 
@@ -29,9 +35,12 @@ PADRAO = "dashboard-*.db"  # o que a rotacao enxerga (nao casa com *.db.tmp)
 IDADE_TMP_SEG = 3600  # so e' "sobra" o .tmp que ja passou de 1 hora
 _NOME = re.compile(r"dashboard-(\d{4})(\d{2})(\d{2})-\d{6}\.db$")
 CAMADAS = {"diarios": 7, "semanais": 5, "mensais": 12}
+PASTAS_ARQUIVOS = ("notas", "espelhos", "modelos", "evidencias")
+SUBPASTA_ARQUIVOS = "arquivos"  # dentro da pasta de backups e da pasta externa
 
 # Ultima rodada, para o health. Datas em ISO local; None = nunca nesta execucao.
 ESTADO: dict = {"ultimo_snapshot": None, "ultimo_snapshot_erro": None,
+                "ultima_copia_arquivos": None, "ultima_copia_arquivos_erro": None,
                 "ultima_copia_externa": None, "ultima_copia_externa_erro": None}
 
 
@@ -175,6 +184,45 @@ def rotacionar_externo(pasta_externa: Path) -> None:
             (pasta_externa / f"{a.name}.sha256").unlink(missing_ok=True)
 
 
+# --- arquivos ao lado do banco (issue #55) ---------------------------------------------
+
+def copiar_arquivos(raiz_origem: Path, raiz_destino: Path) -> int:
+    """Copia `raiz_origem/<pasta>/*` para `raiz_destino/<pasta>/` nas PASTAS_ARQUIVOS.
+
+    Serve aos dois sentidos: backup (dados -> backups/arquivos) e restauracao
+    (backups/arquivos -> dados). So' copia o que falta no destino; nunca apaga nada.
+    Temporarios (`*.tmp`, upload em andamento) ficam de fora. Cada copia vai para um
+    `.tmp`, e' conferida pelo sha256 contra a origem e so' entao renomeada: ou o
+    arquivo aparece inteiro, ou nao aparece. Devolve quantos arquivos copiou.
+    """
+    copiados = 0
+    for nome in PASTAS_ARQUIVOS:
+        origem = raiz_origem / nome
+        if not origem.is_dir():
+            continue
+        destino = raiz_destino / nome
+        destino.mkdir(parents=True, exist_ok=True)
+        for arquivo in sorted(origem.iterdir()):
+            if not arquivo.is_file() or arquivo.name.endswith(".tmp"):
+                continue
+            alvo = destino / arquivo.name
+            # o nome e' o sha256 do conteudo: mesmo nome e mesmo tamanho = mesmo arquivo
+            if alvo.exists() and alvo.stat().st_size == arquivo.stat().st_size:
+                continue
+            esperado = _sha256(arquivo)
+            parcial = destino / f"{arquivo.name}.{os.getpid()}.tmp"
+            try:
+                shutil.copyfile(arquivo, parcial)
+                if _sha256(parcial) != esperado:
+                    raise OSError(f"sha256 divergente ao copiar {nome}/{arquivo.name}")
+                parcial.replace(alvo)
+            except BaseException:
+                parcial.unlink(missing_ok=True)
+                raise
+            copiados += 1
+    return copiados
+
+
 def _copiou_hoje(pasta_externa: Path, hoje: datetime.date) -> bool:
     """So conta o dia como feito com o par .db + .sha256 (o .sha256 e' gravado por
     ultimo: sem ele, a copia pode ter morrido no meio e a proxima rodada refaz)."""
@@ -197,6 +245,15 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         ESTADO["ultimo_snapshot_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
         log.exception("snapshot falhou")
         return
+    # DEPOIS do snapshot: todo arquivo que ele cita ja estava no disco (o sistema grava o
+    # arquivo antes da linha do banco), entao a copia o alcanca.
+    try:
+        copiar_arquivos(origem_db.parent, pasta_destino / SUBPASTA_ARQUIVOS)
+        ESTADO["ultima_copia_arquivos"] = agora.isoformat(timespec="seconds")
+        ESTADO["ultima_copia_arquivos_erro"] = None
+    except Exception as e:
+        ESTADO["ultima_copia_arquivos_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
+        log.exception("copia dos arquivos falhou")
     if pasta_externa is None:
         return
     try:
@@ -205,6 +262,9 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         # calada e o health segue dizendo "sem erro" para sempre.
         if _copiou_hoje(pasta_externa, agora.date()):
             return
+        # Arquivos ANTES do banco: o dia so' conta como feito (o .sha256 do banco) quando
+        # os arquivos que esse snapshot cita ja estao do outro lado.
+        copiar_arquivos(origem_db.parent, pasta_externa / SUBPASTA_ARQUIVOS)
         copiar_externo(snapshot, pasta_externa)
         ESTADO["ultima_copia_externa"] = agora.isoformat(timespec="seconds")
         ESTADO["ultima_copia_externa_erro"] = None

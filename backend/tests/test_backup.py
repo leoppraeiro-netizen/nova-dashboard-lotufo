@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sqlite3
 import time
@@ -202,3 +203,121 @@ def test_rodada_registra_erro_da_copia_sem_derrubar(tmp_path, monkeypatch):
     backup.rodada(origem, tmp_path / "backups", tmp_path / "externo")
     assert backup.ESTADO["ultimo_snapshot_erro"] is None
     assert "rede fora" in backup.ESTADO["ultima_copia_externa_erro"]
+
+
+# --- arquivos ao lado do banco (issue #55): notas, espelhos, modelos e evidencias -----
+
+def _dados_com_arquivos(tmp_path):
+    """Pasta de dados como a da producao: banco + as quatro pastas, nomes pelo sha256."""
+    dados = tmp_path / "dados"; dados.mkdir()
+    origem = dados / "dashboard.db"
+    conn = sqlite3.connect(origem)
+    conn.execute("CREATE TABLE docs (caminho TEXT)")
+    gravados = {}
+    for pasta, ext in (("notas", "pdf"), ("espelhos", "docx"), ("modelos", "docx"), ("evidencias", "eml")):
+        conteudo = f"%PDF- conteudo de {pasta}".encode()
+        rel = f"{pasta}/{hashlib.sha256(conteudo).hexdigest()}.{ext}"
+        (dados / pasta).mkdir()
+        (dados / rel).write_bytes(conteudo)
+        conn.execute("INSERT INTO docs VALUES (?)", (rel,))
+        gravados[rel] = conteudo
+    conn.commit(); conn.close()
+    return origem, gravados
+
+
+def _arquivos_no(pasta):
+    return sorted(a for a in pasta.rglob("*") if a.is_file()) if pasta.exists() else []
+
+
+def test_rodada_copia_as_quatro_pastas_para_o_backup(tmp_path):
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    for rel, conteudo in gravados.items():
+        assert (destino / "arquivos" / rel).read_bytes() == conteudo, rel
+    assert backup.ESTADO["ultima_copia_arquivos"] and backup.ESTADO["ultima_copia_arquivos_erro"] is None
+
+
+def test_copia_ignora_temporario_em_andamento(tmp_path):
+    origem, _ = _dados_com_arquivos(tmp_path)
+    (tmp_path / "dados" / "notas" / "upload-123-abc.tmp").write_bytes(b"parcial")
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    assert list((destino / "arquivos" / "notas").glob("*.tmp")) == []
+
+
+def test_restaurar_snapshot_devolve_banco_e_arquivos_coerentes(tmp_path):
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    dados = tmp_path / "dados"
+    destino = dados / "backups"
+    backup.rodada(origem, destino, None)
+    snap = sorted(destino.glob("dashboard-*.db"))[-1]
+
+    # o pior dia: banco e pastas perdidos
+    origem.unlink()
+    for pasta in backup.PASTAS_ARQUIVOS:
+        for a in (dados / pasta).iterdir():
+            a.unlink()
+
+    # restauracao: o snapshot volta a ser o banco e as pastas voltam do backup
+    origem.write_bytes(snap.read_bytes())
+    backup.copiar_arquivos(destino / "arquivos", dados)
+
+    conn = sqlite3.connect(origem)
+    citados = [r[0] for r in conn.execute("SELECT caminho FROM docs")]
+    conn.close()
+    assert sorted(citados) == sorted(gravados)
+    for rel in citados:  # todo arquivo que o banco cita existe e e' o que foi gravado
+        assert (dados / rel).read_bytes() == gravados[rel]
+
+
+def test_arquivos_nao_se_multiplicam_por_snapshot(tmp_path):
+    # 48 snapshots nao podem virar 48 copias dos PDFs: os nomes sao o sha256, uma copia basta
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    copia = destino / "arquivos" / next(iter(gravados))
+    envelhecer(copia, 7200)
+    antes = copia.stat().st_mtime
+    time.sleep(1.1)
+    backup.rodada(origem, destino, None)
+    assert len(list(destino.glob("dashboard-*.db"))) == 2
+    assert len(_arquivos_no(destino / "arquivos")) == len(gravados)
+    assert copia.stat().st_mtime == antes  # ja' estava la': nao foi copiado de novo
+
+
+def test_arquivo_que_saiu_dos_dados_continua_no_backup(tmp_path):
+    # um snapshot antigo pode citar o arquivo; o backup nunca apaga o que guardou
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    rel = next(iter(gravados))
+    (tmp_path / "dados" / rel).unlink()
+    time.sleep(1.1)
+    backup.rodada(origem, destino, None)
+    assert (destino / "arquivos" / rel).exists()
+
+
+def test_copia_externa_leva_os_arquivos(tmp_path):
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    fora = tmp_path / "externo"
+    backup.rodada(origem, tmp_path / "dados" / "backups", fora)
+    for rel, conteudo in gravados.items():
+        assert (fora / "arquivos" / rel).read_bytes() == conteudo, rel
+    assert backup.ESTADO["ultima_copia_externa_erro"] is None
+
+
+def test_copia_de_arquivo_corrompida_e_recusada(tmp_path, monkeypatch):
+    # o nome e' o sha256: a copia so' conta se o que chegou ao destino bate com ele
+    origem, _ = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+
+    def copia_truncada(a, b):
+        with open(b, "wb") as f:
+            f.write(b"truncado")
+
+    monkeypatch.setattr(backup.shutil, "copyfile", copia_truncada)
+    backup.rodada(origem, destino, None)
+    assert "sha256" in backup.ESTADO["ultima_copia_arquivos_erro"]
+    assert backup.ESTADO["ultimo_snapshot_erro"] is None  # o banco foi salvo mesmo assim
+    assert _arquivos_no(destino / "arquivos") == []
