@@ -134,7 +134,7 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
       </div>
 
       {erro && <Erro texto={erro} />}
-      <div role="status">{concluida && <div className="cartao__corpo"><p className="campo__nota">{concluida}</p></div>}</div>
+      <div role="status">{concluida && !erro && <div className="cartao__corpo"><p className="campo__nota">{concluida}</p></div>}</div>
 
       {status && !status.configurado && (
         <div className="cartao__corpo">
