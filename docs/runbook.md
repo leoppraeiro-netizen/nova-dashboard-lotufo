@@ -417,7 +417,7 @@ protocolado.
   do órgão (o que já passou cai no mês atual).
 - **Carteira:** saldo a executar dos contratos ativos sem encerramento, ritmo (média dos últimos 6 meses), meses de
   produção, participação por órgão e os contratos que terminam nos próximos 183 dias.
-- **Obras:** as linhas do QDOP com farol (vermelho: aviso crítico da diretoria; amarelo: outro aviso; verde:
+- **Obras:** as linhas do QDOP com farol (vermelho: aviso crítico; acao: aviso de Ação; atencao: aviso de Atenção; verde:
   nenhum) e o motivo.
 
 **Prazo normal do órgão:** 3º quartil (posição mais próxima) dos dias entre o primeiro protocolo e o recebimento

@@ -3,7 +3,8 @@ import { IconeAlerta, IconeSeta, IconeSino } from "./icones";
 import Selo from "./Selo";
 import { ondeSeResolve, semRSOrfao } from "./avisos";
 import { brl } from "./Medicoes";
-import { Link, type AbaObra, type Busca, type Ir, type Rota } from "./rota";
+import { type AbaObra, type Busca, type Ir, type Rota } from "./rota";
+import { Link } from "./Link";
 
 // Cartao de avisos (spec §11). Bloco 6: o servidor manda o aviso PRONTO (`app/avisos.py`): nivel,
 // mensagem de uma linha, obra, dias, valor e destino do clique. Esta tela so' desenha — nao ha mais

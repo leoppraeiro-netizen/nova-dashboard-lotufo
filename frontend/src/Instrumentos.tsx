@@ -3,7 +3,7 @@ import { api, ApiErro } from "./api";
 import { IconeAlerta, IconeCadeado } from "./icones";
 import { brl } from "./Medicoes";
 import { instrumentosDaObra, type AditivoApi, type InstrumentoCadastro, type InstrumentoPrazo } from "./obra";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia as mesBR, fmtDataPura } from "./tempo";
 import { fmtPercentual } from "./formato";
 import Rolagem from "./Rolagem";

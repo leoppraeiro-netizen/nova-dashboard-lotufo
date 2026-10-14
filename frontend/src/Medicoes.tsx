@@ -3,7 +3,8 @@ import { api, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta, IconeBaixar, IconeCadeado, IconeMais } from "./icones";
 import { EXCECOES, notasDivergentes, passoDe, resumoNotas, separarMedicoes, tituloMedicao } from "./medicao";
-import { Link, type Busca } from "./rota";
+import { type Busca } from "./rota";
+import { Link } from "./Link";
 // competencia vem "AAAA-MM" (formato do CHECK da tabela); na tela le-se "MM/AAAA"
 import { fmtCompetencia as competenciaBR, fmtDataHora, fmtDataPura as dataBR } from "./tempo";
 import Rolagem from "./Rolagem";

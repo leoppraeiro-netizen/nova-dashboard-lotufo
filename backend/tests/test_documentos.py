@@ -154,7 +154,7 @@ def test_avisos_uma_linha_por_empresa_e_regularidade_do_mes(conn):
     doc = [a for a in av if a["tipo"] == "documentos_empresa"]
     assert len(doc) == 1 and doc[0]["entidade_id"] == 1 and doc[0]["nivel"] == "critico"   # D10
     assert doc[0]["mensagem"].startswith(f"{doc[0]['entidade']}: ")   # A11: o nome da empresa num campo
-    assert "municipal vencida em 20/09" in doc[0]["mensagem"] and "FGTS vence em 4 dias" in doc[0]["mensagem"]
+    assert "municipal vencida em 20/09/2026" in doc[0]["mensagem"] and "FGTS vence em 4 dias" in doc[0]["mensagem"]
     assert "estadual" in doc[0]["mensagem"]             # exigida no reajuste e nunca anexada
     assert doc[0]["data"] == "2026-09-20"               # A8: a validade que pesa primeiro (a vencida)
     reg = [a for a in av if a["tipo"] == "regularidade_mes"]

@@ -5,7 +5,7 @@ import Cronograma from "./Cronograma";
 import { IconeAlerta } from "./icones";
 import Instrumentos from "./Instrumentos";
 import type { InstrumentoCadastro } from "./obra";
-import { Link } from "./rota";
+import { Link } from "./Link";
 // Validade e' DATA PURA do papel que o orgao emitiu, nao carimbo de instante: fmtData a leria como UTC e a
 // traduziria para Cuiaba (UTC-4), deslocando um dia, exatamente na tela que diz se da' para protocolar hoje.
 import { fmtCompetencia as mesBR, fmtDataPura } from "./tempo";
