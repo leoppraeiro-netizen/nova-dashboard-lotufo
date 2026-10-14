@@ -34,7 +34,6 @@ type Proximo = { competencia: string; faturamento_previsto_centavos: number; rec
 type Carteira = {
   saldo_centavos: number; ritmo_mensal_centavos: number; meses_de_producao: number | null;
   por_orgao: { orgao: string; saldo_centavos: number; fracao: number }[];
-  terminando: { contrato_id: number; obra: string; execucao_fim: string; dias: number }[];
 };
 type Obra = {
   contrato_id: number; seq: number; obra: string; contratante: string; empreita: string; direito: number;
