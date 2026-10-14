@@ -8,7 +8,8 @@ import type { Usuario } from "./Login";
 import { passoDe } from "./medicao";
 import NotasAEnviar from "./NotasAEnviar";
 import Rolagem from "./Rolagem";
-import { Link, type AbaMedicoes, type Busca } from "./rota";
+import { type AbaMedicoes, type Busca } from "./rota";
+import { Link } from "./Link";
 import { ABAS_MEDICOES, nivelParada, porContratante, rotuloSituacao, SITUACOES, textoParada, type LinhaResumo,
   type ObraResumo, type ResumoMedicoes, type Situacao, type SituacaoOuSem } from "./resumoMedicoes";
 import "./medicoes.css";

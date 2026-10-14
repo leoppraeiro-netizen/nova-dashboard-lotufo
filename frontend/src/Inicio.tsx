@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { api, ApiErro } from "./api";
 import { brl, contar } from "./formato";
 import type { Usuario } from "./Login";
-import { Link, type Ir, type Rota } from "./rota";
+import { type Ir, type Rota } from "./rota";
+import { Link } from "./Link";
 import { fmtDataPura, fmtMesExtenso } from "./tempo";
 import "./inicio.css";
 

@@ -42,10 +42,6 @@ def _br(iso: str) -> str:
     return _d(iso).strftime("%d/%m/%Y")
 
 
-def _br_curta(iso: str) -> str:
-    return _d(iso).strftime("%d/%m")
-
-
 def _mes_br(mes: str) -> str:
     return f"{mes[5:7]}/{mes[:4]}"
 
@@ -367,7 +363,7 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
             s = situacao(conn, eid, t, hoje)
             rot = ROTULO.get(t["chave"], t["nome"])
             if s["situacao"] == "vencida":
-                partes.append(f"{rot} vencida em {_br_curta(s['certidao']['validade'])}")
+                partes.append(f"{rot} vencida em {_br(s['certidao']['validade'])}")
                 grave = True
                 validades.append(s["certidao"]["validade"])
             elif s["situacao"] == "faltando":

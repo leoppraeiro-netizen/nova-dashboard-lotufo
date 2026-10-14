@@ -1,6 +1,6 @@
 // Administracao (NAVEGACAO.md › Administracao): as abas, os grupos da reconciliacao RM × dashboard e os filtros da
 // auditoria, no front, sobre o que a API ja' manda (`/api/rm/reconciliacao`, `/api/admin/auditoria`).
-import type { AbaAdmin } from "./rota";
+import type { AbaAdmin, Rota } from "./rota";
 import { diaLocal } from "./tempo";
 
 /** As abas da Administracao, na ordem do mapa (a Saude e' a padrao). */
@@ -72,7 +72,9 @@ export function reconciliacaoDaObra(rec: Reconciliacao, obra: { id: number; nume
 /* ---------------------------------------------------------------- auditoria */
 
 export type Evento = { id: number; acao: string; entidade: string | null; entidade_id?: string | null; criado_em: string;
-                       usuario_id: number | null };
+                       usuario_id: number | null;
+                       /** A obra da medicao ou do protocolo (a API resolve); nulo quando o objeto sumiu. */
+                       contrato_id?: number | null };
 export type FiltroAuditoria = { acao?: string | null; pessoa?: string | null; desde?: string | null };
 
 // F-85: a acao e o objeto do evento em portugues. B-11 (10/10/2026): o mapa cobre toda acao que backend/app grava
@@ -133,6 +135,20 @@ export function rotuloObjeto(entidade: string | null, id?: string | null): strin
   if (!entidade) return "—";
   const nome = ROTULO_ENTIDADE[entidade] ?? entidade.charAt(0).toUpperCase() + entidade.slice(1).replace(/_/g, " ");
   return id ? `${nome} ${id}` : nome;
+}
+
+/** A tela do objeto de um evento, ou null quando ele nao tem tela (fica como texto): a obra, a medicao (na obra dela),
+ *  o protocolo (que mora na aba Medicoes da obra dele) e o usuario (aba Usuarios da Administracao). */
+export function rotaDoObjeto(ev: Pick<Evento, "entidade" | "entidade_id" | "contrato_id">): Rota | null {
+  const id = ev.entidade_id && /^[0-9]+$/.test(ev.entidade_id) ? Number(ev.entidade_id) : null;
+  if (id === null || id < 1) return null;
+  switch (ev.entidade) {
+    case "contrato": return { tela: "obra", id, aba: "medicoes" };
+    case "medicao": return ev.contrato_id ? { tela: "medicao", obra: ev.contrato_id, id } : null;
+    case "protocolo": return ev.contrato_id ? { tela: "obra", id: ev.contrato_id, aba: "medicoes" } : null;
+    case "usuario": return { tela: "admin", aba: "usuarios" };
+    default: return null;
+  }
 }
 
 /** O campo do formulario de Novo usuario a que a mensagem de erro da API se refere (para o aria-invalid), se der para saber. */

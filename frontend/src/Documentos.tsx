@@ -4,7 +4,8 @@ import { IconeAlerta, IconeBaixar } from "./icones";
 import type { Usuario } from "./Login";
 import { focarPorId } from "./foco";
 import { colunas, JANELA_DIAS, matriz, pendenciasDa, type EmpresaDoc, type LinhaCertidao } from "./matriz";
-import { Link, type Busca } from "./rota";
+import { type Busca } from "./rota";
+import { Link } from "./Link";
 // emissao/validade sao DATAS PURAS do papel que o orgao emitiu: fmtDataPura nao passa por fuso.
 import { fmtCompetencia as mesBR, fmtDataPura } from "./tempo";
 import Rolagem from "./Rolagem";

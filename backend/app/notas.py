@@ -59,6 +59,7 @@ def esperadas(conn, medicao_id: int) -> list[dict]:
         return []
     natureza = next(k for k, v in espelho.TIPO_POR_NATUREZA.items() if v == m["tipo"])
     saidas = [{"chave": s["chave"], "natureza": s["natureza"], "emissor": s["emissor"], "municipio": s["municipio"],
+               "rotulo": s.get("rotulo") or espelho.ROTULO_NATUREZA.get(s["natureza"], s["natureza"]),
                **{c: s[c] for c in ("valor", "iss", "inss", "irrf", "ibs", "cbs", "liquido")}}
               for s in esp["saidas"] if s["natureza"] == natureza and s["emissor"] == EMISSOR_LOTUFO]
     return _casar_saidas(saidas, _alocadas(conn, medicao_id))

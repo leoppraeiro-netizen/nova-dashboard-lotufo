@@ -6,7 +6,8 @@ import { contar, fmtDias, fmtPercentual } from "./formato";
 import { IconeAlerta, IconeBaixar } from "./icones";
 import { filtrarObras, type ObraLista } from "./listaObras";
 import { brl } from "./Medicoes";
-import { Link, type AbaCarteira, type Ir } from "./rota";
+import { type AbaCarteira, type Ir } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataPura, fmtMesCurto as mesCurto } from "./tempo";
 import Rolagem from "./Rolagem";
 import Selo from "./Selo";
@@ -34,12 +35,11 @@ type Proximo = { competencia: string; faturamento_previsto_centavos: number; rec
 type Carteira = {
   saldo_centavos: number; ritmo_mensal_centavos: number; meses_de_producao: number | null;
   por_orgao: { orgao: string; saldo_centavos: number; fracao: number }[];
-  terminando: { contrato_id: number; obra: string; execucao_fim: string; dias: number }[];
 };
 type Obra = {
   contrato_id: number; seq: number; obra: string; contratante: string; empreita: string; direito: number;
   pi_va: number; faturados: number; saldo: number; pct_recebido: number; status: string; termino: string | null;
-  vigencia?: string | null; farol: "verde" | "amarelo" | "vermelho"; motivo: string; motivos?: Motivo[];
+  vigencia?: string | null; farol: "verde" | "atencao" | "acao" | "vermelho"; motivo: string; motivos?: Motivo[];
 };
 type ResumoMes = { mes: string; obras_protocoladas: number; obras_ativas: number };
 type Painel = {
@@ -56,11 +56,13 @@ function baseObras(b: ObrasBase): string {
     .filter(Boolean).join(", ");
 }
 
-// O selo diz a palavra do nivel (D12), a mesma do Selo dos avisos: "Critico" e "Atencao" sao niveis de aviso, e o
-// amarelo acende com qualquer aviso que nao seja critico (de acao ou de atencao). So' o QDOP EXPORTADO (arquivo)
-// segue com o vocabulario oficial (verde, amarelo, vermelho).
-const FAROL: Record<Obra["farol"], { rotulo: string; classe: string }> = {
-  verde: { rotulo: "Em dia", classe: "selo--ok" }, amarelo: { rotulo: "Atenção", classe: "selo--atencao" },
+// O selo diz a palavra do nivel (D12, D10), a mesma do Selo dos avisos: Critico, Acao e Atencao. Acao e Atencao
+// dividem o ambar e se separam pela forma (contorno cheio na Acao), como em Alertas. So' o QDOP EXPORTADO
+// (arquivo) segue com o vocabulario oficial (verde, amarelo, vermelho).
+const FAROL: Record<Obra["farol"], { rotulo: string; classe: string; forte?: boolean }> = {
+  verde: { rotulo: "Em dia", classe: "selo--ok" },
+  acao: { rotulo: "Ação", classe: "selo--atencao", forte: true },
+  atencao: { rotulo: "Atenção", classe: "selo--atencao" },
   vermelho: { rotulo: "Crítico", classe: "selo--acao" },
 };
 
@@ -230,9 +232,9 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
         </ul>
       </Secao>
 
-      <Secao id="dir-problema" titulo="Obras com problema" dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Atenção ou Crítico`}>
+      <Secao id="dir-problema" titulo="Obras com problema" dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Ação, Atenção ou Crítico`}>
         {problema.total === 0 ? (
-          <div className="vazio vazio--curto"><p>Nenhuma obra com farol em Atenção ou Crítico.</p></div>
+          <div className="vazio vazio--curto"><p>Nenhuma obra com farol em Ação, Atenção ou Crítico.</p></div>
         ) : (
           <ul className="lista-simples cartao__corpo obras-problema">
             {problema.itens.map(o => {
@@ -240,7 +242,7 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
               const { visiveis, mais } = motivosDaLinha(o.motivos, 1);
               return (
                 <li key={o.contrato_id}>
-                  <Selo classe={FAROL[o.farol].classe}>{FAROL[o.farol].rotulo}</Selo>
+                  <Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo>
                   <span className="obras-problema__texto">
                     <Link className="nome-link" para={{ tela: "obra", id: o.contrato_id, aba: "medicoes" }} ir={ir}>{o.obra}</Link>
                     <span>{visiveis[0]?.texto ?? o.motivo}</span>
@@ -320,7 +322,7 @@ function Qdop({ p, ir }: { p: Painel; ir: Ir }) {
                       embaixo, a vigencia */}
                   <td className="num">{data(o.termino)}<div className="campo__nota">vig. {data(o.vigencia)}</div></td>
                   <td className="sem-quebra">{o.status}</td>
-                  <td><Selo classe={FAROL[o.farol].classe}>{FAROL[o.farol].rotulo}</Selo></td>
+                  <td><Selo classe={(FAROL[o.farol] ?? FAROL.atencao).classe} forte={(FAROL[o.farol] ?? FAROL.atencao).forte}>{(FAROL[o.farol] ?? FAROL.atencao).rotulo}</Selo></td>
                   <td>{!o.motivos ? (o.motivo || "—") : visiveis.length === 0 ? "—" : (
                     <ul className="motivos">
                       {visiveis.map(x => <li key={`${x.tipo}-${x.texto}`}>{x.texto}</li>)}

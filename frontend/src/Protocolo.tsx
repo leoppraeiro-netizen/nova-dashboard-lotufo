@@ -9,7 +9,7 @@ import { FormMotivo } from "./MedicaoAtos";
 import { brl, ROTULO_ESTADO } from "./Medicoes";
 import { fmtTamanho as mb } from "./formato";
 import { protocolosDa } from "./medicao";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import { fmtCompetencia, fmtDataHora } from "./tempo";
 import Selo from "./Selo";
 import Pendencias from "./Pendencias";

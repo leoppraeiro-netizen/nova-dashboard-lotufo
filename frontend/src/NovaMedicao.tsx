@@ -3,7 +3,8 @@ import { api } from "./api";
 import Espelho from "./Espelho";
 import { BarraEtapas, Etapa } from "./Etapas";
 import type { Usuario } from "./Login";
-import { ir, Link } from "./rota";
+import { ir } from "./rota";
+import { Link } from "./Link";
 import { Migalhas } from "./Topo";
 
 // Nova medicao (opcao A, 2026-10-09): a etapa 1 do fluxo, antes de a medicao existir. Gerar o espelho cria a
