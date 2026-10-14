@@ -23,13 +23,14 @@ const RESUMO: ResumoMedicoes = {
   ],
   obras: [
     { contrato_id: 12, obra: "Estações BRT", contratante: "SINFRA", orgao_sub: "SAGPM / SUOESP", aberta: true, prevista_id: null, encerramento: false,
-      ultima: { numero: 6, competencia: "2026-08" }, ha_dias: null, prevista: null, proxima: 7 },
+      ultima: { numero: 6, tipo: "execucao", competencia: "2026-08" }, ha_dias: null, prevista: null, proxima: 7, proxima_tipo: "execucao" },
     { contrato_id: 17, obra: "MT-388", contratante: "SINFRA", orgao_sub: "SUEF II", aberta: false, prevista_id: 900, encerramento: false,
-      ultima: { numero: 23, competencia: "2026-01" }, ha_dias: 251, prevista: { numero: 24, competencia: "2026-09" }, proxima: 24 },
+      ultima: { numero: 23, tipo: "execucao", competencia: "2026-01" }, ha_dias: 251,
+      prevista: { numero: 24, tipo: "execucao", competencia: "2026-09" }, proxima: 24, proxima_tipo: "execucao" },
     { contrato_id: 4, obra: "Cavalaria", contratante: "SINFRA", orgao_sub: "SACID", aberta: false, prevista_id: null, encerramento: false,
-      ultima: null, ha_dias: null, prevista: null, proxima: 1 },
+      ultima: null, ha_dias: null, prevista: null, proxima: 1, proxima_tipo: "execucao" },
     { contrato_id: 13, obra: "Granito", contratante: "MTPAR", orgao_sub: null, aberta: false, prevista_id: null, encerramento: true,
-      ultima: { numero: 3, competencia: "2025-11" }, ha_dias: 318, prevista: null, proxima: 4 },
+      ultima: { numero: 1, tipo: "projeto", competencia: "2026-09" }, ha_dias: 9, prevista: null, proxima: 2, proxima_tipo: "projeto" },
   ],
 };
 
@@ -79,6 +80,10 @@ describe("Medições com abas", () => {
     expect(within(cav).getByRole("link", { name: "Iniciar a 1ª medição" }).getAttribute("href")).toBe("/obras/4/medicoes/nova");
     expect(within(cav).getAllByText("—")).toHaveLength(3);   // sem última medição, sem tempo, sem prevista
     expect(within(quadro).getByRole("link", { name: "Granito" }).getAttribute("href")).toBe("/obras/13");
+    // obra que só mede projeto: o tipo aparece na última e no link (série própria)
+    const gr = within(quadro).getByRole("row", { name: /Granito/ });
+    expect(within(gr).getByText("1ª de Projeto · 09/2026")).toBeTruthy();
+    expect(within(gr).getByRole("link", { name: "Iniciar a 2ª medição de Projeto" })).toBeTruthy();
     // o botão de iniciar continua na aba; a diretoria não o vê
     fireEvent.click(screen.getByRole("button", { name: /Iniciar processo de medição/ }));
     expect(screen.getByRole("dialog", { name: "Iniciar processo de medição" })).toBeTruthy();

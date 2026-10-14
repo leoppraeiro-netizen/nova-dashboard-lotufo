@@ -535,20 +535,29 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
     abertas = {x["contrato_id"] for x in linhas}
     prevista_de: dict[int, int] = {}
     prevista_dados: dict[int, dict] = {}   # a MESMA medicao de prevista_de: o rotulo e o link da aba nao divergem
-    for r in conn.execute("SELECT contrato_id, id, numero, competencia FROM medicoes WHERE estado='prevista' "
+    for r in conn.execute("SELECT contrato_id, id, numero, tipo, competencia FROM medicoes WHERE estado='prevista' "
                           "ORDER BY competencia, numero, id"):
         if r["contrato_id"] not in prevista_de:
             prevista_de[r["contrato_id"]] = r["id"]
-            prevista_dados[r["contrato_id"]] = {"numero": r["numero"], "competencia": r["competencia"]}
+            prevista_dados[r["contrato_id"]] = {"numero": r["numero"], "tipo": r["tipo"], "competencia": r["competencia"]}
     # #154: ultima medicao de execucao ou projeto (o reajuste repete o numero da execucao; a prevista, a cancelada e
-    # a desistida nao contam) e o maior numero ja usado (o numero e' um so' para execucao, projeto e reajuste; a
-    # cancelada tambem ocupa o numero: a proxima e' a seguinte, ou a prevista)
+    # a desistida nao contam), com o tipo. Execucao e projeto sao series de numeracao PROPRIAS: a proxima e' a
+    # prevista, ou a seguinte ao maior numero da serie de execucao (a cancelada tambem ocupa o numero); so' a obra
+    # que nao tem execucao segue a serie de projeto.
     ultima_de: dict[int, dict] = {}
-    for r in conn.execute("SELECT contrato_id, numero, competencia FROM medicoes WHERE tipo IN ('execucao','projeto') "
+    for r in conn.execute("SELECT contrato_id, numero, tipo, competencia FROM medicoes WHERE tipo IN ('execucao','projeto') "
                           "AND estado NOT IN ('prevista','cancelada','desistida') ORDER BY competencia DESC, numero DESC"):
-        ultima_de.setdefault(r["contrato_id"], {"numero": r["numero"], "competencia": r["competencia"]})
-    maior_numero = dict(conn.execute("SELECT contrato_id, MAX(numero) FROM medicoes "
-                                     "WHERE tipo IN ('execucao','projeto') GROUP BY contrato_id").fetchall())
+        ultima_de.setdefault(r["contrato_id"], {"numero": r["numero"], "tipo": r["tipo"], "competencia": r["competencia"]})
+    maior = {(r[0], r[1]): r[2] for r in conn.execute(
+        "SELECT contrato_id, tipo, MAX(numero) FROM medicoes WHERE tipo IN ('execucao','projeto') GROUP BY contrato_id, tipo")}
+
+    def proxima(cid: int) -> tuple[int, str]:
+        if cid in prevista_dados:
+            p = prevista_dados[cid]
+            return p["numero"], "projeto" if p["tipo"] == "projeto" else "execucao"
+        if (cid, "execucao") in maior or (cid, "projeto") not in maior:
+            return maior.get((cid, "execucao"), 0) + 1, "execucao"
+        return maior[(cid, "projeto")] + 1, "projeto"
 
     def ha_dias(competencia: str) -> int:
         """Dias desde o FIM da competencia; competencia ainda em curso: 0 ("hoje"), como no prototipo."""
@@ -563,8 +572,7 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
                     "ultima": ultima_de.get(o["id"]),
                     "ha_dias": ha_dias(ultima_de[o["id"]]["competencia"]) if o["id"] in ultima_de else None,
                     "prevista": prevista_dados.get(o["id"]),
-                    "proxima": prevista_dados[o["id"]]["numero"] if o["id"] in prevista_dados
-                               else maior_numero.get(o["id"], 0) + 1}
+                    "proxima": proxima(o["id"])[0], "proxima_tipo": proxima(o["id"])[1]}
                    for o in ativas]
     contagens = {"sem-medicao": sum(1 for o in lista_obras if not o["aberta"])}
     for s in ORDEM_SITUACAO:

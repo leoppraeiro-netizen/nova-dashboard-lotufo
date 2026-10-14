@@ -22,7 +22,7 @@ function Linha({ o }: { o: ObraResumo }) {
         {o.prevista ? <span className="sem-medicao__prevista">Prevista: {textoMedicao(o.prevista)}</span>
           : <span className="sem-medicao__traco">—</span>}</td>
       <td className="sem-medicao__acao">
-        <Link className="sem-medicao__iniciar-link" para={destino(o)}>Iniciar a {o.proxima}ª medição</Link></td>
+        <Link className="sem-medicao__iniciar-link" para={destino(o)}>Iniciar a {o.proxima}ª medição{o.proxima_tipo === "projeto" ? " de Projeto" : ""}</Link></td>
     </tr>
   );
 }
