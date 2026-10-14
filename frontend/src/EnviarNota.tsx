@@ -224,9 +224,15 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
 
   async function enviar(m: Mensagem) {
     await agir(async () => {
-      await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
-        para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
-        anexos: anexosVistos }) });
+      try {
+        await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
+          para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
+          anexos: anexosVistos }) });
+      } catch (erro) {
+        // recusado (anexos mudaram em outra aba, p. ex.): recarrega, e a previa com os anexos de agora toma o lugar
+        await carregar();
+        throw erro;
+      }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
       if (embutido) embutido.aoConcluir(`Nota enviada às ${fmtHora(new Date().toISOString())}.`);
       else ir({ tela: "medicoes", aba: "enviar-nota" }, { busca: { enviada: `${e.obra} · ${e.descricao}` } });

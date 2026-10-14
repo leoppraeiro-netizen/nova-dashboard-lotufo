@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiErro } from "./api";
 import EnviarNota from "./EnviarNota";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status: number; constructor(status: number, mensagem: string) { super(mensagem); this.status = status; } } }));
 
 const det = {
   envio: { chave: "c20:m631-m632", contrato_id: 20, obra: "MT-401", orgao: "SINFRA", orgao_sub: "SUEF II", familia: "sinfra",
@@ -119,6 +120,20 @@ describe("Enviar a nota", () => {
       await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
       const [, opcoes] = api.mock.calls.find(c => c[0] === "/api/notas/envio/3/enviar")!;
       expect(JSON.parse(opcoes.body).anexos).toEqual([{ nome: "NFS 2301.pdf", tamanho: 10 }, { nome: "FRC 77.pdf", tamanho: 20 }]);
+    });
+
+    it("envio recusado porque a FRC entrou em outra aba recarrega e mostra a prévia nova, com o aviso", async () => {
+      let atual = comFrc([NF]);
+      const RECUSA = "Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir o que vai no e-mail";
+      api.mockImplementation((caminho: string) => {
+        if (caminho === "/api/notas/envio/3") return Promise.resolve(atual);
+        if (caminho === "/api/notas/envio/3/enviar") { atual = comFrc([NF, FRC]); return Promise.reject(new ApiErro(422, RECUSA)); }
+        return Promise.resolve({});
+      });
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar a nota" }));
+      expect(await screen.findByText(RECUSA)).toBeTruthy();
+      await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
     });
   });
 });
