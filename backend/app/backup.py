@@ -214,6 +214,78 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         log.exception("copia externa falhou")
 
 
+def pasta_local() -> Path:
+    """Onde ficam os snapshots: ao lado do banco (nunca dependem do diretorio de trabalho)."""
+    from app import db
+    return db.db_path().parent / "backups"
+
+
+def pasta_externa() -> Path | None:
+    """A copia externa diaria, se `DASH_BACKUP_EXTERNO` estiver configurada."""
+    externo = os.environ.get("DASH_BACKUP_EXTERNO")
+    return Path(externo) if externo else None
+
+
+# Snapshot e' horario: passou de 2 h sem um novo, uma rodada inteira falhou ou a thread parou.
+ATRASO_MAX = datetime.timedelta(hours=2)
+
+
+def _snapshots_locais(local: Path) -> list[os.stat_result]:
+    """stat de cada snapshot HORARIO guardado (nome `dashboard-AAAAMMDD-HHMMSS.db`). O
+    `dashboard-PRE-*.db` do deploy casa com PADRAO mas nao e' a rotina horaria: contado, um
+    deploy recente esconderia o snapshot horario parado. Arquivo que some no meio (a rotacao do
+    outro processo) fica de fora; pasta ilegivel conta como vazia, e a tela mostra o atraso."""
+    stats = []
+    try:
+        arquivos = [a for a in local.glob(PADRAO) if _NOME.match(a.name)] if local.exists() else []
+    except OSError:
+        return []
+    for a in arquivos:
+        try:
+            stats.append(a.stat())
+        except OSError:
+            pass
+    return stats
+
+
+def _erro_para_tela(bruto: str | None, mensagem: str) -> tuple[str | None, str | None]:
+    """`ESTADO` guarda "<iso>: <excecao>", e a excecao traz caminho, compartilhamento e maquina.
+    A tela recebe so' o momento e uma frase fixa; o detalhe fica no log do servidor (`log.exception`)."""
+    if not bruto:
+        return None, None
+    em = bruto.split(": ", 1)[0]  # o ISO nao tem ": " (so' ":" sem espaco)
+    return em, f"{mensagem}; o detalhe está no log do servidor"
+
+
+def situacao(local: Path, externa_configurada: bool, agora: datetime.datetime) -> dict:
+    """Saude do backup para a tela de Administracao (issue #31).
+
+    O ultimo backup e a contagem vem do DISCO (sobrevivem ao servidor reiniciar); os erros
+    vem de `ESTADO`, que so existe na memoria desta execucao. Sem snapshot nenhum conta como
+    atrasado: backup parado sem ninguem ver e' o risco que a tela existe para mostrar.
+    A pasta externa NAO e' lida aqui: um compartilhamento fora do ar travaria a tela.
+    """
+    stats = _snapshots_locais(local)
+    ultimo = max(stats, key=lambda s: s.st_mtime) if stats else None
+    ultimo_em = datetime.datetime.fromtimestamp(ultimo.st_mtime, datetime.timezone.utc) if ultimo else None
+    snap_erro_em, snap_erro = _erro_para_tela(ESTADO["ultimo_snapshot_erro"], "não foi possível gravar o snapshot")
+    copia_erro_em, copia_erro = _erro_para_tela(ESTADO["ultima_copia_externa_erro"],
+                                                "não foi possível fazer a cópia externa")
+    return {
+        "ultimo_snapshot": ESTADO["ultimo_snapshot"],
+        "ultimo_snapshot_erro": snap_erro,
+        "ultimo_snapshot_erro_em": snap_erro_em,
+        "ultima_copia_externa": ESTADO["ultima_copia_externa"],
+        "ultima_copia_externa_erro": copia_erro,
+        "ultima_copia_externa_erro_em": copia_erro_em,
+        "ultimo_backup": tempo.para_local(ultimo_em).isoformat(timespec="seconds") if ultimo_em else None,
+        "tamanho_bytes": ultimo.st_size if ultimo else None,
+        "guardados": len(stats),
+        "copia_externa_configurada": externa_configurada,
+        "atrasado": ultimo_em is None or agora - ultimo_em > ATRASO_MAX,
+    }
+
+
 def agendar_backup_horario(origem_db: Path, pasta_destino: Path,
                            pasta_externa: Path | None = None) -> threading.Thread:
     def loop():

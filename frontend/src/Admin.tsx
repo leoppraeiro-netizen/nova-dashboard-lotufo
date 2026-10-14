@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { contar } from "./formato";
+import { contar, fmtTamanho } from "./formato";
 import { rotuloPerfil } from "./navegacao";
 import CaixaAviso from "./CaixaAviso";
 import {
@@ -38,9 +38,14 @@ type StatusRm = {
 };
 // Bloco 9: fica so' quem conectou a propria conta para enviar e-mail; a conexao e' feita por cada pessoa em Minha conta.
 type Conta = { usuario_id: number; nome: string; email: string; perfil: string; conectada: boolean; token_em: string | null };
-// O estado do backup sai no /api/health e mora na memoria do servidor: zera quando ele reinicia.
-type Backup = { ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null;
-                ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null };
+// Issue #31: /api/admin/backup. O ultimo backup, o tamanho e a contagem vem do disco local; as tentativas e os erros
+// (ultimo_*) moram na memoria do servidor e zeram quando ele reinicia. `atrasado` = mais de 2 h sem snapshot.
+type Backup = { ultimo_backup: string | null; tamanho_bytes: number | null; guardados: number;
+                copia_externa_configurada: boolean; atrasado: boolean;
+                // *_erro: frase fixa em portugues (a excecao crua fica no log do servidor); *_erro_em: quando falhou
+                ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null; ultimo_snapshot_erro_em: string | null;
+                ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null;
+                ultima_copia_externa_erro_em: string | null };
 
 const ROTULO_ESTADO_RODADA: Record<string, string> = { success: "OK", failed: "Falhou", running: "Rodando" };
 // A auditoria chega em paginas dos mais recentes; "Carregar mais" traz as anteriores e os filtros correm sobre
@@ -261,10 +266,12 @@ function ReconciliacaoResumo({ versao }: { versao: number }) {
   );
 }
 
-function LinhaBackup({ rotulo, em, erro, nenhum }: { rotulo: string; em: string | null; erro: string | null; nenhum: string }) {
+function LinhaBackup({ rotulo, em, erro, erroEm, nenhum }: {
+  rotulo: string; em: string | null; erro: string | null; erroEm: string | null; nenhum: string;
+}) {
   if (erro) return (
     <CaixaAviso nivel="critico">
-      {rotulo}: a última tentativa falhou ({erro}).{em ? ` A última que deu certo foi em ${fmtDataHora(em)}.` : ""} Veja docs/runbook.md.
+      {rotulo}: a última tentativa{erroEm ? `, em ${fmtDataHora(erroEm)},` : ""} falhou ({erro}).{em ? ` A última que deu certo foi em ${fmtDataHora(em)}.` : ""}
     </CaixaAviso>
   );
   return <p>{rotulo}: {em ? fmtDataHora(em) : nenhum}.</p>;
@@ -274,23 +281,37 @@ function Backup() {
   // undefined = carregando; null = nao deu para ler
   const [b, setB] = useState<Backup | null | undefined>(undefined);
   useEffect(() => {
-    api<{ backup?: Backup }>("/api/health").then(h => setB(h.backup ?? null)).catch(() => setB(null));
+    api<Backup>("/api/admin/backup").then(setB).catch(() => setB(null));
   }, []);
+  const falhou = !!b && (b.atrasado || !!b.ultimo_snapshot_erro || !!b.ultima_copia_externa_erro);
   return (
     <section className="cartao" aria-labelledby="titulo-backup">
       <div className="cartao__cabeca">
         <h2 className="cartao__titulo" id="titulo-backup">Backup</h2>
-        {/* o resultado de relance: Falhou se uma das duas tentativas falhou; OK quando alguma deu certo e nenhuma falhou */}
-        {b && (b.ultimo_snapshot_erro || b.ultima_copia_externa_erro ? <SeloRodada estado="failed" />
-          : b.ultimo_snapshot || b.ultima_copia_externa ? <SeloRodada estado="success" /> : null)}
-        <span className="cartao__dica">desde que o servidor subiu</span>
+        {/* o resultado de relance: Falhou se esta atrasado ou uma das tentativas falhou; OK com backup em dia */}
+        {b && (falhou ? <SeloRodada estado="failed" /> : b.ultimo_backup ? <SeloRodada estado="success" /> : null)}
+        <span className="cartao__dica">um snapshot por hora</span>
       </div>
       <div className="cartao__corpo pilha">
         {b === undefined ? <p>Carregando…</p>
           : b === null ? <p className="campo__nota">Não foi possível ler o estado do backup; recarregue a página para tentar de novo.</p>
           : <>
-              <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} nenhum="nenhum desde que o servidor subiu" />
-              <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} nenhum="nenhuma desde que o servidor subiu" />
+              {b.atrasado && (
+                <CaixaAviso nivel="critico" role="alert">
+                  {`Backup atrasado: ${b.ultimo_backup ? `o último foi em ${fmtDataHora(b.ultimo_backup)}, há mais de 2 horas.`
+                    : "nenhum backup guardado neste servidor."} Confira a tarefa do servidor e a pasta de backups.`}
+                </CaixaAviso>
+              )}
+              <p>Último backup: {b.ultimo_backup
+                ? `${fmtDataHora(b.ultimo_backup)}${b.tamanho_bytes !== null ? ` (${fmtTamanho(b.tamanho_bytes)})` : ""}`
+                : "nenhum"}.</p>
+              <p>{contar(b.guardados, "snapshot guardado", "snapshots guardados")} neste servidor.</p>
+              {b.ultimo_snapshot_erro && <LinhaBackup rotulo="Último snapshot" em={b.ultimo_snapshot} erro={b.ultimo_snapshot_erro} erroEm={b.ultimo_snapshot_erro_em} nenhum="" />}
+              {/* sem pasta externa configurada nao ha copia a esperar: a linha so' confundiria */}
+              {(b.copia_externa_configurada || b.ultima_copia_externa_erro) &&
+                <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} erroEm={b.ultima_copia_externa_erro_em} nenhum="nenhuma desde que o servidor subiu" />}
+              {/* atrasado sem erro registrado (thread parada, servidor recem-reiniciado): "nenhum erro" desmentiria o alerta */}
+              {!b.atrasado && !b.ultimo_snapshot_erro && !b.ultima_copia_externa_erro && <p>Último erro: nenhum desde que o servidor subiu.</p>}
             </>}
       </div>
     </section>
