@@ -43,13 +43,23 @@ def _por_par(conn, hoje):
     return ref
 
 
-def test_painel_bate_com_as_perguntas_por_par(conn):
+def test_painel_bate_com_as_perguntas_por_par(conn, monkeypatch):
     e2 = _entidade(conn, 0)
     _reg(conn, 1, 1, "2026-08-01", "2026-11-01")                 # vigente
     _reg(conn, 1, 3, "2026-05-01", "2026-08-01")                 # vencida
     _reg(conn, 1, 3, "2026-04-01", "2026-07-01")                 # vencida mais antiga, id maior
     rev = _reg(conn, 1, 4, "2026-08-01", "2026-11-01")
     certidoes.marcar_estado(conn, 1, rev, "revogada", "erro")    # revogada hoje
+    _reg(conn, 1, 5, "2026-09-15", "2026-12-01")                 # emissao FUTURA: nao vale hoje
+    _reg(conn, 1, 6, "2026-08-20", "2026-12-31")                 # duas cobrem hoje: manda a de
+    _reg(conn, 1, 6, "2026-08-01", "2026-10-01")                 # maior validade, mesmo gravada antes
+    _reg(conn, 1, 2, "2026-08-01", "2026-11-01")
+    adiante = lambda: datetime.date(2026, 9, 10)                 # noqa: E731
+    hoje = tempo.hoje_local
+    monkeypatch.setattr(tempo, "hoje_local", adiante)
+    certidoes.marcar_estado(conn, 1, conn.execute(
+        "SELECT MAX(id) i FROM certidoes").fetchone()["i"], "revogada", "erro")
+    monkeypatch.setattr(tempo, "hoje_local", hoje)               # revogada em 10/09: hoje ainda vale
     _reg(conn, e2, 1, "2026-01-01", "2026-02-01")                # vencida em outra entidade
     certidoes.marcar_nao_se_aplica(conn, 1, e2, 2, "sem empregados")
     ref = _por_par(conn, "2026-09-01")
