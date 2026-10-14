@@ -319,7 +319,10 @@ def test_link_aceita_so_os_hosts_da_variavel(cenario, monkeypatch):
                 "https://evil.test\\@exemplo.sharepoint.com/abcdef",       # navegador le "\" como "/": abre evil.test
                 "https://evil.test@exemplo.sharepoint.com/abcdef",         # userinfo
                 "https://exemplo.sharepoint.com:8443/abcdef",              # porta
-                "https://exemplo.sharepoint.com%2f.evil.test/abcdef"):
+                "https://exemplo.sharepoint.com%2f.evil.test/abcdef",
+                "https://exemplo.sharepoint.com?arquivo=1", "https://exemplo.sharepoint.com#trecho",
+                "https://exemplo.sharepoint.com",                          # gate Sol: exige a primeira barra
+                "https://exemplo.sharepoint.com／evil.test/abc", "https://[exemplo/abcdef"):   # urlparse daria erro em ingles
         with pytest.raises(ValueError, match=r"exemplo-my\.sharepoint\.com ou exemplo\.sharepoint\.com"):
             protocolo.adicionar_link(c, ids["uid"], pid, "Planilha", url)
     assert protocolo.adicionar_link(c, ids["uid"], pid, "Planilha", "https://exemplo-my.sharepoint.com/:b:/g/abc")

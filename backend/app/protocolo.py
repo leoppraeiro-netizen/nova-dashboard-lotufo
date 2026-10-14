@@ -14,7 +14,6 @@ import os
 import re
 from dataclasses import dataclass
 from html import escape
-from urllib.parse import urlparse
 
 from app import (arquivos, assinatura, auditoria, carta, cadastro_arquivos, certidoes, checklist, correio, db,
                  documentos, envio_reserva, espelhos, frc, leitura_pdf, medicoes, oficios, pdfs, tempo)
@@ -247,9 +246,11 @@ def adicionar_link(conn, usuario_id: int, protocolo_id: int, nome: str, url: str
     if not dominios:
         raise ValueError("Links do OneDrive ou SharePoint não estão liberados neste servidor: "
                          "o administrador precisa configurar os endereços permitidos")
-    # O netloc inteiro (nao o hostname) tem que ser um host da lista: "\", "@" (userinfo), ":" (porta) e "%"
-    # ficam de fora. "https://evil.test\@host/..." daria hostname=host, mas o navegador le "\" como "/" e abre evil.test.
-    if urlparse(url).netloc.lower() not in dominios:
+    # O texto literal entre "https://" e a PRIMEIRA "/" tem que ser um host da lista: "\", "@" (userinfo), ":" (porta),
+    # "%", "?" e "#" ficam de fora. "https://evil.test\@host/..." daria hostname=host no urlparse, mas o navegador le "\"
+    # como "/" e abre evil.test. Sem urlparse: ele tambem lancaria erro em ingles para "[" ou barra Unicode.
+    m = re.match(r"https://([^/]*)/", url)
+    if not m or m.group(1).lower() not in dominios:
         raise ValueError(f"Cole um link do OneDrive ou SharePoint da Lotufo ({' ou '.join(dominios)})")
     p = _linha(conn, protocolo_id)
     _editavel(p)
