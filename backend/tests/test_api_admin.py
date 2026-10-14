@@ -72,7 +72,7 @@ def test_auditoria_traz_a_obra_da_medicao_e_do_protocolo(client_admin):
         auditoria.registrar(conn, None, "medicao.protocolo", "medicao", 99999)  # medicao que nao existe mais
     conn.close()
     por_acao = {e["acao"]: e for e in client_admin.get("/api/admin/auditoria").json()["eventos"]}
-    assert mid and por_acao["medicao.criar"]["contrato_id"] == cid
+    assert por_acao["medicao.criar"]["entidade_id"] == str(mid) and por_acao["medicao.criar"]["contrato_id"] == cid
     assert por_acao["protocolo.criar"]["contrato_id"] == cid
     assert por_acao["medicao.protocolo"]["contrato_id"] is None
     assert por_acao["auth.login"]["contrato_id"] is None
