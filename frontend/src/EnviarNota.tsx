@@ -169,7 +169,9 @@ function Secao({ n, titulo, passo, acoes, children }: {
 
 /** `embutido` (2026-10-09): a etapa 4 da pagina da medicao mostra este envio sem o cabecalho de pagina; depois de
  *  enviar (ou registrar por fora) ela recarrega em vez de voltar a Notas a enviar. */
-export type Embutido = { aoConcluir: (aviso?: string) => void; aoTrocar: (protocoloId: number) => void };
+export type Embutido = { aoConcluir: (aviso?: string) => void; aoTrocar: (protocoloId: number) => void;
+  /** issue #148: um documento anexado num item (a FRC assinada, p. ex.) muda o que as outras etapas mostram */
+  aoAnexarItem?: () => void };
 
 /** `versao` (issue #100): a pagina da medicao a incrementa quando um documento da medicao muda em outra etapa; o envio
  *  e' lido de novo e, se os anexos mudaram, a previa e' refeita com o aviso. */
@@ -249,6 +251,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   // issue #100 (como o protocolo na PR #92): os anexos que a previa mostrou; documento anexado depois dela (na
   // medicao, em outra aba) faz o servidor recusar o envio em vez de mandar o que ninguem conferiu
   const anexosVistos = det.previa.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho }));
+  const itemMudou = () => { void carregar(); embutido?.aoAnexarItem?.(); };
 
   async function enviar(m: Mensagem) {
     setRefeita(false);
@@ -401,7 +404,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
                   </div>
                 </fieldset>
               )}
-              <ItensEnvio itens={e.itens} aoMudar={() => void carregar()} />
+              <ItensEnvio itens={e.itens} aoMudar={itemMudou} />
               {complementares}
               {justificativaBloco}
             </Secao>
@@ -417,7 +420,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
                   <ol className="lista-simples nota-paginas">{paginas.map((p, i) => <li key={i}>{p}</li>)}</ol>
                 </div>
               )}
-              <ItensEnvio itens={e.itens} aoMudar={() => void carregar()} />
+              <ItensEnvio itens={e.itens} aoMudar={itemMudou} />
               {complementares}
               {justificativaBloco}
               {det.situacao_protocolo === "rascunho" && (

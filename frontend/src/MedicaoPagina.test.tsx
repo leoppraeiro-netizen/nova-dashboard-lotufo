@@ -11,8 +11,10 @@ vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api"
 vi.mock("./Espelho", () => ({ default: () => null }));
 // a FRC so' conta o que leu (aoLer), como o cartao de verdade depois de GET /frc
 vi.mock("./Frc", () => ({
-  FrcConsorcio: ({ aoLer }: { aoLer?: (s: SituacaoFrc) => void }) => {
-    useEffect(() => { if (frcLida.atual) { aoLer?.(frcLida.atual as SituacaoFrc); frcLida.lida = true; } }, [aoLer]);
+  // le de novo quando a pagina muda a versao, como o cartao de verdade
+  FrcConsorcio: ({ aoLer, versao }: { aoLer?: (s: SituacaoFrc) => void; versao: number }) => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { if (frcLida.atual) { aoLer?.(frcLida.atual as SituacaoFrc); frcLida.lida = true; } }, [versao]);
     return null;
   },
 }));
@@ -119,6 +121,33 @@ describe("Página da medição: etapa 3 da obra de consórcio", () => {
     const etapa = await etapa3(consorcio({ assinada: true }));
     expect(etapa.tagName).toBe("DETAILS");
     expect(etapa.open).toBe(false);
+  });
+
+  it("anexar a FRC assinada na etapa 4 relê a FRC e a etapa 3 fecha, sem recarregar a página", async () => {
+    const ITEM = { chave: "frc:5", rotulo: "FRC assinada", medicao_id: 5, frc_gerada: 77, estado: "falta",
+      acao: "anexar_frc", detalhe: "Falta a assinada" };
+    const ENVIO = { chave: "m5", contrato_id: 1, obra: "Hospital", orgao: "SINFRA", orgao_sub: null, familia: "sinfra",
+      grupo: "SINFRA", a_pedido: false, medicao_ids: [5], descricao: "23ª medição", notas: [], valor_centavos: 100,
+      emitida_em: "2026-10-13", dias: 1, situacao: "pendente", aviso: null, protocolo_id: 3, itens: [ITEM] };
+    responder();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => {
+      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }];
+      if (url === "/api/notas/a-enviar") return { envios: [ENVIO], contadores: {} };
+      if (url === "/api/notas/envio/3") return { envio: ENVIO, familia: "sinfra", etapa: "nota", situacao_protocolo: "rascunho",
+        carta: null, previa: { para: [], copia: [], assunto: "Notas", corpo: "Bom dia.", anexos: [], links: [] },
+        bloqueio: null, pendencias: [], justificativa_obrigatoria: false, extras: [] };
+      if (url.startsWith("/api/correio/contatos")) return [];
+      return base(url, opcoes);
+    });
+    frcLida.atual = consorcio({});
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    const etapa = () => container.querySelector("#etapa-3") as HTMLDetailsElement;
+    await waitFor(() => expect(etapa().open).toBe(true));
+    frcLida.atual = consorcio({ assinada: true });
+    const pdf = new File(["%PDF-1.4"], "FRC 77 assinada.pdf", { type: "application/pdf" });
+    fireEvent.change(await screen.findByLabelText("Anexar FRC assinada"), { target: { files: [pdf] } });
+    await waitFor(() => expect(etapa().open).toBe(false));
   });
 
   it("medição encerrada sem a FRC assinada: a etapa 3 não abre sozinha", async () => {
