@@ -304,3 +304,60 @@ def test_trocar_senha_nao_sobrescreve_redefinicao_concorrente(tmp_path, monkeypa
     monkeypatch.setattr(auth, "_ph", real)
     assert auth.autenticar(conn, "leo@lotufo.com", "senha-do-atacante") is None
     assert auth.autenticar(conn, "leo@lotufo.com", "senha-do-admin-99") is not None
+
+
+# --- #4: canal de tempo no login ------------------------------------------------------------
+# Conta existente com senha errada roda um verify argon2 E grava o contador (BEGIN IMMEDIATE e
+# commit com pagina alterada, que custa a escrita no WAL). "E-mail inexistente" e "conta
+# bloqueada" tem que pagar o mesmo par de custos, senao o tempo entrega quais e-mails tem conta.
+
+def _custo(conn, monkeypatch, email, senha):
+    """Conta os verify argon2, as transacoes de escrita e se alguma pagina foi gravada."""
+    contagem = {"verify": 0}
+    real = auth._ph
+
+    class _Contador:
+        def verify(self, h, s):
+            contagem["verify"] += 1
+            return real.verify(h, s)
+        def __getattr__(self, nome):
+            return getattr(real, nome)
+
+    monkeypatch.setattr(auth, "_ph", _Contador())
+    sql = []
+    conn.set_trace_callback(sql.append)
+    antes = conn.total_changes
+    try:
+        assert auth.autenticar(conn, email, senha) is None
+    finally:
+        conn.set_trace_callback(None)
+        monkeypatch.setattr(auth, "_ph", real)
+    return {"verify": contagem["verify"],
+            "begin_immediate": sum(1 for s in sql if s.strip().upper().startswith("BEGIN IMMEDIATE")),
+            "escreveu": conn.total_changes > antes}
+
+def _usuarios(conn):
+    return [tuple(r) for r in conn.execute("SELECT * FROM usuarios ORDER BY id")]
+
+def test_login_inexistente_custa_o_mesmo_que_senha_errada(tmp_path, monkeypatch):
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    existente = _custo(conn, monkeypatch, "leo@lotufo.com", "errada")
+    assert existente == {"verify": 1, "begin_immediate": 1, "escreveu": True}
+    antes = _usuarios(conn)
+    assert _custo(conn, monkeypatch, "ninguem@lotufo.com", "errada") == existente
+    # a escrita equivalente nao deixa rastro: nenhum dado de usuario muda
+    assert _usuarios(conn) == antes
+
+def test_login_bloqueado_custa_o_mesmo_que_senha_errada(tmp_path, monkeypatch):
+    # igualado o inexistente ao existente, o bloqueado (que nao gravava) viraria o caminho distinguivel
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    auth.criar_usuario(conn, "Ana", "ana@lotufo.com", "senha-forte-456", "engenharia")
+    conn.execute("UPDATE usuarios SET bloqueado_ate=? WHERE email='ana@lotufo.com'",
+                 ((auth._agora() + auth.timedelta(minutes=10)).isoformat(),))
+    conn.commit()
+    existente = _custo(conn, monkeypatch, "leo@lotufo.com", "errada")
+    antes = _usuarios(conn)
+    assert _custo(conn, monkeypatch, "ana@lotufo.com", "senha-forte-456") == existente
+    assert _usuarios(conn) == antes

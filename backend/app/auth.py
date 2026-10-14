@@ -29,6 +29,22 @@ def _verify_dummy(senha: str) -> None:
     except VerificationError:
         pass
 
+def _escrita_dummy(conn: sqlite3.Connection) -> None:
+    """Paga o custo da gravacao do contador de senhas erradas sem mudar dado (#4).
+
+    Senha errada em conta existente abre BEGIN IMMEDIATE e commita uma pagina alterada (escrita
+    no WAL); sem isto, "e-mail inexistente" e "conta bloqueada" respondiam mais rapido e o tempo
+    entregava quais e-mails tem conta. Um UPDATE que nao muda o valor nao suja a pagina (o SQLite
+    pula a escrita quando o registro e' identico), entao o contador de uma linha qualquer sobe e
+    desce na mesma transacao: a pagina vai para o WAL e o dado final e' o mesmo. Ninguem enxerga o
+    valor intermediario (a transacao e' serializada). Tabela vazia: nao ha conta a esconder.
+    """
+    with db.mutacao(conn):
+        alvo = "(SELECT MIN(id) FROM usuarios)"
+        conn.execute(f"UPDATE usuarios SET tentativas_falhas = tentativas_falhas + 1 WHERE id={alvo}")
+        conn.execute(f"SELECT tentativas_falhas FROM usuarios WHERE id={alvo}").fetchone()
+        conn.execute(f"UPDATE usuarios SET tentativas_falhas = tentativas_falhas - 1 WHERE id={alvo}")
+
 def criar_usuario(conn: sqlite3.Connection, nome: str, email: str, senha: str, perfil: str) -> int:
     # _ph.hash e' caro (~135ms) e nao toca no banco: sai de dentro do bloco para nao
     # segurar o lock de escrita durante o hash. (Quando o chamador ja abriu a
@@ -46,9 +62,11 @@ def autenticar(conn: sqlite3.Connection, email: str, senha: str) -> dict | None:
                        (email.lower(),)).fetchone()
     if row is None:
         _verify_dummy(senha)
+        _escrita_dummy(conn)
         return None
     if row["bloqueado_ate"] and datetime.fromisoformat(row["bloqueado_ate"]) > _agora():
         _verify_dummy(senha)
+        _escrita_dummy(conn)
         return None
     try:
         _ph.verify(row["senha_hash"], senha)
