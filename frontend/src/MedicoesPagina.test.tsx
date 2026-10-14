@@ -11,7 +11,7 @@ const usuario = { id: 1, nome: "Leonardo Praeiro", email: "l@l.com", perfil: "ad
 
 const linha = (extra: Partial<LinhaResumo>): LinhaResumo => ({
   situacao: "enviar-nota", contrato_id: 12, obra: "Estações BRT", contratante: "SINFRA", orgao_sub: "SAGPM / SUOESP",
-  medicao_id: 70, medicao_ids: [70, 71], numero: 7, titulo: "7ª Medição + Reajuste", proximo_passo: "protocolar",
+  medicao_id: 70, medicao_ids: [70, 71], numero: 7, competencia: "2026-09", titulo: "7ª Medição + Reajuste", proximo_passo: "protocolar",
   valor_centavos: 997926492, marco: "2026-10-07", dias: 2, ...extra });
 
 const RESUMO: ResumoMedicoes = {

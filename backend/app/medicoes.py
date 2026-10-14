@@ -523,7 +523,7 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
                 "situacao": situacao, "contrato_id": cid, "obra": principal["obra"],
                 "contratante": o.get("contratante"), "orgao_sub": o.get("orgao_sub"),
                 "medicao_id": principal["id"], "medicao_ids": [m["id"] for m in p],
-                "numero": principal["numero"],
+                "numero": principal["numero"], "competencia": principal["competencia"],
                 "titulo": f"{principal['titulo']} + Reajuste" if len(p) == 2 else principal["titulo"],
                 "proximo_passo": principal["proximo_passo"],
                 "valor_centavos": sum(valores) if valores else None,

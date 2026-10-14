@@ -6,7 +6,7 @@ import type { LinhaResumo } from "./resumoMedicoes";
 // #156: aba Aguardando nota (prototipo aprovado pelo Leo em 14/10/2026).
 const linha = (extra: Partial<LinhaResumo>): LinhaResumo => ({
   situacao: "aguardando-nota", contrato_id: 5, obra: "Integra BRT", contratante: "SINFRA", orgao_sub: null,
-  medicao_id: 40, medicao_ids: [40], numero: 16, titulo: "16ª Medição", proximo_passo: "anexar as notas",
+  medicao_id: 40, medicao_ids: [40], numero: 16, competencia: "2026-09", titulo: "16ª Medição", proximo_passo: "anexar as notas",
   valor_centavos: 787288979, marco: "2026-10-10", dias: 4, ...extra });
 
 const LINHAS = [
