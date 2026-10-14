@@ -324,17 +324,22 @@ def _custo(conn, monkeypatch, email, senha):
             return getattr(real, nome)
 
     monkeypatch.setattr(auth, "_ph", _Contador())
+    import os
+    wal = conn.execute("PRAGMA database_list").fetchone()["file"] + "-wal"
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # WAL zerado: o que crescer e' desta chamada
+    assert os.path.getsize(wal) == 0
     sql = []
     conn.set_trace_callback(sql.append)
-    antes = conn.total_changes
     try:
         assert auth.autenticar(conn, email, senha) is None
     finally:
         conn.set_trace_callback(None)
         monkeypatch.setattr(auth, "_ph", real)
+    # "escreveu" = pagina gravada no WAL (o custo real); contar linhas alteradas nao serve, porque um
+    # UPDATE que nao muda o valor conta linha mas nao grava pagina
     return {"verify": contagem["verify"],
             "begin_immediate": sum(1 for s in sql if s.strip().upper().startswith("BEGIN IMMEDIATE")),
-            "escreveu": conn.total_changes > antes}
+            "escreveu": os.path.getsize(wal) > 0}
 
 def _usuarios(conn):
     return [tuple(r) for r in conn.execute("SELECT * FROM usuarios ORDER BY id")]
@@ -360,4 +365,17 @@ def test_login_bloqueado_custa_o_mesmo_que_senha_errada(tmp_path, monkeypatch):
     existente = _custo(conn, monkeypatch, "leo@lotufo.com", "errada")
     antes = _usuarios(conn)
     assert _custo(conn, monkeypatch, "ana@lotufo.com", "senha-forte-456") == existente
+    assert _usuarios(conn) == antes
+
+def test_login_com_hash_corrompido_paga_verify_e_escrita(tmp_path, monkeypatch):
+    # o hash invalido falha sem gastar o argon2: a resposta rapida entregaria a conta
+    conn = _conn(tmp_path, monkeypatch)
+    auth.criar_usuario(conn, "Leo", "leo@lotufo.com", "senha-forte-123", "admin")
+    auth.criar_usuario(conn, "Ana", "ana@lotufo.com", "senha-forte-456", "engenharia")
+    conn.execute("UPDATE usuarios SET senha_hash='lixo-nao-argon2' WHERE email='ana@lotufo.com'")
+    conn.commit()
+    antes = _usuarios(conn)
+    custo = _custo(conn, monkeypatch, "ana@lotufo.com", "qualquer")
+    assert custo["begin_immediate"] == 1 and custo["escreveu"]
+    assert custo["verify"] == 2  # o real (que levanta na hora) e o dummy (que gasta o tempo)
     assert _usuarios(conn) == antes

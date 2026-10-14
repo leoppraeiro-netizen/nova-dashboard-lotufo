@@ -40,10 +40,10 @@ def _escrita_dummy(conn: sqlite3.Connection) -> None:
     valor intermediario (a transacao e' serializada). Tabela vazia: nao ha conta a esconder.
     """
     with db.mutacao(conn):
-        alvo = "(SELECT MIN(id) FROM usuarios)"
-        conn.execute(f"UPDATE usuarios SET tentativas_falhas = tentativas_falhas + 1 WHERE id={alvo}")
-        conn.execute(f"SELECT tentativas_falhas FROM usuarios WHERE id={alvo}").fetchone()
-        conn.execute(f"UPDATE usuarios SET tentativas_falhas = tentativas_falhas - 1 WHERE id={alvo}")
+        alvo = conn.execute("SELECT MIN(id) AS id FROM usuarios").fetchone()["id"]
+        conn.execute("UPDATE usuarios SET tentativas_falhas = tentativas_falhas + 1 WHERE id=?", (alvo,))
+        conn.execute("SELECT tentativas_falhas FROM usuarios WHERE id=?", (alvo,)).fetchone()
+        conn.execute("UPDATE usuarios SET tentativas_falhas = tentativas_falhas - 1 WHERE id=?", (alvo,))
 
 def criar_usuario(conn: sqlite3.Connection, nome: str, email: str, senha: str, perfil: str) -> int:
     # _ph.hash e' caro (~135ms) e nao toca no banco: sai de dentro do bloco para nao
@@ -88,6 +88,9 @@ def autenticar(conn: sqlite3.Connection, email: str, senha: str) -> dict | None:
     except InvalidHashError:
         # senha_hash corrompido/invalido: problema de dado, nao senha errada.
         # Nao incrementa o contador nem expoe detalhe ao chamador.
+        # #4: o hash invalido falha na hora; sem os dois custos, a resposta rapida entregaria a conta.
+        _verify_dummy(senha)
+        _escrita_dummy(conn)
         return None
     with db.mutacao(conn):
         # A-06: o bloqueio pode ter sido gravado por uma tentativa simultanea enquanto esta
