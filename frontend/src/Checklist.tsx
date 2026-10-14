@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ConfirmarRemocao from "./ConfirmarRemocao";
 import { fmtTamanho as mb } from "./formato";
 import { IconeSeta } from "./icones";
 import Selo from "./Selo";
@@ -63,10 +64,7 @@ export default function Checklist({ itens, legenda, editavel, ocupado, aoAnexar,
                     </label>
                   )}
                   {it.arquivos.map(a => (
-                    <button key={a.id} type="button" className="btn btn--pequeno" disabled={ocupado}
-                      aria-label={`Remover ${a.nome}`} onClick={() => aoRemover(a.id)}>
-                      Remover
-                    </button>
+                    <ConfirmarRemocao key={a.id} alvo={a.nome} ocupado={ocupado} aoConfirmar={() => aoRemover(a.id)} />
                   ))}
                 </div>
               )}

@@ -30,6 +30,18 @@ describe("MinhaConta", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Enviar e-mail de teste" }));
     await waitFor(() => expect(screen.getByText(/engenheira\.obra@exemplo\.com\.br/)).toBeTruthy());
   });
+
+  // issue #28: remover a assinatura pede confirmação antes do DELETE
+  it("Remover a assinatura pede confirmação; Cancelar não apaga", async () => {
+    api.mockResolvedValue({ configurado: true, conectado: true, login: NENHUM, assinatura: true });
+    render(<MinhaConta usuario={ENG} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remover a assinatura" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(api).not.toHaveBeenCalledWith("/api/correio/assinatura", expect.objectContaining({ method: "DELETE" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remover a assinatura" }));
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*a assinatura/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/correio/assinatura", { method: "DELETE" }));
+  });
 });
 
 // A-05/B-10 (10/10/2026): cada um troca a própria senha

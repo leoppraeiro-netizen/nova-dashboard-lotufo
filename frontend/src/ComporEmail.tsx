@@ -251,6 +251,14 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
     else aoEnviar(m);
   }
 
+  // issue #28: descartar o que a pessoa escreveu pede confirmacao; sem nada mudado desde que abriu, nao ha' o
+  // que perder e fecha direto.
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  function descartar() {
+    if (JSON.stringify(m) === JSON.stringify(inicial)) aoDescartar();
+    else setConfirmarDescarte(true);
+  }
+
   const campo = (c: Campo, direita?: React.ReactNode) => (
     <Destinatarios campo={c} valor={m[c]} nomes={nomes} aoMudar={v => setM({ ...m, [c]: v })}
       aoAbrirCatalogo={() => setCatalogo(c)} direita={direita} idCampo={`${base}-${c}`} erro={c === "para" ? erroPara : undefined} />
@@ -266,12 +274,21 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
           {ocupado ? "Enviando…" : rotuloEnviar}
         </button>
         <span className="ol-de">De: {remetente ?? "sua conta Microsoft"}</span>
-        <button type="button" className="ol-icone ol-descartar" onClick={aoDescartar} title="Descartar" aria-label="Descartar">
+        <button type="button" className="ol-icone ol-descartar" onClick={descartar} title="Descartar" aria-label="Descartar">
           <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor"
             d="M8.5 4h3a1.5 1.5 0 0 0-3 0Zm-1 0a2.5 2.5 0 0 1 5 0h5a.5.5 0 0 1 0 1h-1.05l-1.2 10.34A3 3 0 0 1 12.27 18H7.73a3 3 0 0 1-2.98-2.66L3.55 5H2.5a.5.5 0 0 1 0-1h5ZM5.74 15.23A2 2 0 0 0 7.73 17h4.54a2 2 0 0 0 1.99-1.77L15.44 5H4.56l1.18 10.23Z" /></svg>
         </button>
       </div>
-      {campo("para", !comCco && <button type="button" className="ol-cco" onClick={() => setComCco(true)}>Cco</button>)}
+      {confirmarDescarte && (
+        <div className="ol-confirmar" role="group" aria-label="Confirmar o descarte">
+          <span aria-live="polite">Descartar o que foi escrito neste e-mail? O texto não fica guardado.</span>
+          <button type="button" className="btn btn--pequeno btn--destrutivo" onClick={() => { setConfirmarDescarte(false); aoDescartar(); }}>
+            Descartar o e-mail
+          </button>
+          <button type="button" className="btn btn--pequeno" autoFocus onClick={() => setConfirmarDescarte(false)}>Continuar escrevendo</button>
+        </div>
+      )}
+      {campo("para",!comCco && <button type="button" className="ol-cco" onClick={() => setComCco(true)}>Cco</button>)}
       {campo("copia")}
       {comCco && campo("cco")}
       <div className="ol-assunto">

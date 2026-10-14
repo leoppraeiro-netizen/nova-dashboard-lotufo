@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
+import ConfirmarRemocao from "./ConfirmarRemocao";
 import ErroCampo from "./ErroCampo";
 import { api, apiForm } from "./api";
 import { brl } from "./formato";
@@ -78,11 +79,11 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <span className="nota-complementares__nome" title={x.nome}>{x.nome}</span>
               <span className="campo__nota">{Math.max(1, Math.round(x.tamanho / 1024))} KB</span>
-              <button type="button" className="btn btn--pequeno" disabled={ocupado} aria-label={`Remover ${x.nome}`}
-                onClick={() => void agir(async () => {
+              <ConfirmarRemocao alvo={x.nome} ocupado={ocupado}
+                aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/pecas/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
-                })}>Remover</button>
+                })} />
             </li>
           ))}
         </ul>
@@ -107,11 +108,11 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <a className="nota-complementares__nome" href={x.url} target="_blank" rel="noreferrer" title={x.url}>{x.nome}</a>
               <span className="campo__nota">link</span>
-              <button type="button" className="btn btn--pequeno" disabled={ocupado} aria-label={`Remover o link ${x.nome}`}
-                onClick={() => void agir(async () => {
+              <ConfirmarRemocao alvo={`o link ${x.nome}`} ocupado={ocupado}
+                aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/links/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
-                })}>Remover</button>
+                })} />
             </li>
           ))}
         </ul>

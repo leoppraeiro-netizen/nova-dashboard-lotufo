@@ -1370,6 +1370,7 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
   font-size: 20px; line-height: 1; display: inline-flex; }
 .ol-icone:hover { background: #f5f5f5; color: #242424; }
 .ol-descartar { margin-left: auto; }
+.ol-confirmar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 4px 12px 8px; }
 .ol-linha { display: flex; align-items: center; gap: 10px; padding: 4px 12px; }
 .ol-rotulo { min-width: 42px; background: #fff; border: 1px solid #d1d1d1; border-radius: 4px; padding: 4px 10px;
   font: inherit; color: var(--ol-texto); cursor: pointer; }

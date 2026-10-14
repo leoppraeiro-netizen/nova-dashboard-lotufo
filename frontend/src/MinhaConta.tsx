@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, apiForm } from "./api";
+import ConfirmarRemocao from "./ConfirmarRemocao";
 import type { Usuario } from "./Login";
 import Selo from "./Selo";
 
@@ -159,7 +160,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
             <input ref={arquivo} type="file" accept="image/png,image/jpeg" className="sr-only" disabled={ocupado}
                    onChange={subirAssinatura} />
           </label>
-          {st.assinatura && <button type="button" className="btn" disabled={ocupado} onClick={removerAssinatura}>Remover</button>}
+          {st.assinatura && <ConfirmarRemocao alvo="a assinatura" classe="btn" ocupado={ocupado} aoConfirmar={() => void removerAssinatura()} />}
         </div>
       </div>
     </section>

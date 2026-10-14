@@ -86,4 +86,18 @@ describe("Enviar a nota", () => {
     expect(await screen.findByText(/Cole um link do OneDrive ou SharePoint da Lotufo \(lotufoengmt-my\.sharepoint\.com ou lotufoengmt\.sharepoint\.com\)/))
       .toBeTruthy();
   });
+
+  it("remover documento complementar ou link pede confirmação antes do pedido (issue #28)", async () => {
+    const comExtras = { ...det, extras: [{ id: 41, nome: "justificativa.pdf", tamanho: 4096 }],
+      previa: { ...det.previa, links: [{ id: 5, nome: "relatorios.zip", url: "https://lotufoengmt.sharepoint.com/x" }] } };
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comExtras : {}));
+    render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remover justificativa.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remover o link relatorios.zip" }));
+    expect(api.mock.calls.some(c => String(c[0]).endsWith("/remover"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*justificativa\.pdf/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/protocolos/3/pecas/41/remover", expect.objectContaining({ method: "POST" })));
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*o link relatorios\.zip/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/protocolos/3/links/5/remover", expect.objectContaining({ method: "POST" })));
+  });
 });
