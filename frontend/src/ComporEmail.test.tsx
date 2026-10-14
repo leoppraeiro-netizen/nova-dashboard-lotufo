@@ -90,4 +90,25 @@ describe("ComporEmail", () => {
     expect(screen.queryByLabelText("Escolher Pessoa 0")).toBeNull();
     expect(linhas()).toBeLessThan(60);
   });
+
+  it("catalogo: linha focada que sai da janela devolve o foco 'a janela e o Escape ainda fecha", async () => {
+    const todos = Array.from({ length: 1000 }, (_, i) => ({ nome: `Pessoa ${i}`, email: `p${i}@lotufo.com` }));
+    api.mockImplementation((caminho: string) => {
+      if (caminho.startsWith("/api/correio/remetente")) return Promise.resolve({ remetente: "eu@lotufo.com" });
+      if (caminho.includes("todos=true")) return Promise.resolve(todos);
+      return Promise.resolve([]);
+    });
+    render(<ComporEmail ocupado={false} anexos={[]} aoEnviar={() => {}} aoDescartar={() => {}}
+      inicial={{ para: [], copia: [], cco: [], assunto: "A", corpo: "" }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Para" }));
+    const caixa = await screen.findByLabelText("Escolher Pessoa 2");
+    caixa.focus();
+    expect(document.activeElement).toBe(caixa);
+    expect(document.querySelector("table")?.getAttribute("aria-rowcount")).toBe("1001");
+    const wrap = document.querySelector(".ol-tabela-wrap") as HTMLElement;
+    fireEvent.scroll(wrap, { target: { scrollTop: 500 * 48 } });
+    expect(document.activeElement).toBe(wrap);
+    fireEvent.keyDown(document.activeElement as Element, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
 });

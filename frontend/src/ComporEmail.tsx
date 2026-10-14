@@ -161,6 +161,18 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
   const fim = Math.min(total, rolagem + Math.ceil(altura / ALTURA_LINHA) + FOLGA_LINHAS);
   const visiveis = lista ? lista.slice(ini, fim) : [];
 
+  // Linha com o foco que sai da janela seria desmontada e o foco cairia no <body> (Escape/Tab deixariam de
+  // valer na janela modal): antes de trocar a janela, o foco vai para a area rolavel, que e' da janela.
+  function rolar(ev: React.UIEvent<HTMLDivElement>) {
+    const nova = Math.floor(ev.currentTarget.scrollTop / ALTURA_LINHA);
+    const linha = document.activeElement?.closest<HTMLElement>("tr[data-i]");
+    if (linha) {
+      const i = Number(linha.dataset.i);
+      if (i < Math.max(0, nova - FOLGA_LINHAS) || i >= nova + Math.ceil(altura / ALTURA_LINHA) + FOLGA_LINHAS) ev.currentTarget.focus();
+    }
+    setRolagem(nova);
+  }
+
   const alternar = (e: string) => setEscolhidos(v => v.includes(e) ? v.filter(x => x !== e) : [...v, e]);
 
   // Janela modal de verdade para o teclado: Escape fecha, o Tab da' a volta dentro dela e, ao fechar,
@@ -194,15 +206,15 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
         <div className="ol-modal__corpo">
           <input className="ol-busca" type="search" autoFocus placeholder="Pesquisar contatos…" aria-label="Pesquisar contatos"
             autoComplete="off" spellCheck={false} value={busca} onChange={e => setBusca(e.target.value)} />
-          <div className="ol-tabela-wrap" ref={rolavel} onScroll={ev => setRolagem(Math.floor(ev.currentTarget.scrollTop / ALTURA_LINHA))}>
-            <table className="ol-tabela">
+          <div className="ol-tabela-wrap" ref={rolavel} tabIndex={-1} onScroll={rolar}>
+            <table className="ol-tabela" aria-rowcount={total + 1}>
               <thead><tr><th aria-label="Escolher" /><th>Nome</th><th>Email</th></tr></thead>
               <tbody>
                 {lista === null && <tr><td colSpan={3} className="ol-vazio">Carregando…</td></tr>}
                 {lista?.length === 0 && <tr><td colSpan={3} className="ol-vazio">Nenhum resultado correspondente</td></tr>}
                 {ini > 0 && <tr aria-hidden="true" style={{ height: ini * ALTURA_LINHA }}><td colSpan={3} /></tr>}
-                {visiveis.map(c => (
-                  <tr key={c.email} className="ol-linha-fixa" onClick={() => alternar(c.email)}>
+                {visiveis.map((c, k) => (
+                  <tr key={c.email} className="ol-linha-fixa" data-i={ini + k} aria-rowindex={ini + k + 2} onClick={() => alternar(c.email)}>
                     <td><input type="checkbox" checked={escolhidos.includes(c.email)} onChange={() => alternar(c.email)}
                       onClick={ev => ev.stopPropagation()} aria-label={`Escolher ${c.nome || c.email}`} /></td>
                     <td><span className="ol-pessoa"><Avatar c={c} /><span><span className="ol-sugestao__nome">{c.nome || c.email}</span>
