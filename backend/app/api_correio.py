@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/correio")
 # Estado do login por codigo de dispositivo, POR USUARIO, em memoria do processo (reiniciar o
 # servidor no meio cancela o login; a pessoa pede outro codigo).
 _LOGINS: dict[int, dict] = {}
+_CODIGO: dict[int, str] = {}       # device_code do login mais recente de cada pessoa (nao vai para a tela)
 _LOCK = threading.Lock()
 _NENHUM = {"estado": "nenhum", "user_code": None, "verification_uri": None}
 
@@ -34,23 +35,29 @@ def status(usuario: dict = Depends(exigir("ver_paineis", com_csrf=False))):
     return _status(usuario["id"])
 
 
+def _gravar(usuario_id: int, device_code: str, estado: dict) -> None:
+    """So' o acompanhamento do codigo mais recente da pessoa muda o estado: com dois cliques seguidos em Conectar,
+    o primeiro, ao expirar, nao apaga o "conectado" do segundo (14/10/2026)."""
+    with _LOCK:
+        if _CODIGO.get(usuario_id) == device_code:
+            _LOGINS[usuario_id] = estado
+
+
 def _acompanhar(usuario_id: int, cfg: dict, device_code: str, intervalo: int, expira: float) -> None:
     while time.time() < expira:
         time.sleep(intervalo)
         try:
             r = graph.concluir_device_code(cfg["tenant"], cfg["client_id"], device_code,
                                            correio.arquivo_token(usuario_id))
-        except graph.ErroGraph as e:
-            with _LOCK:
-                _LOGINS[usuario_id] = {"estado": "erro", "erro": str(e), "user_code": None,
-                                       "verification_uri": None}
+        except Exception as e:      # qualquer falha vira "erro" na tela; nao deixa o "aguardando" preso para sempre
+            msg = str(e) if isinstance(e, graph.ErroGraph) else "Não foi possível concluir a conexão; tente de novo"
+            _gravar(usuario_id, device_code, {"estado": "erro", "erro": msg, "user_code": None,
+                                              "verification_uri": None})
             return
         if r != "pendente":
-            with _LOCK:
-                _LOGINS[usuario_id] = {"estado": r, "user_code": None, "verification_uri": None}
+            _gravar(usuario_id, device_code, {"estado": r, "user_code": None, "verification_uri": None})
             return
-    with _LOCK:
-        _LOGINS[usuario_id] = {"estado": "expirado", "user_code": None, "verification_uri": None}
+    _gravar(usuario_id, device_code, {"estado": "expirado", "user_code": None, "verification_uri": None})
 
 
 @router.post("/conectar")
@@ -71,6 +78,7 @@ def conectar(usuario: dict = Depends(exigir("editar_cadastros"))):
     with _LOCK:
         _LOGINS[uid] = {"estado": "aguardando", "user_code": d["user_code"],
                         "verification_uri": d["verification_uri"]}
+        _CODIGO[uid] = d["device_code"]
     threading.Thread(target=_acompanhar, daemon=True,
                      args=(uid, cfg, d["device_code"], d["interval"], time.time() + d["expires_in"])).start()
     return _status(uid)

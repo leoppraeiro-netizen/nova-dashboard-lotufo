@@ -22,8 +22,10 @@ def _ambiente(tmp_path, monkeypatch):
     monkeypatch.setenv("DASH_GRAPH_CLIENT_ID", "cliente-teste")
     monkeypatch.setattr(api_correio.threading, "Thread", _ThreadParada)
     api_correio._LOGINS.clear()          # estado de login e' global do processo: zera entre testes
+    api_correio._CODIGO.clear()
     yield
     api_correio._LOGINS.clear()
+    api_correio._CODIGO.clear()
 
 
 def test_status_de_quem_nunca_conectou(client_admin):
@@ -96,3 +98,28 @@ def test_assinatura_png_cortada_ao_meio_da_422_em_portugues(client_admin):
     assert client_admin.get("/api/correio/status").json()["assinatura"] is False
     r = client_admin.post("/api/correio/assinatura", files={"arquivo": ("a.png", png, "image/png")})
     assert r.status_code == 200 and r.json()["assinatura"] is True
+
+
+def test_acompanhamento_de_codigo_velho_nao_apaga_o_conectado_do_novo(monkeypatch):
+    monkeypatch.setattr(api_correio.time, "sleep", lambda s: None)
+    monkeypatch.setattr(graph, "concluir_device_code", lambda tenant, cid, codigo, arquivo:
+                        "ok" if codigo == "novo" else "pendente")
+    api_correio._CODIGO[7] = "novo"
+    cfg = {"tenant": "t", "client_id": "c"}
+    api_correio._acompanhar(7, cfg, "novo", 0, api_correio.time.time() + 60)
+    assert api_correio._LOGINS[7]["estado"] == "ok"
+    api_correio._acompanhar(7, cfg, "velho", 0, api_correio.time.time() - 1)     # o velho expira depois
+    assert api_correio._LOGINS[7]["estado"] == "ok"
+
+
+def test_falha_inesperada_no_acompanhamento_vira_erro_em_portugues(monkeypatch):
+    monkeypatch.setattr(api_correio.time, "sleep", lambda s: None)
+
+    def disco_cheio(*a):
+        raise OSError("sem espaco em disco")
+    monkeypatch.setattr(graph, "concluir_device_code", disco_cheio)
+    api_correio._CODIGO[7] = "c1"
+    api_correio._LOGINS[7] = {"estado": "aguardando", "user_code": "X", "verification_uri": "u"}
+    api_correio._acompanhar(7, {"tenant": "t", "client_id": "c"}, "c1", 0, api_correio.time.time() + 60)
+    assert api_correio._LOGINS[7]["estado"] == "erro"
+    assert api_correio._LOGINS[7]["erro"] == "Não foi possível concluir a conexão; tente de novo"
