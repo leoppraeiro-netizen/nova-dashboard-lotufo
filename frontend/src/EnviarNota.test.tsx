@@ -86,4 +86,16 @@ describe("Enviar a nota", () => {
     expect(await screen.findByText(/Cole um link do OneDrive ou SharePoint da Lotufo \(lotufoengmt-my\.sharepoint\.com ou lotufoengmt\.sharepoint\.com\)/))
       .toBeTruthy();
   });
+
+  it("a lixeira do e-mail editado pergunta antes de sair da tela (issue #27)", async () => {
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
+    window.history.replaceState(null, "", "/notas/envio/3");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<EnviarNota protocoloId={3} podeEditar />);
+    fireEvent.change(await screen.findByLabelText("Assunto"), { target: { value: "Outro" } });
+    fireEvent.click(screen.getByRole("button", { name: /Descartar/ }));
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    vi.restoreAllMocks();
+  });
 });

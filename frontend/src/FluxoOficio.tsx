@@ -122,8 +122,8 @@ export function CartaoPleito({ p, podeEditar, aoMudar, desfecho, contexto }: {
   const [tentou, setTentou] = useState(false);   // clicou em Enviar: so' ai' o campo mostra o que falta
   const [descartando, setDescartando] = useState(false);
   useEffect(() => { setCorpo(p.corpo_carta || p.corpo_padrao || ""); }, [p.id, p.corpo_carta, p.corpo_padrao]);
-  useRascunho(corpo !== (p.corpo_carta || p.corpo_padrao || ""));   // carta editada e ainda nao montada
   const editavel = podeEditar && p.origem === "sistema" && !["enviado", "descartado"].includes(p.situacao);
+  useRascunho(editavel && corpo.trim() !== (p.corpo_carta || p.corpo_padrao || "").trim());   // carta editada e ainda nao montada
 
   async function agir(f: () => Promise<unknown>) {
     setOcupado(true); setErro(""); setReserva(null);

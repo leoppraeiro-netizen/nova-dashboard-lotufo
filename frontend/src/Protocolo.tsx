@@ -76,7 +76,8 @@ function Cartao({ p, pecasCfg, podeEditar, aoMudar, marcado, aoMarcar }: {
   const [ocupado, setOcupado] = useState(false);
   const [descartando, setDescartando] = useState(false);
   useEffect(() => { setCorpo(p.corpo_carta || p.corpo_padrao || ""); }, [p.id, p.corpo_carta, p.corpo_padrao]);
-  useRascunho(corpo !== (p.corpo_carta || p.corpo_padrao || ""));   // carta editada e ainda nao montada
+  useRascunho(podeEditar && !["enviado", "descartado"].includes(p.situacao)
+    && corpo.trim() !== (p.corpo_carta || p.corpo_padrao || "").trim());   // carta editada e ainda nao montada
 
   async function agir(f: () => Promise<ProtocoloDet | void>) {
     setOcupado(true); setErro("");

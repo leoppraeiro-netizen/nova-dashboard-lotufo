@@ -281,7 +281,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar }: { prot
       <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
-        aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }, { forcar: true }); }} />
+        aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>
   );

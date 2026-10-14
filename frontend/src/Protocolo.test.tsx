@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NovoProtocolo, ProtocolosDaMedicao } from "./Protocolo";
+import { ir } from "./rota";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
 vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
@@ -214,5 +215,24 @@ describe("Protocolo", () => {
       fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
       expect(await screen.findByText("Arquivo acima do limite de 10 MB")).toBeTruthy();
     });
+  });
+
+  // issue #27: carta editada pede confirmação; protocolo enviado não prende a tela
+  it("carta editada pede confirmação ao sair; protocolo enviado não prende a tela", () => {
+    window.history.replaceState(null, "", "/obras/1/medicoes/5");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const tela = (situacao: string) => (
+      <ProtocolosDaMedicao contratoId={1} medicaoId={5} dados={{ ...LISTA, protocolos: [{ ...PROT, situacao }] }}
+        carregar={async () => {}} podeEditar aoMudar={() => {}} />);
+    const { rerender } = render(tela("rascunho"));
+    fireEvent.change(document.getElementById("carta-9")!, { target: { value: "Texto alterado  " } });
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/obras/1/medicoes/5");
+    rerender(tela("enviado"));
+    ir({ tela: "avisos" });
+    expect(confirmar).toHaveBeenCalledTimes(1);
+    expect(window.location.pathname).toBe("/avisos");
+    vi.restoreAllMocks();
   });
 });
