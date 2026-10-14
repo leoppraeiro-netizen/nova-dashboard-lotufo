@@ -157,8 +157,8 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
 
   const total = lista?.length ?? 0;
   const altura = rolavel.current?.clientHeight || ALTURA_PADRAO;
-  const ini = Math.max(0, Math.floor(rolagem / ALTURA_LINHA) - FOLGA_LINHAS);
-  const fim = Math.min(total, Math.ceil((rolagem + altura) / ALTURA_LINHA) + FOLGA_LINHAS);
+  const ini = Math.max(0, rolagem - FOLGA_LINHAS);
+  const fim = Math.min(total, rolagem + Math.ceil(altura / ALTURA_LINHA) + FOLGA_LINHAS);
   const visiveis = lista ? lista.slice(ini, fim) : [];
 
   const alternar = (e: string) => setEscolhidos(v => v.includes(e) ? v.filter(x => x !== e) : [...v, e]);
@@ -194,7 +194,7 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
         <div className="ol-modal__corpo">
           <input className="ol-busca" type="search" autoFocus placeholder="Pesquisar contatos…" aria-label="Pesquisar contatos"
             autoComplete="off" spellCheck={false} value={busca} onChange={e => setBusca(e.target.value)} />
-          <div className="ol-tabela-wrap" ref={rolavel} onScroll={ev => setRolagem(ev.currentTarget.scrollTop)}>
+          <div className="ol-tabela-wrap" ref={rolavel} onScroll={ev => setRolagem(Math.floor(ev.currentTarget.scrollTop / ALTURA_LINHA))}>
             <table className="ol-tabela">
               <thead><tr><th aria-label="Escolher" /><th>Nome</th><th>Email</th></tr></thead>
               <tbody>

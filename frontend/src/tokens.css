@@ -1428,14 +1428,14 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
 .ol-busca { border: 1px solid #d1d1d1; border-radius: 4px; padding: 6px 10px; font: inherit; }
 .ol-busca:focus { outline: 2px solid #0f6cbd; outline-offset: -1px; }
 .ol-tabela-wrap { overflow: auto; min-height: 0; overscroll-behavior: contain; }
-.ol-tabela { width: 100%; border-collapse: collapse; }
+.ol-tabela { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ol-tabela th:first-child { width: 40px; }
 .ol-tabela th { position: sticky; top: 0; background: #fff; text-align: left; font-weight: 400; color: #424242;
   padding: 6px 8px; border-bottom: 1px solid #e1dfdd; }
 .ol-tabela td { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
 .ol-tabela tbody tr { cursor: pointer; }
 .ol-tabela tbody tr.ol-linha-fixa { height: 48px; box-sizing: border-box; }
-.ol-tabela tbody tr.ol-linha-fixa td { padding-top: 0; padding-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
-.ol-tabela tbody tr.ol-linha-fixa td:first-child { max-width: none; }
+.ol-tabela tbody tr.ol-linha-fixa td { padding-top: 0; padding-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ol-tabela tbody tr:hover { background: #f5f5f5; }
 .ol-pessoa { display: flex; align-items: center; gap: 10px; }
 .ol-pessoa > span:last-child { display: grid; }
