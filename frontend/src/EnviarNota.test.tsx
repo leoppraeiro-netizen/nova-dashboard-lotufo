@@ -112,4 +112,22 @@ describe("Enviar a nota", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remover justificativa.pdf" }));
     expect(screen.getByText("O texto do e-mail que você editou será montado de novo.")).toBeTruthy();
   });
+
+  it("a lixeira do e-mail editado pergunta antes de sair da tela (issue #27)", async () => {
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
+    window.history.replaceState(null, "", "/notas/envio/3");
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<EnviarNota protocoloId={3} podeEditar />);
+    fireEvent.change(await screen.findByLabelText("Assunto"), { target: { value: "Outro" } });
+    // #28: a lixeira pergunta na própria janela do e-mail; confirmado, sai sem a segunda pergunta do navegador
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    fireEvent.click(screen.getByRole("button", { name: "Continuar escrevendo" }));
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar o e-mail" }));
+    expect(confirmar).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/medicoes/enviar-nota");
+    vi.restoreAllMocks();
+  });
 });

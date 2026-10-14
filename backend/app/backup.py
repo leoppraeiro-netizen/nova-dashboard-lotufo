@@ -107,7 +107,8 @@ def criar_snapshot(origem_db: Path, pasta_destino: Path) -> Path:
         raise
     parcial.replace(destino)  # rename atomico no mesmo volume
 
-    antigos = sorted(pasta_destino.glob(PADRAO))
+    # So os horarios (dashboard-AAAAMMDD-HHMMSS.db): os PRE-* nao entram na conta nem sao apagados.
+    antigos = sorted(a for a in pasta_destino.glob(PADRAO) if _NOME.match(a.name))
     for velho in antigos[:-MANTER] if len(antigos) > MANTER else []:
         velho.unlink()
     return destino

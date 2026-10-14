@@ -4,7 +4,7 @@ import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { mensagem } from "./NotasAEnviar";
 import Rolagem from "./Rolagem";
-import { Link } from "./rota";
+import { Link } from "./Link";
 import Selo from "./Selo";
 import { fmtData, fmtDataPura } from "./tempo";
 import "./notas.css";

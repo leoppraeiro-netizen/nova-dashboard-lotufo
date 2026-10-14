@@ -220,7 +220,9 @@ def test_filtro_que_nao_sabemos_desfazer_fica_com_o_subprocesso():
         leitura_pdf.com_limite(pdf, "texto")     # 200
     except ValueError:                           # TextoInadequado ou pypdf: 422
         pass
-    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 3
+    # folga larga: com a CPU freada (13% sob carga) so' abrir o subprocesso leva segundos;
+    # o que o teste prova e' que termina, nao que termina rapido (issue #19)
+    assert time.perf_counter() - inicio < leitura_pdf.TEMPO_LIMITE_S + 20
 
 
 def test_com_limite_devolve_o_mesmo_que_a_leitura_no_processo():
@@ -263,6 +265,65 @@ def test_leitura_sem_vaga_e_recusada_dentro_do_orcamento(monkeypatch):
         leitura_pdf._VAGAS.release()
     assert "demais em andamento" in str(e.value)
     assert 0.4 <= gasto < 3.0, gasto      # esperou o orcamento, e so' ele
+
+
+def test_filho_que_morre_sem_responder_nao_deixa_handle_nem_vaga(monkeypatch):
+    """Dívida da fase 3: o filho morto sem resposta vira recusa, o cano e o processo são fechados
+    (proc.close) e a vaga volta -- senão cada morte vazaria um handle e, em duas, travaria a fila."""
+    import multiprocessing
+    fechados = []
+    real = multiprocessing.get_context("spawn")
+
+    class Rastreado:
+        """Embrulha o Process real (que o spawn precisa picklar inteiro) so' para ver o close."""
+        def __init__(self, **kw):
+            self._p = real.Process(**kw)
+        def close(self):
+            fechados.append(self._p.pid)
+            self._p.close()
+        def __getattr__(self, nome):
+            return getattr(self._p, nome)
+
+    class Contexto:
+        Pipe = staticmethod(real.Pipe)
+        Process = Rastreado
+
+    monkeypatch.setattr(leitura_pdf.multiprocessing, "get_context", lambda _: Contexto())
+    for _ in range(3):
+        with pytest.raises(leitura_pdf.TextoInadequado) as e:
+            leitura_pdf.com_limite(b"%PDF-1.4", "morrer")
+        assert "falhou" in str(e.value)
+    assert len(fechados) == 3
+    assert multiprocessing.active_children() == []
+    assert leitura_pdf._VAGAS.acquire(timeout=1) and leitura_pdf._VAGAS.acquire(timeout=1)
+    leitura_pdf._VAGAS.release()
+    leitura_pdf._VAGAS.release()
+
+
+def test_spawn_que_falha_fecha_as_duas_pontas_do_cano_e_devolve_a_vaga(monkeypatch):
+    pontas = []
+
+    class Cano:
+        def __init__(self):
+            self.fechado = False
+        def close(self):
+            self.fechado = True
+
+    class Contexto:
+        def Pipe(self, duplex=False):
+            par = (Cano(), Cano())
+            pontas.extend(par)
+            return par
+        def Process(self, **_):
+            raise OSError("sem handle")
+
+    monkeypatch.setattr(leitura_pdf.multiprocessing, "get_context", lambda _: Contexto())
+    with pytest.raises(OSError):
+        leitura_pdf.com_limite(b"%PDF-1.4", "texto")
+    assert len(pontas) == 2 and all(p.fechado for p in pontas)
+    assert leitura_pdf._VAGAS.acquire(timeout=1) and leitura_pdf._VAGAS.acquire(timeout=1)
+    leitura_pdf._VAGAS.release()
+    leitura_pdf._VAGAS.release()
 
 
 def test_erro_do_pypdf_no_filho_vira_valueerror_no_pai():

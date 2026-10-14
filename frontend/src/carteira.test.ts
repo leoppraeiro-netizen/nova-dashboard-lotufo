@@ -5,15 +5,15 @@ const o = (seq: number, farol: Farol): ObraCarteira => ({ contrato_id: 100 + seq
 const m = (texto: string): Motivo => ({ tipo: "pagamento_atrasado", nivel: "acao", dias: 60, valor_centavos: null, texto });
 
 describe("carteira", () => {
-  const obras = [o(1, "amarelo"), o(2, "verde"), o(3, "vermelho"), o(4, "amarelo"), o(5, "vermelho"), o(6, "amarelo"), o(7, "amarelo")];
+  const obras = [o(1, "atencao"), o(2, "verde"), o(3, "vermelho"), o(4, "acao"), o(5, "vermelho"), o(6, "atencao"), o(7, "acao")];
 
   it("o QDOP pelo farol, e no mesmo farol a ordem oficial (seq)", () => {
-    expect(porFarol(obras).map(x => x.seq)).toEqual([3, 5, 1, 4, 6, 7, 2]);
+    expect(porFarol(obras).map(x => x.seq)).toEqual([3, 5, 4, 7, 1, 6, 2]);
   });
 
   it("obras com problema: sem as verdes, até 5, com o total", () => {
     const r = obrasComProblema(obras);
-    expect(r.itens.map(x => x.seq)).toEqual([3, 5, 1, 4, 6]);
+    expect(r.itens.map(x => x.seq)).toEqual([3, 5, 4, 7, 1]);
     expect(r.total).toBe(6);
   });
 

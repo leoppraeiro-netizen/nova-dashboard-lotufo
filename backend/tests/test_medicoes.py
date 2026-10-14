@@ -2,6 +2,7 @@ import json
 
 import pytest
 from app import auditoria, auth, contratos, db, medicoes
+from tests.apoio_corrida import ConexaoComCorrida
 
 @pytest.fixture
 def conn(tmp_path, monkeypatch):
@@ -187,33 +188,6 @@ def test_auditoria_registrada(conn, contrato_id):
     assert "medicao.criar" in acoes
 
 
-class _CursorMaterializado:
-    """Cursor ja lido: devolve as linhas capturadas antes da corrida."""
-    def __init__(self, linhas):
-        self._linhas = linhas
-    def fetchone(self):
-        return self._linhas[0] if self._linhas else None
-    def fetchall(self):
-        return self._linhas
-
-class _ConexaoComCorrida:
-    """Conexao que devolve a checagem de duplicidade JA OBSOLETA (nao viu a corrida).
-
-    Reproduz de forma deterministica a corrida real de duas requisicoes criando a
-    mesma (contrato, numero, tipo): o SELECT de cortesia nao ve nada, e quem decide
-    e' o UNIQUE do schema no INSERT. Desde a fase 3 a mutacao inteira roda sob
-    BEGIN IMMEDIATE, entao a interferencia commita ANTES da chamada sob teste e o
-    que se injeta aqui e' a leitura antiga -- a assimetria provada e' a mesma.
-    """
-    def __init__(self, real, linhas_antigas):
-        self._real, self._linhas, self._armada = real, linhas_antigas, True
-    def execute(self, sql, params=()):
-        if self._armada and sql.lstrip().upper().startswith("SELECT ID FROM MEDICOES"):
-            self._armada = False
-            return _CursorMaterializado(self._linhas)
-        return self._real.execute(sql, params)
-    def __getattr__(self, nome):
-        return getattr(self._real, nome)
 
 def test_criar_perde_corrida_vira_erro_de_dominio(conn, contrato_id):
     """Perdedor da corrida recebe ValueError de dominio, nao IntegrityError crua (500)."""
@@ -226,7 +200,7 @@ def test_criar_perde_corrida_vira_erro_de_dominio(conn, contrato_id):
                   (contrato_id, 7, "execucao", "2026-07"))
     outro.commit()
     with pytest.raises(ValueError, match="já existe"):
-        medicoes.criar(_ConexaoComCorrida(conn, antigas), 1, dados)
+        medicoes.criar(ConexaoComCorrida(conn, antigas, "SELECT ID FROM MEDICOES", no_inicio=True), 1, dados)
     conn.rollback()
     assert len(medicoes.listar(conn, contrato_id)) == 1  # nada duplicado ficou gravado
     outro.close()

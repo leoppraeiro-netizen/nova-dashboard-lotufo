@@ -28,6 +28,22 @@ def test_rotacao_mantem_48(tmp_path):
     assert len(list(destino.glob("dashboard-*.db"))) == 48
 
 
+def test_rotacao_nao_conta_nem_apaga_backup_pre(tmp_path):
+    origem = tmp_path / "app.db"
+    sqlite3.connect(origem).execute("CREATE TABLE t (x)")
+    destino = tmp_path / "backups"; destino.mkdir()
+    for i in range(50):
+        (destino / f"dashboard-PRE-DEPLOY-{i:02d}.db").write_bytes(b"pre")
+    for i in range(48):
+        (destino / f"dashboard-20260101-{i:06d}.db").write_bytes(b"velho")
+    novo = backup.criar_snapshot(origem, destino)
+    horarios = [a for a in destino.glob("dashboard-*.db") if backup._NOME.match(a.name)]
+    assert len(horarios) == 48
+    assert novo.exists()
+    assert not (destino / "dashboard-20260101-000000.db").exists()  # o horario mais velho saiu
+    assert len(list(destino.glob("dashboard-PRE-*.db"))) == 50
+
+
 # --- snapshot atomico (revisao final: parcial nao pode expulsar backup bom) ----
 
 def test_tmp_nao_conta_na_rotacao_e_e_limpo(tmp_path):

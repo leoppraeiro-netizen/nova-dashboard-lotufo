@@ -1,5 +1,6 @@
 """Bloco 3: nota lida do PDF avanca a medicao; conferencia contra o espelho; vinculo manual com o RM."""
 import datetime
+import json
 import pathlib
 
 import pytest
@@ -89,6 +90,20 @@ def test_esperadas_sao_as_saidas_lotufo_do_espelho(conn, integra):
     assert sorted(e["valor"] for e in esp) == sorted(s["valor"] for s in saidas)
     assert all(e["nota_id"] is None for e in esp) and notas.faltam(conn, mid) == 2
     assert notas.coligada_esperada(conn, mid) == 1        # a nota esperada e' da empresa propria, nao do consorcio (90)
+
+
+def test_esperadas_trazem_o_rotulo_da_saida(conn, integra):
+    _, mid, _ = integra
+    esp = notas.esperadas(conn, mid)
+    assert esp and all(e["rotulo"] == "Medição" for e in esp)       # sem rotulo no espelho, o da natureza
+    # rotulo proprio da saida (espelho) vence o da natureza
+    row = conn.execute("SELECT e.id, e.saidas FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+                       "WHERE em.medicao_id=? AND e.situacao='vigente'", (mid,)).fetchone()
+    saidas = json.loads(row["saidas"])
+    for sd in saidas:
+        sd["rotulo"] = "Medição 12"
+    conn.execute("UPDATE espelhos SET saidas=? WHERE id=?", (json.dumps(saidas), row["id"]))
+    assert all(e["rotulo"] == "Medição 12" for e in notas.esperadas(conn, mid))
 
 
 def test_pdf_lido_vincula_confere_e_nao_fecha_enquanto_falta_nota(conn, usuario, integra, _texto):

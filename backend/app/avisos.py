@@ -65,7 +65,7 @@ def _de_notas(conn, hoje: datetime.date) -> list[dict]:
         dias = a.get("dias")
         # A2 (mapa de 2026-09-28): a medicao da nota, para o aviso levar as notas DELA, e nao a obra toda.
         out.append({**aviso(a["tipo"], _NIVEL_NOTA.get(a["tipo"], "atencao"),
-                            f"{nome}: {a['mensagem']}" if nome else a["mensagem"], cid, nome, dias=dias,
+                            a["mensagem"], cid, nome, dias=dias,
                             destino={"tela": "contrato", "id": cid, "aba": "notas"} if cid else None,
                             data=(hoje - datetime.timedelta(days=dias)).isoformat() if dias is not None else None,
                             sentido="desde" if dias is not None else None),
@@ -96,9 +96,18 @@ def listar(conn, hoje: datetime.date | None = None, publico: str = "operacao") -
     todos = [a for fonte in FONTES for a in fonte(conn, hoje)]
     if publico != "todos":
         todos = [a for a in todos if publico in a["publico"]]
-    # nivel; depois dias crescente (vencido ha mais tempo tem dias mais negativo e vem antes); sem dias, no fim
-    return sorted(todos, key=lambda a: (_ORDEM[a["nivel"]], a["dias"] if a["dias"] is not None else 9999,
-                                        a["obra"] or ""))
+    # nivel; depois o mais atrasado primeiro (os piores no topo do nivel); sem data nem dias, no fim
+    return sorted(todos, key=lambda a: (_ORDEM[a["nivel"]], _chave_atraso(a, hoje), a["obra"] or ""))
+
+
+def _chave_atraso(a: dict, hoje: datetime.date):
+    """Atraso negado, para ordenar do pior ao menos grave. Com `data` (a do fato), o atraso e' hoje - data, o
+    mesmo nos dois sentidos (docstring do modulo); sem ela, `dias` conta desde o fato ("desde") ou ate' o prazo (negativo = vencido)."""
+    if a["data"]:
+        return (0, -(hoje - datetime.date.fromisoformat(a["data"][:10])).days)
+    if a["dias"] is not None:
+        return (0, -a["dias"] if a["sentido"] == "desde" else a["dias"])
+    return (1, 0)
 
 
 def _mes(d: datetime.date) -> str:

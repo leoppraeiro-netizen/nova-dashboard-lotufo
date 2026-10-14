@@ -347,16 +347,31 @@ def painel(conn: sqlite3.Connection) -> list[dict]:
     # do relogio por resposta e' o mesmo criterio de `ultima_emissao` logo abaixo.
     hoje_iso = hoje.isoformat()
     todos_tipos = tipos(conn)
+    # UMA leitura do historico inteiro, agrupada por par (sem N+1: eram ate' tres SELECTs por
+    # par entidade x tipo). As tres perguntas abaixo repetem, em Python, o filtro e a ordem de
+    # `vigente`, `nao_se_aplica_vigora` e `ultima_emissao` -- os testes comparam as duas formas.
+    por_par: dict[tuple, list[dict]] = {}
+    for r in conn.execute("SELECT * FROM certidoes ORDER BY id"):
+        por_par.setdefault((r["entidade_id"], r["tipo_id"]), []).append(dict(r))
     out = []
     for e in entidades.listar(conn):
         for t in todos_tipos:
-            v = vigente(conn, e["id"], t["id"], na_data=hoje_iso)
-            nsa = nao_se_aplica_vigora(conn, e["id"], t["id"])
+            linhas = por_par.get((e["id"], t["id"]), [])
+            cobrem = [
+                l for l in linhas
+                if (l["estado"] == "vigente"
+                    or (l["estado"] in ("revogada", "nao_se_aplica")
+                        and l["estado_em"] is not None and l["estado_em"] > hoje_iso))
+                and l["emissao"] <= hoje_iso and l["validade"] >= hoje_iso]
+            v = max(cobrem, key=lambda l: (l["validade"], l["emissao"], l["id"])) if cobrem else None
+            nsa = bool(linhas) and linhas[-1]["estado"] == "nao_se_aplica"
             # So' faz sentido perguntar pela ultima vencida quando nao ha vigente: com
             # cobertura hoje, o que a matriz mostra e' a certidao que vale. Ela vem
             # para TODO par sem cobertura -- inclusive o cinza 'nao_cobrada' --, porque
             # e' informacao ("a ultima venceu em 13/08"), nao veredito.
-            ultima = None if v else ultima_emissao(conn, e["id"], t["id"], hoje_iso)
+            vencidas = [] if v else [l for l in linhas
+                                     if l["estado"] == "vigente" and l["validade"] < hoje_iso]
+            ultima = vencidas[-1] if vencidas else None
             dias = None
             motivo = None
             if v:

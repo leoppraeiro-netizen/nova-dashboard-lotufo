@@ -1,4 +1,6 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { api } from "./api";
 import ErroCampo from "./ErroCampo";
 import { fmtTamanho as tamanho } from "./formato";
@@ -233,6 +235,7 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
   const [nomes, setNomes] = useState<Map<string, string | null>>(new Map());
   const [assinatura, setAssinatura] = useState<"carregando" | "sim" | "nao">("carregando");
   const versao = useMemo(() => Date.now(), []);
+  useRascunho(JSON.stringify(m) !== JSON.stringify(inicial));   // e-mail editado e ainda nao enviado
 
   useEffect(() => {
     buscar<{ remetente: string | null }>("/api/correio/remetente").then(r => setRemetente(r.remetente)).catch(() => setRemetente(null));
@@ -264,8 +267,12 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
     else setConfirmarDescarte(true);
   }
   function confirmarDescartar() {
-    setConfirmarDescarte(false);
-    setM(inicial); setComCco(inicial.cco.length > 0); setTentou(false);
+    // flushSync: o e-mail volta ao que abriu e solta a marca de rascunho ANTES de quem abriu navegar; senao o
+    // roteador ainda o veria sujo e perguntaria de novo o que a pessoa acabou de confirmar.
+    flushSync(() => {
+      setConfirmarDescarte(false);
+      setM(inicial); setComCco(inicial.cco.length > 0); setTentou(false);
+    });
     aoDescartar();
   }
 

@@ -117,6 +117,7 @@ def resumo(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict:
     enviado = _d(p["enviado_em"]) if p else None
     return {"dias_execucao": s["dias_execucao"], "dias_vigencia": s["dias_vigencia"],
             "vigencia_automatica": s["vigencia_automatica"],
+            "paralisada_desde": s["paralisacao"]["desde"] if s["paralisacao"] else None,
             "pedido_prorrogacao": {"enviado_em": p["enviado_em"][:10], "numero_oficio": p.get("numero_oficio"),
                                    "dias": (hoje - enviado).days if enviado else None} if p else None}
 
@@ -154,14 +155,14 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
             if not s["encerramento"]["conclusao_comunicada"] and desde:
                 dias = (hoje - desde).days
                 out.append(_av.aviso("conclusao_nao_comunicada", "acao",
-                                     f"{nome}: em encerramento desde {_br(s['encerramento']['desde'])} "
+                                     f"em encerramento desde {_br(s['encerramento']['desde'])} "
                                      f"({dias} dias); conclusão não comunicada",
                                      cid, nome, dias=dias, destino=destino,
                                      data=desde.isoformat(), sentido="desde"))
             continue
         if s["paralisacao"]:
             out.append(_av.aviso("obra_paralisada", "atencao",
-                                 f"{nome}: paralisada desde {_br(s['paralisacao']['desde'])}", cid, nome,
+                                 f"paralisada desde {_br(s['paralisacao']['desde'])}", cid, nome,
                                  publico=("diretoria",), destino=destino,
                                  data=s["paralisacao"]["desde"], sentido="desde"))
         else:
@@ -169,7 +170,7 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
             if s["pedido"]:
                 desde = (hoje - (_d(s["pedido"]["enviado_em"]) or hoje)).days
                 vencida = dias is not None and dias < 0
-                msg = (f"{nome}: prorrogação pedida em {_br(s['pedido']['enviado_em'])} "
+                msg = (f"prorrogação pedida em {_br(s['pedido']['enviado_em'])} "
                        f"({s['pedido']['numero_oficio']}); instrumento pendente há {desde} dias")
                 if vencida:
                     msg += f"; execução vencida há {-dias} dias"
@@ -178,22 +179,22 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
                                      destino=destino, data=s["execucao_fim"], sentido="prazo"))
             elif dias is not None and dias < 0:
                 out.append(_av.aviso("instrumento_pendente", "critico",
-                                     f"{nome}: execução vencida há {-dias} dias, sem pedido de prorrogação",
+                                     f"execução vencida há {-dias} dias, sem pedido de prorrogação",
                                      cid, nome, dias=dias, publico=("operacao", "diretoria"), destino=destino,
                                      data=s["execucao_fim"], sentido="prazo"))
             elif dias is not None and dias <= DIAS_EXECUCAO:
                 out.append(_av.aviso("execucao_vencendo", "critico" if dias <= DIAS_CRITICO else "atencao",
-                                     f"{nome}: execução termina em {dias} dias ({_br(s['execucao_fim'])})",
+                                     f"execução termina em {dias} dias ({_br(s['execucao_fim'])})",
                                      cid, nome, dias=dias, destino=destino, data=s["execucao_fim"], sentido="prazo"))
         if not s["vigencia_automatica"] and s["dias_vigencia"] is not None and s["dias_vigencia"] <= DIAS_VIGENCIA:
             dv = s["dias_vigencia"]
             out.append(_av.aviso("vigencia_vencendo", "critico" if dv <= DIAS_CRITICO else "atencao",
-                                 f"{nome}: vigência termina em {dv} dias ({_br(s['vigencia_fim'])})" if dv >= 0
-                                 else f"{nome}: vigência vencida há {-dv} dias ({_br(s['vigencia_fim'])})",
+                                 f"vigência termina em {dv} dias ({_br(s['vigencia_fim'])})" if dv >= 0
+                                 else f"vigência vencida há {-dv} dias ({_br(s['vigencia_fim'])})",
                                  cid, nome, dias=dv, destino=destino, data=s["vigencia_fim"], sentido="prazo"))
         if s["folga"]["quebrada"]:
             out.append(_av.aviso("folga_quebrada", "acao",
-                                 f"{nome}: execução até {_br(s['execucao_fim'])} e vigência até {_br(s['vigencia_fim'])}: "
+                                 f"execução até {_br(s['execucao_fim'])} e vigência até {_br(s['vigencia_fim'])}: "
                                  f"folga de {s['folga']['real']} dias, o órgão pede {s['folga']['exigida']}",
                                  cid, nome, destino=destino))
         e = s["endosso"]
@@ -201,7 +202,7 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
             falta = ENDOSSO_PRAZO - e["dias"]
             quando = f"vence em {falta} dias" if falta >= 0 else f"atrasado {-falta} dias"
             out.append(_av.aviso("endosso_garantia", "atencao" if falta >= 0 else "acao",
-                                 f"{nome}: endosso do seguro-garantia do {e['instrumento']} "
+                                 f"endosso do seguro-garantia do {e['instrumento']} "
                                  f"(assinado em {_br(e['assinado_em'])}) {quando}", cid, nome, dias=falta,
                                  destino=destino, data=(hoje + datetime.timedelta(days=falta)).isoformat(),
                                  sentido="prazo"))
