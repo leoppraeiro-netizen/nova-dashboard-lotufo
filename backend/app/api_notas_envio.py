@@ -28,8 +28,9 @@ class EnviarIn(BaseModel):
     assunto: str = Field(min_length=1, max_length=300)
     corpo: str = Field(max_length=20000)
     justificativa: str | None = Field(default=None, max_length=2000)
-    # issue #100: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado
-    anexos: list[AnexoVistoIn] | None = Field(default=None, max_length=200)
+    # issue #100: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado.
+    # Obrigatorio (revisor na PR #141): sem a lista nao ha' o que conferir, e o e-mail nao sai sem conferencia
+    anexos: list[AnexoVistoIn] = Field(max_length=200)
 
 
 class NumeroIn(BaseModel):
@@ -75,7 +76,7 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
         eid = notas_envio.enviar(conn, {"id": usuario["id"], "email": usuario["email"]}, pid, _emails(dados.para),
                                  _emails(dados.copia), dados.assunto.strip(), dados.corpo, dados.justificativa,
                                  cco=_emails(dados.cco),
-                                 anexos_previa=None if dados.anexos is None else [a.model_dump() for a in dados.anexos])
+                                 anexos_previa=[a.model_dump() for a in dados.anexos])
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None

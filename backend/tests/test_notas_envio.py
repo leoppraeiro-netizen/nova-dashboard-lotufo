@@ -281,9 +281,7 @@ def test_certidao_vencida_bloqueia_com_409(api):
                                                     "medicao_ids": sinfra["medicao_ids"]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert d["bloqueio"] == "Certidão vencida — renove antes de enviar: Lotufo: federal vencida em 10/09/2026"
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={**{k: d["previa"][k] for k in ("para", "copia", "assunto",
-                                                                                       "corpo")},
-                                                       "justificativa": "mandar assim mesmo, urgente"})
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="mandar assim mesmo, urgente"))
     assert r.status_code == 409, r.text
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
 
@@ -296,7 +294,7 @@ def test_envio_pelo_simulador_vira_aguardando_pagamento(api, tmp_path):
     assert _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])[0]["protocolo_id"] == pid
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert d["etapa"] == "nota" and d["justificativa_obrigatoria"] is False
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")})
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
     assert r.status_code == 200, r.text
     enviado = json.loads(sorted((tmp_path / "sim" / "enviados").glob("*.json"))[0].read_text(encoding="utf-8"))
     assert "Regularidade mensal - Lotufo - 07-2026.pdf" in [a["nome"] for a in enviado["anexos"]]
@@ -376,7 +374,9 @@ def test_cobranca_sem_destinatario_no_cadastro_nao_envia(svc):
 # --- testes de quebra 10/10/2026: A-17 (Cco descartado) e A-18 (reajuste irmao fora do e-mail) ------
 
 def _corpo(d, **extra):
-    return {**{k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}, **extra}
+    # issue #100: o envio da nota leva sempre os anexos que a previa mostrou
+    vistos = [{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]
+    return {**{k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}, "anexos": vistos, **extra}
 
 
 def test_cco_do_envio_da_nota_chega_ao_email_e_ao_registro(api, tmp_path):
@@ -539,7 +539,7 @@ def test_numero_do_orgao_vazio_nao_apaga_no_envio_pelo_sistema(api):
         ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert cl.post(f"/api/notas/envio/{pid}/enviar",
-                   json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}).status_code == 200
+                   json=_corpo(d)).status_code == 200
     mid = ids["sinfra_exec"]
     assert cl.post(f"/api/notas/{mid}/numero-orgao", json={"numero": "X-1"}).status_code == 200
     for vazio in ("", "   "):
@@ -566,7 +566,7 @@ def _enviar_sinfra(cl, ids):
         ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert cl.post(f"/api/notas/envio/{pid}/enviar",
-                   json={k: d["previa"][k] for k in ("para", "copia", "assunto", "corpo")}).status_code == 200
+                   json=_corpo(d)).status_code == 200
     return pid
 
 
@@ -666,6 +666,17 @@ def test_nf_anexada_depois_da_previa_recusa_o_envio_da_nota_sem_reservar(api, tm
     assert not list((tmp_path / "sim").glob("enviados/*.json"))
     # a previa nova (com a FRC) envia
     d = cl.get(f"/api/notas/envio/{pid}").json()
-    r = cl.post(f"/api/notas/envio/{pid}/enviar",
-                json=_corpo(d, anexos=[{"nome": a["nome"], "tamanho": a["tamanho"]} for a in d["previa"]["anexos"]]))
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
     assert r.status_code == 200, r.text
+
+
+def test_envio_da_nota_sem_os_anexos_da_previa_e_recusado(api):
+    """Revisor adversarial na PR #141: sem a lista (aba aberta antes do deploy, chamada direta) nao envia sem conferir."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    corpo = _corpo(cl.get(f"/api/notas/envio/{pid}").json())
+    del corpo["anexos"]
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=corpo)
+    assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "anexos"]
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
