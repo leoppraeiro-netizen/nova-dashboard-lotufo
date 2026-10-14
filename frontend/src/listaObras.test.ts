@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filtrarObras, type ObraLista } from "./listaObras";
+import { filtrarObras, prazoDaObra, type ObraLista } from "./listaObras";
 
 const o = (id: number, nome: string, extra: Partial<ObraLista> = {}): ObraLista => ({
   id, orgao: "SINFRA", numero_instrumento: `${id}/2026`, nome_curto: nome, estado: "ativo", ...extra });
@@ -33,5 +33,16 @@ describe("lista de obras", () => {
     expect(filtrarObras(lista, { q: "mt-3" }).map(x => x.id)).toEqual([1]);
     expect(filtrarObras(lista, { q: "4/2026", todas: true }).map(x => x.id)).toEqual([4]);
     expect(filtrarObras(lista, { orgao: "SMS-VG" }).map(x => x.id)).toEqual([5]);
+  });
+});
+
+describe("prazo da obra paralisada", () => {
+  it("a data da paralisação vem da própria lista, também para obra suspensa sem aviso", () => {
+    const p = prazoDaObra(o(7, "Parada", { estado: "suspenso", paralisada_desde: "2026-02-01" }), []);
+    expect(p).toMatchObject({ paralisada: true, paralisadaDesde: "2026-02-01" });
+  });
+
+  it("obra sem paralisação não tem data", () => {
+    expect(prazoDaObra(o(8, "Andando"), []).paralisadaDesde).toBeNull();
   });
 });

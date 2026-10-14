@@ -117,6 +117,7 @@ def resumo(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict:
     enviado = _d(p["enviado_em"]) if p else None
     return {"dias_execucao": s["dias_execucao"], "dias_vigencia": s["dias_vigencia"],
             "vigencia_automatica": s["vigencia_automatica"],
+            "paralisada_desde": s["paralisacao"]["desde"] if s["paralisacao"] else None,
             "pedido_prorrogacao": {"enviado_em": p["enviado_em"][:10], "numero_oficio": p.get("numero_oficio"),
                                    "dias": (hoje - enviado).days if enviado else None} if p else None}
 
