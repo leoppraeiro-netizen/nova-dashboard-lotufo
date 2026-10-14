@@ -64,7 +64,7 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 
 - 2026-09-25 Pedido do Leonardo no teste da Etapa 3 (espelho ao faturamento): a janela de envio igual à do Outlook, com seleção de destinatários e assinatura. Feito: `ComporEmail.tsx` (espelho, protocolo e pleitos), Cco (migração 029), `GET /api/correio/contatos` (cadastro + diretório Microsoft), `GET /api/correio/remetente`, assinatura por usuário em Minha conta. Conferido no ambiente de teste (cópia da produção, e-mail simulado). De quebra, `.pilha` com `minmax(0, 1fr)`: a página da obra passava da largura da tela por causa da tabela de medições.
 - 2026-09-25 Pendente para o diretório nas sugestões: acrescentar `People.Read` e `User.ReadBasic.All` (delegadas) no aplicativo do Entra ID e cada pessoa "Conectar de novo". O corpo continua texto simples (parágrafos); formatação (negrito, cor) não entrou.
-- 2026-09-25 Gate Sol da branch: corrigidos o Cco de outra pessoa nas sugestões, o endereço digitado que ficava fora quando se clicava direto em Enviar, a assinatura fora do limite de tamanho e a auditoria da assinatura fora da transação. Fica: a imagem da assinatura é conferida só pelo cabeçalho (PNG/JPG); arquivo truncado passaria, mas quem sobe vê a prévia em Minha conta.
+- 2026-09-25 Gate Sol da branch: corrigidos o Cco de outra pessoa nas sugestões, o endereço digitado que ficava fora quando se clicava direto em Enviar, a assinatura fora do limite de tamanho e a auditoria da assinatura fora da transação.
 
 ## Conciliação dos recebidos (branch `conciliacao-recebidos`, 2026-09-25; sem gate Sol por decisão do Leonardo)
 
