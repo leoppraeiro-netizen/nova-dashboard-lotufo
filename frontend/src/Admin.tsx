@@ -87,15 +87,17 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
   const [status, setStatus] = useState<StatusRm | null>(null);
   const [erro, setErro] = useState("");
   const [rodando, setRodando] = useState(false);
+  const [concluida, setConcluida] = useState("");
 
   const carregar = () => api<StatusRm>("/api/rm/status").then(setStatus).catch(e => setErro(falhaDeCarga(e)));
   useEffect(() => { carregar(); }, []);
 
   async function sincronizar() {
-    setErro(""); setRodando(true);
+    setErro(""); setConcluida(""); setRodando(true);
     try {
       const r = await api<{ estado: string; erro?: string }>("/api/rm/sincronizar", { method: "POST" });
       if (r.estado === "failed") setErro(`A sincronização falhou: ${r.erro ?? "erro desconhecido"}`);
+      else if (r.estado === "success") setConcluida("Sincronização concluída.");
       await carregar();
       aoSincronizar();
     } catch (e) {
@@ -132,6 +134,7 @@ function Rm({ aoSincronizar }: { aoSincronizar: () => void }) {
       </div>
 
       {erro && <Erro texto={erro} />}
+      <div role="status">{concluida && !erro && <div className="cartao__corpo"><p className="campo__nota">{concluida}</p></div>}</div>
 
       {status && !status.configurado && (
         <div className="cartao__corpo">
