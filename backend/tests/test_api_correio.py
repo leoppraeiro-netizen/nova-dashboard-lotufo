@@ -1,5 +1,5 @@
 import pytest
-from app import api_correio, correio, graph
+from app import api_correio, graph
 
 
 class _ThreadParada:
