@@ -45,7 +45,13 @@ type Backup = { ultimo_backup: string | null; tamanho_bytes: number | null; guar
                 // *_erro: frase fixa em portugues (a excecao crua fica no log do servidor); *_erro_em: quando falhou
                 ultimo_snapshot: string | null; ultimo_snapshot_erro: string | null; ultimo_snapshot_erro_em: string | null;
                 ultima_copia_externa: string | null; ultima_copia_externa_erro: string | null;
-                ultima_copia_externa_erro_em: string | null };
+                ultima_copia_externa_erro_em: string | null;
+                // issue #55: copia de notas, espelhos, modelos e evidencias; aqui o *_erro ja' vem limpo do servidor
+                // (o que faltou, ou "rodando ha N horas sem terminar"), sem caminho
+                ultima_copia_arquivos?: string | null; ultima_copia_arquivos_erro?: string | null;
+                ultima_copia_arquivos_erro_em?: string | null;
+                ultima_copia_externa_arquivos?: string | null; ultima_copia_externa_arquivos_erro?: string | null;
+                ultima_copia_externa_arquivos_erro_em?: string | null };
 
 const ROTULO_ESTADO_RODADA: Record<string, string> = { success: "OK", failed: "Falhou", running: "Rodando" };
 // A auditoria chega em paginas dos mais recentes; "Carregar mais" traz as anteriores e os filtros correm sobre
@@ -283,7 +289,8 @@ function Backup() {
   useEffect(() => {
     api<Backup>("/api/admin/backup").then(setB).catch(() => setB(null));
   }, []);
-  const falhou = !!b && (b.atrasado || !!b.ultimo_snapshot_erro || !!b.ultima_copia_externa_erro);
+  const falhou = !!b && (b.atrasado || !!b.ultimo_snapshot_erro || !!b.ultima_copia_externa_erro
+    || !!b.ultima_copia_arquivos_erro || !!b.ultima_copia_externa_arquivos_erro);
   return (
     <section className="cartao" aria-labelledby="titulo-backup">
       <div className="cartao__cabeca">
@@ -310,8 +317,15 @@ function Backup() {
               {/* sem pasta externa configurada nao ha copia a esperar: a linha so' confundiria */}
               {(b.copia_externa_configurada || b.ultima_copia_externa_erro) &&
                 <LinhaBackup rotulo="Última cópia externa" em={b.ultima_copia_externa} erro={b.ultima_copia_externa_erro} erroEm={b.ultima_copia_externa_erro_em} nenhum="nenhuma desde que o servidor subiu" />}
+              {/* issue #55: notas, espelhos, modelos e evidencias; a externa so' com pasta externa (como a do banco) */}
+              <LinhaBackup rotulo="Última cópia dos arquivos" em={b.ultima_copia_arquivos ?? null} erro={b.ultima_copia_arquivos_erro ?? null}
+                erroEm={b.ultima_copia_arquivos_erro_em ?? null} nenhum="nenhuma desde que o servidor subiu" />
+              {(b.copia_externa_configurada || b.ultima_copia_externa_arquivos_erro) &&
+                <LinhaBackup rotulo="Última cópia externa dos arquivos" em={b.ultima_copia_externa_arquivos ?? null}
+                  erro={b.ultima_copia_externa_arquivos_erro ?? null} erroEm={b.ultima_copia_externa_arquivos_erro_em ?? null}
+                  nenhum="nenhuma desde que o servidor subiu" />}
               {/* atrasado sem erro registrado (thread parada, servidor recem-reiniciado): "nenhum erro" desmentiria o alerta */}
-              {!b.atrasado && !b.ultimo_snapshot_erro && !b.ultima_copia_externa_erro && <p>Último erro: nenhum desde que o servidor subiu.</p>}
+              {!falhou && <p>Último erro: nenhum desde que o servidor subiu.</p>}
             </>}
       </div>
     </section>

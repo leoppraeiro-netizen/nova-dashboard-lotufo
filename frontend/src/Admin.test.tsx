@@ -145,3 +145,32 @@ test("Saúde: sem nenhum backup guardado também é atraso em destaque", async (
   expect(screen.queryByText(/Último erro: nenhum/)).toBeNull();
   expect(screen.queryByText(/Última cópia externa/)).toBeNull();
 });
+
+// Issue #55: o backup passou a copiar as pastas de notas, espelhos, modelos e evidências; a falha dessa cópia
+// tem de aparecer na tela, senão o selo diz OK com os arquivos sem cópia
+test("Backup: cópia dos arquivos em dia aparece; a falha dela vira Falhou e tira o 'nenhum erro'", async () => {
+  saudeCom({ ...BACKUP_EM_DIA, ultima_copia_arquivos: "2026-10-13T07:31:00-04:00",
+             ultima_copia_externa_arquivos: "2026-10-13T07:35:00-04:00" });
+  expect(await screen.findByText(/Última cópia dos arquivos: 13\/10\/2026 às 07:31/)).toBeTruthy();
+  expect(screen.getByText(/Última cópia externa dos arquivos: 13\/10\/2026 às 07:35/)).toBeTruthy();
+  expect(screen.getByText(/Último erro: nenhum/)).toBeTruthy();
+  cleanup();
+  saudeCom({ ...BACKUP_EM_DIA, ultima_copia_arquivos_erro_em: "2026-10-13T10:00:00-04:00",
+             ultima_copia_arquivos_erro: "1 arquivo(s) sem cópia: notas/x.pdf (disco cheio)" });
+  expect(await screen.findByText(/Última cópia dos arquivos: a última tentativa, em 13\/10\/2026 às 10:00, falhou/)).toBeTruthy();
+  expect(screen.getByText(/disco cheio/)).toBeTruthy();
+  expect(screen.getByText("Falhou")).toBeTruthy();
+  expect(screen.queryByText(/Último erro: nenhum/)).toBeNull();
+});
+
+// Revisão da #142: a cópia dos arquivos para fora pode não terminar; aparece, e só existe com pasta externa
+test("Backup: cópia externa dos arquivos que não termina aparece; sem pasta externa a linha some", async () => {
+  saudeCom({ ...BACKUP_EM_DIA, ultima_copia_externa_arquivos_erro: "a cópia está rodando há 3 horas sem terminar" });
+  expect(await screen.findByText(/Última cópia externa dos arquivos: a última tentativa falhou/)).toBeTruthy();
+  expect(screen.getByText(/rodando há 3 horas sem terminar/)).toBeTruthy();
+  expect(screen.getByText("Falhou")).toBeTruthy();
+  cleanup();
+  saudeCom({ ...BACKUP_EM_DIA, copia_externa_configurada: false });
+  expect(await screen.findByText(/Última cópia dos arquivos: nenhuma/)).toBeTruthy();
+  expect(screen.queryByText(/Última cópia externa dos arquivos/)).toBeNull();
+});
