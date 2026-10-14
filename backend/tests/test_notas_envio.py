@@ -418,15 +418,15 @@ def _sem_registro(c, mid):
 
 def test_registro_por_fora_que_perde_a_corrida_nao_grava_nada(api, monkeypatch):
     """Revisor da PR #178 (aviso 1): o estado e' conferido de novo dentro da transacao. Aqui outro registro protocola
-    o reajuste enquanto o .eml e' gravado; sem a nova conferencia, sairia um segundo protocolo e uma segunda auditoria."""
+    o reajuste enquanto o .eml e' conferido; sem a nova conferencia, sairia um segundo protocolo e uma segunda
+    auditoria. Gate Sol S2: a recusa tambem nao deixa o .eml gravado."""
     cl, c, ids = api
-    gravar = arquivos.gravar_bytes
+    conferir, antes = notas_envio._e_email, _evidencias()
 
-    def gravar_e_perder(*a, **k):
-        r = gravar(*a, **k)
+    def conferir_e_perder(dados):
         c.execute("UPDATE medicoes SET estado='protocolada' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
-        return r
-    monkeypatch.setattr(arquivos, "gravar_bytes", gravar_e_perder)
+        return conferir(dados)
+    monkeypatch.setattr(notas_envio, "_e_email", conferir_e_perder)
     r = cl.post("/api/notas/envio-externo",
                 data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])], "enviado_em": "2026-09-15",
                       "observacao": "Pelo Outlook"}, files={"eml": ("envio.eml", EML, "message/rfc822")})
@@ -434,20 +434,21 @@ def test_registro_por_fora_que_perde_a_corrida_nao_grava_nada(api, monkeypatch):
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
     _sem_registro(c, ids["sinfra_exec"]); _sem_registro(c, ids["sinfra_reaj"])
     assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+    assert _evidencias() == antes
 
 
 def test_dois_registros_por_fora_simultaneos_da_mesma_irma_um_passa(api, monkeypatch):
     """Regra da casa para envio: dois POST simultaneos = 1x200 e 1x422. Os dois passam da primeira conferencia (a
-    barreira segura os dois na gravacao do .eml); so' um protocola a irma."""
+    barreira segura os dois na conferencia do .eml, antes da transacao); so' um protocola a irma."""
     import threading
     cl, c, ids = api
     c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
-    gravar, largada = arquivos.gravar_bytes, threading.Barrier(2)
+    conferir, largada = notas_envio._e_email, threading.Barrier(2)
 
-    def gravar_junto(*a, **k):
+    def conferir_junto(dados):
         largada.wait(timeout=10)
-        return gravar(*a, **k)
-    monkeypatch.setattr(arquivos, "gravar_bytes", gravar_junto)
+        return conferir(dados)
+    monkeypatch.setattr(notas_envio, "_e_email", conferir_junto)
     pedidos = [{"medicao_ids": [str(ids["sinfra_exec"])], "irma_ids": [str(ids["sinfra_reaj"])]},
                {"medicao_ids": [str(ids["sinfra_reaj"])]}]
     respostas = []
@@ -505,6 +506,27 @@ def test_registro_por_fora_recusa_irma_na_mtpar(api):
                                                  "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
     assert r.status_code == 422 and "registre-a no envio dela" in r.json()["detail"]
     _sem_registro(c, ids["mtpar_exec"])
+
+
+def test_registro_por_fora_so_aceita_varias_medicoes_que_formam_um_envio(api):
+    """Gate Sol S1 (PR #178): o cliente nao contorna a conferencia da irma pondo-a entre as medicoes do envio."""
+    cl, c, ids = api
+    mt = [str(ids["mtpar_exec"]), str(ids["mtpar_reaj"])]
+    for dados in ({"medicao_ids": mt},                              # MTPAR tramita separado: nunca um envio so'
+                  {"medicao_ids": mt, "irma_ids": [mt[1]]}):        # nas duas listas
+        r = cl.post("/api/notas/envio-externo", data={**dados, "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"},
+                    files={"eml": ("envio.eml", EML, "message/rfc822")})
+        assert r.status_code == 422, r.text
+    assert c.execute("SELECT COUNT(*) FROM medicoes WHERE estado='protocolada'").fetchone()[0] == 0
+    # SINFRA com o reajuste em envio proprio montado: medicao e reajuste ja' nao sao um envio
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, 1, ids["sinfra"], [ids["sinfra_reaj"]])
+    c.execute("UPDATE protocolos SET situacao='montado' WHERE id=?", (pid,)); c.commit()
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "não vão no mesmo envio" in r.json()["detail"]
+    _sem_registro(c, ids["sinfra_exec"]); _sem_registro(c, ids["sinfra_reaj"])
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
 
 
 def test_irma_no_mesmo_envio_nao_e_oferecida_de_novo(svc):

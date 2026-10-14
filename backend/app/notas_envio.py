@@ -193,6 +193,19 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
 
 # --- lista -----------------------------------------------------------------------------------------
 
+def _agrupar(conn, familia: str, regras: dict, o: dict, ms: list[dict]) -> dict[tuple, list[dict]]:
+    """Os envios de um contrato: protocolo ja' iniciado manda; senao a regra do orgao (competencia ou um por medicao).
+    Tambem confere, no registro por fora, que as medicoes pedidas sao um envio da lista (gate Sol S1, PR #178)."""
+    etapa = _etapa(familia)
+    junta = protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, etapa))
+    grupos: dict[tuple, list[dict]] = {}
+    for m in ms:
+        ativos = _ativos(conn, etapa, m["id"])
+        k = ("p", ativos[0]["id"]) if ativos else ("c", m["competencia"]) if junta else ("m", m["id"])
+        grupos.setdefault(k, []).append(m)
+    return grupos
+
+
 def a_enviar(conn, hoje: datetime.date | None = None) -> dict:
     hoje = hoje or tempo.hoje_local()
     por_contrato: dict[int, list[dict]] = {}
@@ -204,14 +217,7 @@ def a_enviar(conn, hoje: datetime.date | None = None) -> dict:
         if not c.get("orgao_id"):
             continue                          # sem orgao no cadastro nao ha para quem mandar
         familia, regras, o = protocolo._orgao(conn, c)
-        etapa = _etapa(familia)
-        junta = protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, etapa))
-        grupos: dict[tuple, list[dict]] = {}
-        for m in ms:                          # protocolo ja' iniciado manda; senao a regra do orgao
-            ativos = _ativos(conn, etapa, m["id"])
-            k = ("p", ativos[0]["id"]) if ativos else ("c", m["competencia"]) if junta else ("m", m["id"])
-            grupos.setdefault(k, []).append(m)
-        for k, gm in grupos.items():
+        for k, gm in _agrupar(conn, familia, regras, o, ms).items():
             envios.append(_envio(conn, c, familia, o, gm, k[1] if k[0] == "p" else None, hoje))
     contadores = {"Todas": len(envios)}
     for x in envios:
@@ -366,10 +372,17 @@ def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
         if any(p["envio_reservado_em"] for etapa in ("nota", "unico") for p in _ativos(conn, etapa, m["id"])):
             raise ValueError(f"{medicoes.titulo(m)} está sendo enviada pelo sistema agora: confira o envio dela "
                              "antes de registrar por fora")
-    if irmas:
+    principais = [m for m in ms if m["id"] not in irmas]
+    if len(principais) > 1 or irmas:
         c = protocolo._contrato(conn, ms[0]["contrato_id"])
-        familia, _, o = protocolo._orgao(conn, c)
-        principais = [m for m in ms if m["id"] not in irmas]
+        familia, regras, o = protocolo._orgao(conn, c)
+    if len(principais) > 1:
+        # gate Sol S1 (PR #178): varias medicoes so' como um envio da lista (o cliente nao escolhe o que junta)
+        grupos = _agrupar(conn, familia, regras, o, medicoes.em_andamento(conn, contrato_id=c["id"],
+                                                                          estado="nota_emitida"))
+        if sorted(m["id"] for m in principais) not in [sorted(m["id"] for m in g) for g in grupos.values()]:
+            raise ValueError("Estas medições não vão no mesmo envio: registre cada uma no envio dela")
+    if irmas:
         validas = {i["medicao_id"] for i in _irmas(conn, c, familia, o, principais, tempo.hoje_local())}
         for m in ms:
             if m["id"] in irmas and m["id"] not in validas:
@@ -381,10 +394,12 @@ def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
                   eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None) -> None:
     """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`)."""
-    irmas = set(irma_ids or []) - set(medicao_ids or [])
+    irmas = set(irma_ids or [])
     ids = sorted(set(medicao_ids or []) | irmas)
     if not set(medicao_ids or []):
         raise ValueError("Escolha ao menos uma medição")
+    if irmas & set(medicao_ids):                      # gate Sol S1 (PR #178): a irma nao vira "medicao do envio"
+        raise ValueError("A mesma medição veio como do envio e como irmã: abra o registro de novo")
     try:
         data = datetime.date.fromisoformat(enviado_em)
     except (TypeError, ValueError):
@@ -401,9 +416,10 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
             raise ValueError("Arquivo .eml acima de 25 MB")
         if not _e_email(eml[1]):
             raise ValueError(NAO_E_EML)
-        rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
     with db.mutacao(conn):
         ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
+        if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
+            rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
         for m in ms:
             medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
                                          protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
