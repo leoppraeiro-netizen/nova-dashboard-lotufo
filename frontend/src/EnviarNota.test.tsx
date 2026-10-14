@@ -191,15 +191,47 @@ describe("Enviar a nota", () => {
     });
   });
 
+  it("remover documento complementar ou link pede confirmação antes do pedido (issue #28)", async () => {
+    const comExtras = { ...det, extras: [{ id: 41, nome: "justificativa.pdf", tamanho: 4096 }],
+      previa: { ...det.previa, links: [{ id: 5, nome: "relatorios.zip", url: "https://lotufoengmt.sharepoint.com/x" }] } };
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comExtras : {}));
+    render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remover justificativa.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remover o link relatorios.zip" }));
+    expect(api.mock.calls.some(c => String(c[0]).endsWith("/remover"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*justificativa\.pdf/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/protocolos/3/pecas/41/remover", expect.objectContaining({ method: "POST" })));
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar a remoção:\s*o link relatorios\.zip/ }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/protocolos/3/links/5/remover", expect.objectContaining({ method: "POST" })));
+  });
+
+  it("com o e-mail editado, a confirmação de remover avisa que o texto será montado de novo (revisor, #28)", async () => {
+    const comExtras = { ...det, extras: [{ id: 41, nome: "justificativa.pdf", tamanho: 4096 }] };
+    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? comExtras : {}));
+    render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remover justificativa.pdf" }));
+    expect(screen.queryByText(/será montado de novo/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    fireEvent.change(screen.getByLabelText("Corpo da mensagem"), { target: { value: "Bom dia, texto meu." } });
+    fireEvent.click(screen.getByRole("button", { name: "Remover justificativa.pdf" }));
+    expect(screen.getByText("O texto do e-mail que você editou será montado de novo.")).toBeTruthy();
+  });
+
   it("a lixeira do e-mail editado pergunta antes de sair da tela (issue #27)", async () => {
     api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
     window.history.replaceState(null, "", "/notas/envio/3");
     const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
     render(<EnviarNota protocoloId={3} podeEditar />);
     fireEvent.change(await screen.findByLabelText("Assunto"), { target: { value: "Outro" } });
-    fireEvent.click(screen.getByRole("button", { name: /Descartar/ }));
-    expect(confirmar).toHaveBeenCalledTimes(1);
+    // #28: a lixeira pergunta na própria janela do e-mail; confirmado, sai sem a segunda pergunta do navegador
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
     expect(window.location.pathname).toBe("/notas/envio/3");
+    fireEvent.click(screen.getByRole("button", { name: "Continuar escrevendo" }));
+    expect(window.location.pathname).toBe("/notas/envio/3");
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar o e-mail" }));
+    expect(confirmar).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/medicoes/enviar-nota");
     vi.restoreAllMocks();
   });
 });

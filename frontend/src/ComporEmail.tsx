@@ -1,5 +1,6 @@
 import { useRascunho } from "./rascunho";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { api } from "./api";
 import ErroCampo from "./ErroCampo";
 import { fmtTamanho as tamanho } from "./formato";
@@ -219,10 +220,11 @@ function Catalogo({ campo, inicial, aoSalvar, aoCancelar }: {
 // `bloqueado`: o envio nao pode sair nem tentado (o motivo esta' na tela de quem abriu). O que falta preencher nao
 // bloqueia o botao: o clique mostra o erro junto do campo (issue #11); `validarAntes` e' a parte de quem abriu
 // (ex.: a justificativa que fica acima do e-mail) -- mostra o proprio erro e devolve false se nao pode enviar.
-export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes, aoEnviar, aoDescartar, validarAntes, rotuloEnviar = "Enviar" }: {
+// `aoMexer`: avisa quem abriu se o e-mail difere do que abriu (ex.: para avisar antes de uma acao que remonta o e-mail).
+export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes, aoEnviar, aoDescartar, validarAntes, rotuloEnviar = "Enviar", aoMexer }: {
   inicial: Mensagem; anexos: { nome: string; tamanho?: number }[]; ocupado: boolean; bloqueado?: boolean;
   antes?: React.ReactNode; aoEnviar: (m: Mensagem) => void; aoDescartar: () => void; validarAntes?: () => boolean;
-  rotuloEnviar?: string;
+  rotuloEnviar?: string; aoMexer?: (mexido: boolean) => void;
 }) {
   const base = useId();
   const [tentou, setTentou] = useState(false);
@@ -253,6 +255,27 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
     else aoEnviar(m);
   }
 
+  // issue #28: descartar o que a pessoa escreveu pede confirmacao; sem nada mudado desde que abriu, nao ha' o
+  // que perder e fecha direto. Confirmado, o e-mail volta ao que abriu (quem esta' embutido nao fecha a janela).
+  const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const mexido = JSON.stringify(m) !== JSON.stringify(inicial);
+  const avisarMexido = useRef(aoMexer);
+  useEffect(() => { avisarMexido.current = aoMexer; });
+  useEffect(() => { avisarMexido.current?.(mexido); }, [mexido]);
+  function descartar() {
+    if (!mexido) aoDescartar();
+    else setConfirmarDescarte(true);
+  }
+  function confirmarDescartar() {
+    // flushSync: o e-mail volta ao que abriu e solta a marca de rascunho ANTES de quem abriu navegar; senao o
+    // roteador ainda o veria sujo e perguntaria de novo o que a pessoa acabou de confirmar.
+    flushSync(() => {
+      setConfirmarDescarte(false);
+      setM(inicial); setComCco(inicial.cco.length > 0); setTentou(false);
+    });
+    aoDescartar();
+  }
+
   const campo = (c: Campo, direita?: React.ReactNode) => (
     <Destinatarios campo={c} valor={m[c]} nomes={nomes} aoMudar={v => setM({ ...m, [c]: v })}
       aoAbrirCatalogo={() => setCatalogo(c)} direita={direita} idCampo={`${base}-${c}`} erro={c === "para" ? erroPara : undefined} />
@@ -268,11 +291,20 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
           {ocupado ? "Enviando…" : rotuloEnviar}
         </button>
         <span className="ol-de">De: {remetente ?? "sua conta Microsoft"}</span>
-        <button type="button" className="ol-icone ol-descartar" onClick={aoDescartar} title="Descartar" aria-label="Descartar">
+        <button type="button" className="ol-icone ol-descartar" onClick={descartar} title="Descartar" aria-label="Descartar">
           <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path fill="currentColor"
             d="M8.5 4h3a1.5 1.5 0 0 0-3 0Zm-1 0a2.5 2.5 0 0 1 5 0h5a.5.5 0 0 1 0 1h-1.05l-1.2 10.34A3 3 0 0 1 12.27 18H7.73a3 3 0 0 1-2.98-2.66L3.55 5H2.5a.5.5 0 0 1 0-1h5ZM5.74 15.23A2 2 0 0 0 7.73 17h4.54a2 2 0 0 0 1.99-1.77L15.44 5H4.56l1.18 10.23Z" /></svg>
         </button>
       </div>
+      {confirmarDescarte && (
+        <div className="ol-confirmar" role="group" aria-label="Confirmar o descarte">
+          <span aria-live="polite">Descartar o que foi escrito neste e-mail? O texto não fica guardado.</span>
+          <button type="button" className="btn btn--pequeno btn--destrutivo" onClick={confirmarDescartar}>
+            Descartar o e-mail
+          </button>
+          <button type="button" className="btn btn--pequeno" autoFocus onClick={() => setConfirmarDescarte(false)}>Continuar escrevendo</button>
+        </div>
+      )}
       {campo("para", !comCco && <button type="button" className="ol-cco" onClick={() => setComCco(true)}>Cco</button>)}
       {campo("copia")}
       {comCco && campo("cco")}

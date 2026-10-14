@@ -44,7 +44,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 - 2026-09-25 Notas (`/api/contratos/{id}/notas`): dizer qual campo diverge do espelho; "Diverge do espelho" hoje mostra dois valores iguais. [G3-11]
 - 2026-09-25 Produto: dois caminhos para protocolar a mesma medição (botão "Protocolar" da linha e cartão "Novo protocolo"); decidir se a linha vira "Registrar protocolo feito fora". [G2-14]
 - 2026-09-25 Navegação: filtros de Medições em andamento na URL (vem na fatia S5 da arquitetura); guarda de rascunho (espelho, cronograma, e-mail, carta) antes de trocar de tela, que a casca da arquitetura (S1, 2026-09-28) tornou mais urgente: aba, breadcrumb, "← origem" e aviso desmontam o formulário sem aviso. [A, auditor S1]
-- 2026-09-25 Ações destrutivas sem confirmação nem desfazer: remover peça ou anexo, remover assinatura, desativar usuário, descartar e-mail escrito; e o admin conseguir desativar a si mesmo (regra do servidor). [A, G5-05]
 - 2026-09-25 Erros: helper único para erro que não é `ApiErro` (hoje aparece "TypeError: Failed to fetch"); estado de envio nos botões que não mudam o rótulo ("Entrando…", "Gravando…"). [A]
 - 2026-09-25 Volume: paginação da reconciliação (298 NFs inalcançáveis); virtualização do catálogo de contatos (até 200 linhas). [A, G5-03, G5-04]
 - 2026-09-25 Administração: saúde do backup na tela (o PRODUCT.md dá ao admin, não aparece). [G5-06]

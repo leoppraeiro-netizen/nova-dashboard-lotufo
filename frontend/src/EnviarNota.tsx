@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
+import ConfirmarRemocao from "./ConfirmarRemocao";
 import ErroCampo from "./ErroCampo";
 import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
@@ -39,10 +40,13 @@ function assinaturaAnexos(anexos: { nome: string; tamanho: number }[]): string {
 
 // Documentos complementares (09/10/2026): PDF a mais no envio (ex.: justificativa tecnica). Vai SEMPRE separado no
 // e-mail, fora do PDF da carta; por isso anexar ou remover nao desfaz o montado/assinado. Botao ou arrastar e soltar.
-function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: {
+// `emailMexido` (issue #28): remover remonta o e-mail com o texto montado de novo; a confirmacao avisa que o
+// texto editado se perde.
+function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar, emailMexido }: {
   protocoloId: number; extras: Extra[]; links: Link[]; ocupado: boolean; agir: (f: () => Promise<void>) => Promise<void>;
-  aoMudar: () => Promise<void>;
+  aoMudar: () => Promise<void>; emailMexido: boolean;
 }) {
+  const aviso = emailMexido ? "O texto do e-mail que você editou será montado de novo." : undefined;
   const [sobre, setSobre] = useState(false);
   const [linkNome, setLinkNome] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
@@ -86,11 +90,11 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <span className="nota-complementares__nome" title={x.nome}>{x.nome}</span>
               <span className="campo__nota">{Math.max(1, Math.round(x.tamanho / 1024))} KB</span>
-              <button type="button" className="btn btn--pequeno" disabled={ocupado} aria-label={`Remover ${x.nome}`}
-                onClick={() => void agir(async () => {
+              <ConfirmarRemocao alvo={x.nome} ocupado={ocupado} aviso={aviso}
+                aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/pecas/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
-                })}>Remover</button>
+                })} />
             </li>
           ))}
         </ul>
@@ -115,11 +119,11 @@ function Complementares({ protocoloId, extras, links, ocupado, agir, aoMudar }: 
             <li key={x.id}>
               <a className="nota-complementares__nome" href={x.url} target="_blank" rel="noreferrer" title={x.url}>{x.nome}</a>
               <span className="campo__nota">link</span>
-              <button type="button" className="btn btn--pequeno" disabled={ocupado} aria-label={`Remover o link ${x.nome}`}
-                onClick={() => void agir(async () => {
+              <ConfirmarRemocao alvo={`o link ${x.nome}`} ocupado={ocupado} aviso={aviso}
+                aoConfirmar={() => void agir(async () => {
                   await api(`/api/protocolos/${protocoloId}/links/${x.id}/remover`, { method: "POST", body: "{}" });
                   await aoMudar();
-                })}>Remover</button>
+                })} />
             </li>
           ))}
         </ul>
@@ -182,6 +186,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   const [outros, setOutros] = useState<Envio[] | null>(null);
   const [juntar, setJuntar] = useState<string[]>([]);
   const [conferencia, setConferencia] = useState<Conferencia>(null);
+  const [emailMexido, setEmailMexido] = useState(false);
 
   // issue #100 (revisor na PR #141): os anexos mudaram depois da primeira leitura, entao o e-mail foi refeito e o
   // texto editado voltou ao padrao; a tela diz isso em vez de trocar o e-mail calada
@@ -309,7 +314,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
 
   const complementares = (
     <Complementares protocoloId={protocoloId} extras={det.extras ?? []} links={det.previa.links ?? []} ocupado={ocupado}
-      agir={agir} aoMudar={carregar} />
+      agir={agir} aoMudar={carregar} emailMexido={emailMexido} />
   );
 
   const email = (
@@ -319,7 +324,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
       <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${assinaturaAnexos(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar a nota"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
-        aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
+        aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => { if (!embutido) ir({ tela: "medicoes", aba: "enviar-nota" }); }} />
       {refeita && <CaixaAviso nivel="atencao" role="status">A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.</CaixaAviso>}
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>

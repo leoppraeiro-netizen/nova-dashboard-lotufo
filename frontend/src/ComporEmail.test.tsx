@@ -69,6 +69,31 @@ describe("ComporEmail", () => {
     expect(aoEnviar).not.toHaveBeenCalled();
   });
 
+  // issue #28: descartar o que a pessoa escreveu pede confirmação; sem nada mudado, não há o que perder
+  it("Descartar com o e-mail mexido pede confirmação; sem mudança descarta direto", async () => {
+    api.mockResolvedValue([]);
+    const aoDescartar = vi.fn();
+    const inicial = { para: [], copia: [], cco: [], assunto: "Emissão NF", corpo: "Bom dia." };
+    render(<ComporEmail ocupado={false} anexos={[]} aoEnviar={() => {}} aoDescartar={aoDescartar} inicial={inicial} />);
+    fireEvent.change(screen.getByLabelText("Corpo da mensagem"), { target: { value: "Bom dia, segue a nota." } });
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    expect(aoDescartar).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continuar escrevendo" }));
+    expect(aoDescartar).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Corpo da mensagem")).toHaveProperty("value", "Bom dia, segue a nota.");
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Descartar o e-mail" }));
+    expect(aoDescartar).toHaveBeenCalledTimes(1);
+    // quem abriu embutido não fecha a janela: o descarte volta o e-mail ao texto com que abriu (revisor, #28)
+    expect(screen.getByLabelText("Corpo da mensagem")).toHaveProperty("value", "Bom dia.");
+    cleanup();
+
+    const aoDescartar2 = vi.fn();
+    render(<ComporEmail ocupado={false} anexos={[]} aoEnviar={() => {}} aoDescartar={aoDescartar2} inicial={inicial} />);
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    expect(aoDescartar2).toHaveBeenCalledTimes(1);
+  });
+
   it("e-mail editado e não enviado pede confirmação ao trocar de tela (issue #27)", async () => {
     api.mockResolvedValue([]);
     window.history.replaceState(null, "", "/notas/envio/3");
