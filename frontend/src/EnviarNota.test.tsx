@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiErro } from "./api";
 import EnviarNota from "./EnviarNota";
+import { EnvioDaMedicao } from "./Etapas";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
 vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
@@ -270,5 +271,41 @@ describe("Enviar a nota", () => {
     expect(confirmar).not.toHaveBeenCalled();
     expect(window.location.pathname).toBe("/medicoes/enviar-nota");
     vi.restoreAllMocks();
+  });
+});
+
+// issue #172: na pagina da medicao, o registro por fora vem antes de "Começar o envio", que montaria um rascunho a toa
+describe("Etapa do envio na página da medição", () => {
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
+  const lista = { envios: [{ ...det.envio, chave: "c20:m631", medicao_ids: [631], descricao: "7ª medição", protocolo_id: null,
+    irmas: [{ medicao_id: 632, titulo: "Reajuste da 7ª Medição", tipo: "reajuste" }] }], contadores: { Todas: 1 } };
+
+  it("o link aparece antes de Começar o envio e registra a medição e a irmã sem abrir o envio", async () => {
+    api.mockResolvedValue(lista);
+    apiForm.mockResolvedValue({ ok: true });
+    const aoMudar = vi.fn();
+    render(<EnvioDaMedicao medicaoId={631} podeEditar aoMudar={aoMudar} />);
+    expect(await screen.findByRole("button", { name: "Começar o envio" })).toBeTruthy();
+    fireEvent.click(screen.getByText("Registrar envio feito por fora"));
+    expect((screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)") as HTMLInputElement).checked).toBe(true);
+    fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(aoMudar).toHaveBeenCalledWith("Envio registrado: a nota foi para Aguardando pagamento."));
+    expect((apiForm.mock.calls[0][1] as FormData).getAll("medicao_ids")).toEqual(["631", "632"]);
+    expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/iniciar")).toBe(false);
+  });
+
+  it("quem só consulta continua sem o link", async () => {
+    api.mockResolvedValue(lista);
+    render(<EnvioDaMedicao medicaoId={631} podeEditar={false} aoMudar={() => {}} />);
+    expect(await screen.findByText(/7ª medição/)).toBeTruthy();
+    expect(screen.queryByText("Registrar envio feito por fora")).toBeNull();
+  });
+
+  it("envio bloqueado não oferece o registro por fora", async () => {
+    api.mockResolvedValue({ ...lista, envios: [{ ...lista.envios[0], situacao: "bloqueado", aviso: "Federal vencida" }] });
+    render(<EnvioDaMedicao medicaoId={631} podeEditar aoMudar={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Começar o envio" })).toBeTruthy();
+    expect(screen.queryByText("Registrar envio feito por fora")).toBeNull();
   });
 });

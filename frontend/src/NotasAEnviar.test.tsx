@@ -1,9 +1,9 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NotasAEnviar from "./NotasAEnviar";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
+const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const envio = (chave: string, obra: string, grupo: string, extra: Record<string, unknown> = {}) => ({
   chave, contrato_id: 12, obra, orgao: grupo, orgao_sub: null, familia: "sinfra", grupo, a_pedido: false,
@@ -12,7 +12,7 @@ const envio = (chave: string, obra: string, grupo: string, extra: Record<string,
   itens: [{ chave: "notas", rotulo: "Notas fiscais (1)", detalhe: "NFS 2340", estado: "ok" }], ...extra });
 
 describe("Notas a enviar", () => {
-  afterEach(() => { cleanup(); api.mockReset(); });
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
 
   it("agrupa por órgão, conta nas pílulas e mostra o envio no painel; bloqueado não envia nem registra por fora", async () => {
     api.mockResolvedValue({
@@ -51,6 +51,44 @@ describe("Notas a enviar", () => {
     expect(within(painel).queryByRole("button", { name: /Enviar a nota/ })).toBeNull();
     expect(within(painel).queryByLabelText("Anexar Regularidade mensal")).toBeNull();
     expect(within(painel).queryByText("Registrar envio feito por fora")).toBeNull();
+  });
+
+  describe("envio por fora com a irmã no mesmo e-mail (issue #172)", () => {
+    const irmas = [{ medicao_id: 638, titulo: "Reajuste da 14ª Medição", tipo: "reajuste" }];
+    const ROTULO = "Incluir também o Reajuste da 14ª Medição (saiu no mesmo e-mail)";
+
+    async function registrar(desmarcar: boolean) {
+      api.mockResolvedValue({ envios: [envio("c12:m637", "MT-388", "SINFRA", { irmas })], contadores: { Todas: 1, SINFRA: 1 } });
+      apiForm.mockResolvedValue({ ok: true });
+      render(<NotasAEnviar busca={{}} podeEditar />);
+      fireEvent.click(await screen.findByText("Registrar envio feito por fora"));
+      const opcao = screen.getByLabelText(ROTULO) as HTMLInputElement;
+      expect(opcao.checked).toBe(true);
+      if (desmarcar) fireEvent.click(opcao);
+      fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pelo Outlook" } });
+      fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+      await waitFor(() => expect(apiForm).toHaveBeenCalled());
+      const [caminho, fd] = apiForm.mock.calls[0] as [string, FormData];
+      expect(caminho).toBe("/api/notas/envio-externo");
+      return fd.getAll("medicao_ids");
+    }
+
+    it("a irmã com nota emitida vem marcada e o registro leva as duas medições", async () => {
+      expect(await registrar(false)).toEqual(["637", "638"]);
+    });
+
+    it("desmarcada, o registro leva só a medição do envio", async () => {
+      expect(await registrar(true)).toEqual(["637"]);
+    });
+
+    it("sem irmã (MTPAR tramita separado) a opção não aparece", async () => {
+      api.mockResolvedValue({ envios: [envio("c20:m700", "Complexo Xtreme", "MTPAR", { familia: "mtpar", irmas: [] })],
+        contadores: { Todas: 1, MTPAR: 1 } });
+      render(<NotasAEnviar busca={{}} podeEditar />);
+      fireEvent.click(await screen.findByText("Registrar envio feito por fora"));
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      expect(screen.queryByLabelText(/Incluir também/)).toBeNull();
+    });
   });
 
   it("vazio: diz que não há nota e leva para Aguardando pagamento", async () => {

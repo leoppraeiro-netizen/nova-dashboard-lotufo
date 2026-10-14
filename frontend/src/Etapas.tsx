@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import EnviarNota from "./EnviarNota";
 import { IconeAlerta } from "./icones";
-import { iniciarEnvio, IconeCheck, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
+import { EnvioPorFora, iniciarEnvio, IconeCheck, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
 import "./etapas.css";
 
 // Fluxo da medicao numa pagina so' (opcao A, 2026-10-09): Espelho, Faturamento, Nota fiscal, Envio ao orgao e
@@ -130,6 +130,9 @@ export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar, versaoDocs = 0,
           {envio.situacao === "bloqueado" && <span className="campo__nota">Envio bloqueado: veja os documentos em Notas a enviar.</span>}
         </div>
       )}
+      {/* issue #172: o e-mail que ja' saiu se registra sem "Começar o envio", que montaria um rascunho a toa */}
+      {podeEditar && envio.situacao !== "bloqueado" && <EnvioPorFora medicaoIds={envio.medicao_ids} irmas={envio.irmas}
+        aoFeito={() => aoMudar("Envio registrado: a nota foi para Aguardando pagamento.")} />}
     </div>
   );
 }
