@@ -88,10 +88,18 @@ def test_regexes_nao_explodem_com_espacos_ate_o_teto():
     import time
     # Uma palavra-chave por regex de campo: o prefixo literal dela (ate o primeiro metacaractere),
     # para nenhuma falhar no primeiro caractere e escapar dos espacos. Sai de `_CAMPOS`, nao de lista fixa.
-    palavras = set()
-    for campos in leitura_certidao._CAMPOS.values():
-        for regex in campos.values():
-            palavras.add(re.match(r"(?:\\b)?([A-Z0-9 /,\-]*)", regex).group(1))
+    # Regex sem prefixo literal (comeca por lookbehind, grupo etc.) nao da' palavra-chave: so' pode
+    # ficar de fora se estiver aqui, de modo que uma regex nova sem prefixo derruba o teste.
+    sem_prefixo_ok = {("municipal", "numero")}
+    palavras, sem_prefixo = set(), set()
+    for tipo, campos in leitura_certidao._CAMPOS.items():
+        for campo, regex in campos.items():
+            prefixo = re.match(r"(?:\\b)?([A-Z0-9 /,\-]*)", regex).group(1)
+            if prefixo:
+                palavras.add(prefixo)
+            else:
+                sem_prefixo.add((tipo, campo))
+    assert sem_prefixo <= sem_prefixo_ok, f"regex sem prefixo literal, nao estressada: {sem_prefixo - sem_prefixo_ok}"
     assert len(palavras) >= 12, palavras
     for palavra in sorted(palavras):
         texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"
