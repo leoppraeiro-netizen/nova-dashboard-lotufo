@@ -213,6 +213,55 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         log.exception("copia externa falhou")
 
 
+def pasta_local() -> Path:
+    """Onde ficam os snapshots: ao lado do banco (nunca dependem do diretorio de trabalho)."""
+    from app import db
+    return db.db_path().parent / "backups"
+
+
+def pasta_externa() -> Path | None:
+    """A copia externa diaria, se `DASH_BACKUP_EXTERNO` estiver configurada."""
+    externo = os.environ.get("DASH_BACKUP_EXTERNO")
+    return Path(externo) if externo else None
+
+
+# Snapshot e' horario: passou de 2 h sem um novo, uma rodada inteira falhou ou a thread parou.
+ATRASO_MAX = datetime.timedelta(hours=2)
+
+
+def _contar(pasta: Path) -> int:
+    return sum(1 for _ in pasta.glob(PADRAO)) if pasta.exists() else 0
+
+
+def situacao(local: Path, externa: Path | None, agora: datetime.datetime) -> dict:
+    """Saude do backup para a tela de Administracao (issue #31).
+
+    O ultimo backup e a contagem vem do DISCO (sobrevivem ao servidor reiniciar); os erros
+    vem de `ESTADO`, que so existe na memoria desta execucao. Sem snapshot nenhum conta como
+    atrasado: backup parado sem ninguem ver e' o risco que a tela existe para mostrar.
+    """
+    snaps = sorted(local.glob(PADRAO)) if local.exists() else []
+    ultimo_em = tamanho = None
+    if snaps:
+        st = snaps[-1].stat()
+        ultimo_em = datetime.datetime.fromtimestamp(st.st_mtime, datetime.timezone.utc)
+        tamanho = st.st_size
+    copias = None
+    if externa is not None:
+        try:  # compartilhamento fora do ar nao pode derrubar a tela; o erro da copia aparece no ESTADO
+            copias = _contar(externa)
+        except OSError:
+            copias = None
+    return {
+        "ultimo_backup": tempo.para_local(ultimo_em).isoformat(timespec="seconds") if ultimo_em else None,
+        "tamanho_bytes": tamanho,
+        "guardados": len(snaps),
+        "copias_externas": copias,
+        "atrasado": ultimo_em is None or agora - ultimo_em > ATRASO_MAX,
+        **ESTADO,
+    }
+
+
 def agendar_backup_horario(origem_db: Path, pasta_destino: Path,
                            pasta_externa: Path | None = None) -> threading.Thread:
     def loop():

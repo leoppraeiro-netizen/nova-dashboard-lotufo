@@ -55,3 +55,24 @@ def test_auditoria_ha_mais_falso_quando_a_pagina_pega_o_ultimo(client_admin):
 def test_auditoria_cursor_invalido_e_422_nao_500(client_admin):
     for cursor in (0, -1, 2 ** 63):
         assert client_admin.get("/api/admin/auditoria", params={"antes_de": cursor}).status_code == 422
+
+
+def test_saude_do_backup_so_para_admin(client_admin):
+    # issue #31: Administracao > Saude le o backup por rota de admin (o /api/health e' aberto)
+    from app import backup
+    pasta = backup.pasta_local()
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / "dashboard-20261013-070000.db").write_bytes(b"x" * 100)
+    r = client_admin.get("/api/admin/backup")
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert corpo["guardados"] == 1 and corpo["tamanho_bytes"] == 100
+    assert corpo["atrasado"] is False and corpo["ultimo_backup"]
+
+    client_admin.post("/api/admin/usuarios", json={"nome": "Eng", "email": "eng@lotufo.com",
+                                                   "senha": "senha-eng-123", "perfil": "engenharia"})
+    r = client_admin.post("/api/auth/login", json={"email": "eng@lotufo.com", "senha": "senha-eng-123"})
+    client_admin.cookies.clear()
+    client_admin.cookies.set("sessao", r.cookies["sessao"])
+    client_admin.headers["X-CSRF-Token"] = r.json()["csrf"]
+    assert client_admin.get("/api/admin/backup").status_code == 403

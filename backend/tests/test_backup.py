@@ -202,3 +202,51 @@ def test_rodada_registra_erro_da_copia_sem_derrubar(tmp_path, monkeypatch):
     backup.rodada(origem, tmp_path / "backups", tmp_path / "externo")
     assert backup.ESTADO["ultimo_snapshot_erro"] is None
     assert "rede fora" in backup.ESTADO["ultima_copia_externa_erro"]
+
+
+# --- saude do backup na tela de Administracao (issue #31) ----------------------
+
+def _agora():
+    import datetime
+    return datetime.datetime(2026, 10, 13, 12, 0, tzinfo=datetime.timezone.utc)
+
+def _snapshot_com_idade(pasta, nome, segundos, tamanho=10):
+    pasta.mkdir(exist_ok=True)
+    arq = pasta / nome
+    arq.write_bytes(b"x" * tamanho)
+    instante = _agora().timestamp() - segundos
+    os.utime(arq, (instante, instante))
+    return arq
+
+def test_situacao_conta_guardados_e_le_o_ultimo_do_disco(tmp_path):
+    # o ultimo backup vem do disco, nao da memoria: sobrevive ao servidor reiniciar
+    local, fora = tmp_path / "backups", tmp_path / "externo"
+    _snapshot_com_idade(local, "dashboard-20261013-060000.db", 3 * 3600, tamanho=5)
+    _snapshot_com_idade(local, "dashboard-20261013-070000.db", 1800, tamanho=2048)
+    (local / "dashboard-20261013-080000-pid9.db.tmp").write_bytes(b"parcial")  # nao conta
+    _snapshot_com_idade(fora, "dashboard-20261012-030000.db", 86400)
+    s = backup.situacao(local, fora, _agora())
+    assert s["guardados"] == 2 and s["copias_externas"] == 1
+    assert s["tamanho_bytes"] == 2048
+    assert s["ultimo_backup"] == "2026-10-13T07:30:00-04:00"  # hora de Cuiaba
+    assert s["atrasado"] is False
+
+def test_situacao_atrasado_acima_de_2h(tmp_path):
+    local = tmp_path / "backups"
+    arq = _snapshot_com_idade(local, "dashboard-20261013-060000.db", 2 * 3600 - 60)
+    assert backup.situacao(local, None, _agora())["atrasado"] is False
+    instante = _agora().timestamp() - (2 * 3600 + 60)
+    os.utime(arq, (instante, instante))
+    s = backup.situacao(local, None, _agora())
+    assert s["atrasado"] is True and s["copias_externas"] is None
+
+def test_situacao_sem_backup_e_atrasado(tmp_path):
+    s = backup.situacao(tmp_path / "nao-existe", None, _agora())
+    assert s["guardados"] == 0 and s["ultimo_backup"] is None and s["tamanho_bytes"] is None
+    assert s["atrasado"] is True
+
+def test_situacao_traz_o_ultimo_erro(tmp_path, monkeypatch):
+    monkeypatch.setitem(backup.ESTADO, "ultimo_snapshot_erro", "2026-10-13T08:00:00-04:00: disco cheio")
+    s = backup.situacao(tmp_path / "backups", None, _agora())
+    assert s["ultimo_snapshot_erro"].endswith("disco cheio")
+    assert "ultima_copia_externa_erro" in s
