@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { filtrarObras, porContratante, type ObraResumo } from "./resumoMedicoes";
-import { ir, Link, type Rota } from "./rota";
+import { ir, type Rota } from "./rota";
+import { Link } from "./Link";
 
 // "Iniciar processo de medição" (PROVISORIO, 09/10/2026, ate' o prototipo da janela): escolher a obra e ir para a
 // etapa 1. Obra com medicao `prevista` (criada pelo cronograma) abre a pagina DESSA medicao em vez de criar outra

@@ -96,14 +96,14 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
                 quando = (f"faz aniversário em {aniv:%d/%m/%Y} (em {k['dias']} dias)" if k["dias"] >= 0
                           else f"fez aniversário em {aniv:%d/%m/%Y} (há {-k['dias']} dias)")
                 out.append({**_av.aviso("reajuste_pleito", "atencao" if k["dias"] >= 0 else "acao",
-                                        f"{nome}: data-base {base} {quando}; pleito de reajuste não enviado",
+                                        f"data-base {base} {quando}; pleito de reajuste não enviado",
                                         c["id"], nome, dias=k["dias"], destino=destino,
                                         data=k["aniversario"], sentido="prazo"),
                             "data_base_mes": k["data_base_mes"]})
             elif k["situacao"] == "apostilamento_pendente":
                 publico = ("operacao", "diretoria") if k["dias"] > DIRETORIA_DIAS else ("operacao",)
                 out.append({**_av.aviso("reajuste_apostilamento", "atencao",
-                                        f"{nome}: pleito da data-base {base} enviado há {k['dias']} dias; "
+                                        f"pleito da data-base {base} enviado há {k['dias']} dias; "
                                         f"apostilamento pendente", c["id"], nome, dias=k["dias"],
                                         publico=publico, destino=destino,
                                         data=k["pleito"]["enviado_em"][:10], sentido="desde"),

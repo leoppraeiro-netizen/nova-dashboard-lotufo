@@ -122,7 +122,9 @@ def _modelo_completo() -> bytes:
     doc = f'<?xml version="1.0"?><w:document {W}><w:body><w:p>{corpo}</w:p></w:body></w:document>'
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr("word/document.xml", doc)
+        # data fixa: o zip grava a hora de cada entrada (resolucao de 2 s); com ela a mesma chamada
+        # em janelas diferentes daria bytes diferentes e o sha256 do teste de hash flutuaria
+        z.writestr(zipfile.ZipInfo("word/document.xml", date_time=(2020, 1, 1, 0, 0, 0)), doc)
     return buf.getvalue()
 
 
