@@ -59,11 +59,15 @@ export function contaRec(rec: Reconciliacao, d: Reconciliacao, c: CategoriaRec, 
   return { n: d[pag.campo].length, piso: haMais, haMais };
 }
 
-/** O endereco da pagina seguinte de um grupo paginado: depois do id da ultima linha que ja' chegou. */
+/** O endereco da pagina seguinte de um grupo paginado: depois da ultima linha que ja' chegou. Na NF vai tambem a
+ *  emissao que a tela recebeu (vazia = sem data): a sincronizacao pode ter mudado a do banco desde entao. */
 export function urlPaginaRec(rec: Reconciliacao, c: CategoriaRec): string {
   const pag = PAGINADOS[c]!;
-  const lista = rec[pag.campo];
-  return `/api/rm/reconciliacao?${pag.parametro}=${lista[lista.length - 1].id}`;
+  if (pag.campo === "nfs_sem_medicao") {
+    const ult = rec.nfs_sem_medicao[rec.nfs_sem_medicao.length - 1];
+    return `/api/rm/reconciliacao?nfs_apos=${ult.id}&nfs_emissao=${encodeURIComponent(ult.emissao ?? "")}`;
+  }
+  return `/api/rm/reconciliacao?${pag.parametro}=${rec.alocacoes_desfeitas[rec.alocacoes_desfeitas.length - 1].id}`;
 }
 
 /** Junta a pagina seguinte de um grupo ao que ja' chegou; o total e o `ha_mais` passam a ser os da pagina nova.

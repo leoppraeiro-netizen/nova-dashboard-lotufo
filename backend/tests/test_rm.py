@@ -144,7 +144,8 @@ def test_reconciliacao_pagina_as_nfs_sem_medicao_com_total_exato(conn, cid, tmp_
     rec = sincronizacao_rm.reconciliacao(conn)
     assert rec["totais"]["nfs_sem_medicao"] == 250
     assert len(rec["nfs_sem_medicao"]) == 200 and rec["ha_mais"]["nfs_sem_medicao"] is True
-    seg = sincronizacao_rm.reconciliacao(conn, nfs_apos=rec["nfs_sem_medicao"][-1]["id"])
+    ult = rec["nfs_sem_medicao"][-1]
+    seg = sincronizacao_rm.reconciliacao(conn, nfs_apos=ult["id"], nfs_emissao=ult["emissao"] or "")
     assert seg["totais"]["nfs_sem_medicao"] == 250
     assert len(seg["nfs_sem_medicao"]) == 50 and seg["ha_mais"]["nfs_sem_medicao"] is False
     ids = [n["idmov"] for n in rec["nfs_sem_medicao"] + seg["nfs_sem_medicao"]]
@@ -152,26 +153,55 @@ def test_reconciliacao_pagina_as_nfs_sem_medicao_com_total_exato(conn, cid, tmp_
 
 
 def test_reconciliacao_pagina_pelo_cursor_nao_pula_quando_a_lista_muda(conn, cid, tmp_path):
-    """#22: entre uma pagina e outra a sincronizacao aloca uma NF da primeira e traz uma nova; a segunda pagina
-    continua de onde a primeira parou (nem repete nem pula), e a sem data fica no fim."""
+    """#22: entre uma pagina e outra a sincronizacao aloca uma NF da primeira, traz uma nova e corrige a emissao da
+    ultima NF da primeira pagina; a segunda continua de onde a primeira parou (nem repete nem pula), pelo par
+    (emissao, id) que a tela recebeu, e a sem data fica no fim."""
     nfs = [_nf(i, 999.0, emissao=f"2026-08-{(i % 28) + 1:02d}T00:00:00-04:00") for i in range(1, 251)]
     sem_data = _nf(251, 999.0); del sem_data["DATAEMISSAO"]
     cli = _simulador(tmp_path, nfs + [sem_data], [])
     sincronizacao_rm.sincronizar(conn, cli)
     rec = sincronizacao_rm.reconciliacao(conn)
     primeira = [n["id"] for n in rec["nfs_sem_medicao"]]
+    ult = rec["nfs_sem_medicao"][-1]
     # some uma da primeira pagina (alocada), entra uma mais nova
     mid = _medicao(conn, cid, 1, 123_00)   # valor que nao casa com as NFs na sincronizacao seguinte
     conn.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem) VALUES (?, ?, 99900, 'manual')",
                  (mid, primeira[0])); conn.commit()
+    # o RM corrige a emissao da ultima NF da primeira pagina para bem antes (a sincronizacao regrava a emissao)
+    nfs[ult["idmov"] - 1] = _nf(ult["idmov"], 999.0, emissao="2026-07-01T00:00:00-04:00")
     sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs + [sem_data, _nf(300, 999.0, emissao="2026-09-30T00:00:00-04:00")], []))
-    seg = sincronizacao_rm.reconciliacao(conn, nfs_apos=primeira[-1])
+    seg = sincronizacao_rm.reconciliacao(conn, nfs_apos=ult["id"], nfs_emissao=ult["emissao"])
     segunda = [n["id"] for n in seg["nfs_sem_medicao"]]
     todas = conn.execute("SELECT id FROM notas_fiscais WHERE idmov <= 251").fetchall()
-    assert sorted(primeira + segunda) == sorted(r[0] for r in todas)
+    # a NF do cursor reaparece na segunda (sua emissao nova e' anterior); nenhuma das outras se perde ou repete
+    assert sorted(set(primeira + segunda)) == sorted(r[0] for r in todas)
+    assert len(segunda) == len(set(segunda)) and set(primeira) & set(segunda) == {ult["id"]}
     assert seg["nfs_sem_medicao"][-1]["idmov"] == 251   # sem data, por ultimo
     with pytest.raises(ValueError):
-        sincronizacao_rm.reconciliacao(conn, nfs_apos=999_999)
+        sincronizacao_rm.reconciliacao(conn, nfs_apos=ult["id"])   # cursor sem a emissao
+
+
+def test_reconciliacao_le_lista_e_total_no_mesmo_retrato(conn, cid, tmp_path):
+    """#22: a sincronizacao grava uma NF nova entre a leitura da lista e a do total; os dois saem do mesmo retrato
+    do banco (total 3, nao 4), e a conexao nao fica com transacao aberta."""
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, [_nf(i, 999.0) for i in (1, 2, 3)], []))
+    outra = db.get_conn()
+    gravou = []
+
+    def no_meio(sql):
+        if not gravou and sql.lstrip().startswith("SELECT COUNT(*)") and "notas_fiscais n" in sql:
+            outra.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, valor_centavos) VALUES (1, 99, '99', 100)")
+            outra.commit()
+            gravou.append(True)
+    conn.set_trace_callback(no_meio)
+    try:
+        rec = sincronizacao_rm.reconciliacao(conn)
+    finally:
+        conn.set_trace_callback(None); outra.close()
+    assert gravou
+    assert len(rec["nfs_sem_medicao"]) == 3 and rec["totais"]["nfs_sem_medicao"] == 3
+    assert not conn.in_transaction
+    assert sincronizacao_rm.reconciliacao(conn)["totais"]["nfs_sem_medicao"] == 4
 
 
 def test_nota_ambigua_nao_vira_sugestao(conn, cid, tmp_path):
@@ -466,8 +496,13 @@ def test_rotas_rm(client_admin, tmp_path, monkeypatch):
     assert client_admin.get("/api/rm/status").json()["rodadas"][0]["estado"] == "success"
     assert set(client_admin.get("/api/rm/reconciliacao").json()) == {
         "nfs_sem_medicao", "medicoes_sem_nf", "divergencias", "alocacoes_desfeitas", "totais", "ha_mais"}
-    # #22: a pagina seguinte pela URL, depois do id da ultima linha; id que nao existe e' 422 em portugues
-    r = client_admin.get("/api/rm/reconciliacao?nfs_apos=999999")
+    # #22: a pagina seguinte pela URL, depois da ultima linha; cursor incompleto ou desfeita que nao existe e' 422
+    # em portugues
+    r = client_admin.get("/api/rm/reconciliacao?nfs_apos=10&nfs_emissao=2026-08-01")
+    assert r.status_code == 200 and r.json()["nfs_sem_medicao"] == []
+    r = client_admin.get("/api/rm/reconciliacao?nfs_apos=10")
+    assert r.status_code == 422 and "emissão" in r.json()["detail"]
+    r = client_admin.get("/api/rm/reconciliacao?desfeitas_apos=999999")
     assert r.status_code == 422 and "não encontrada" in r.json()["detail"]
     assert client_admin.get("/api/rm/reconciliacao?desfeitas_apos=0").status_code == 422
 

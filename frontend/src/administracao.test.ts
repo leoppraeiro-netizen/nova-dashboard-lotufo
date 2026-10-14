@@ -35,7 +35,10 @@ describe("administração", () => {
       ha_mais: { nfs_sem_medicao: true, alocacoes_desfeitas: true } };
     expect(contaRec(rec, rec, "nfs", false)).toEqual({ n: 3, piso: false, haMais: true });
     expect(contaRec(rec, rec, "divergencias", false)).toEqual({ n: 0, piso: false, haMais: false });
-    expect(urlPaginaRec(rec, "nfs")).toBe("/api/rm/reconciliacao?nfs_apos=4");
+    // a NF leva a emissão que a tela recebeu (vazia quando sem data); a desfeita, só o id
+    expect(urlPaginaRec(rec, "nfs")).toBe("/api/rm/reconciliacao?nfs_apos=4&nfs_emissao=");
+    expect(urlPaginaRec({ ...rec, nfs_sem_medicao: [{ ...nf(4), emissao: "2026-08-01T00:00:00-04:00" }] }, "nfs"))
+      .toBe("/api/rm/reconciliacao?nfs_apos=4&nfs_emissao=2026-08-01T00%3A00%3A00-04%3A00");
     expect(urlPaginaRec(rec, "desfeitas")).toBe("/api/rm/reconciliacao?desfeitas_apos=5");
     // com a obra escolhida, a contagem das desfeitas é do que chegou e vira piso enquanto houver página
     const daObra = reconciliacaoDaObra(rec, { id: 7, numero_instrumento: "161/2022" });

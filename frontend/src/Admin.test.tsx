@@ -109,7 +109,7 @@ test("Reconciliação: a contagem é o total da API e Carregar mais traz as NFs 
     if (url === "/api/admin/usuarios") return [];
     if (url === "/api/contratos") return [];
     if (url === "/api/rm/reconciliacao") return pagina([nf(3), nf(2)], true);
-    if (url === "/api/rm/reconciliacao?nfs_apos=2") return pagina([nf(1)], false);
+    if (url === "/api/rm/reconciliacao?nfs_apos=2&nfs_emissao=") return pagina([nf(1)], false);
     throw new Error(`chamada inesperada: ${url}`);
   });
   render(<Admin aba="reconciliacao" busca={{ categoria: "nfs" }} />);

@@ -39,12 +39,13 @@ def sincronizar(usuario: dict = Depends(exigir("administrar")),
 
 
 @router.get("/reconciliacao")
-def reconciliacao(nfs_apos: int | None = Query(None, ge=1), desfeitas_apos: int | None = Query(None, ge=1),
+def reconciliacao(nfs_apos: int | None = Query(None, ge=1), nfs_emissao: str | None = Query(None, max_length=40),
+                  desfeitas_apos: int | None = Query(None, ge=1),
                   usuario: dict = Depends(exigir("administrar", com_csrf=False)),
                   conn: sqlite3.Connection = Depends(conexao)):
-    # #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas, depois do id da ultima linha que a tela
-    # ja' tem; `totais` traz o numero exato e `ha_mais` diz se existe pagina seguinte
+    # #22: as NFs sem medicao e as alocacoes desfeitas vem em paginas, depois da ultima linha que a tela ja' tem
+    # (NF: id e emissao que ela recebeu; desfeita: id); `totais` traz o numero exato e `ha_mais` diz se ha' mais
     try:
-        return sincronizacao_rm.reconciliacao(conn, nfs_apos, desfeitas_apos)
+        return sincronizacao_rm.reconciliacao(conn, nfs_apos, nfs_emissao, desfeitas_apos)
     except ValueError as e:
         raise HTTPException(422, str(e))
