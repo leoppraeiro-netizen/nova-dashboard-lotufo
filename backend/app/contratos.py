@@ -79,8 +79,7 @@ def mudar_estado(conn, usuario_id: int, contrato_id: int, novo: str, data: str, 
                 raise ValueError(f"Entidade {e['nome']} está desativada; reative-a "
                                  f"antes de reativar o contrato")
         cur = conn.execute("UPDATE contratos SET estado=? WHERE id=? AND estado=?", (novo, contrato_id, atual))
-        if cur.rowcount != 1:
-            raise ValueError("Estado do contrato mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Estado do contrato mudou concorrentemente; tente novamente")
         conn.execute("INSERT INTO contrato_eventos (contrato_id, tipo, data, observacao) VALUES (?,?,?,?)",
                      (contrato_id, EVENTO_POR_ESTADO[novo], data, observacao))
         auditoria.registrar(conn, usuario_id, "contrato.mudar_estado", "contrato", str(contrato_id),

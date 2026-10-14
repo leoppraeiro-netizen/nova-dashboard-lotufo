@@ -16,6 +16,16 @@ LOCK = ("locked", "busy")
 def eh_lock(exc: BaseException) -> bool:
     return isinstance(exc, sqlite3.OperationalError) and any(t in str(exc).lower() for t in LOCK)
 
+def exigir_uma_linha(cur, mensagem: str) -> None:
+    """Perdeu a corrida: o UPDATE condicional nao achou a linha no estado lido.
+
+    Unico lugar do "rowcount != 1 -> ValueError". O perdedor de duas requisicoes concorrentes
+    recebe a frase (422), e nao grava auditoria de uma mudanca que nao aconteceu.
+    """
+    if cur.rowcount != 1:
+        raise ValueError(mensagem)
+
+
 def db_path() -> Path:
     caminho = os.environ.get("DASH_DB_PATH")
     if not caminho:
