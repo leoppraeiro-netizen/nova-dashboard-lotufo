@@ -5,8 +5,11 @@
 --
 -- Receita oficial do SQLite para mudar CHECK (a mesma da 020 e da 033): criar nova, copiar, apagar a antiga,
 -- renomear. Ninguem referencia pleito_anexos; foreign_keys OFF so' por garantia (o runner religa mesmo se falhar).
--- Reexecutavel: a `_nova` e' apagada antes de recriar.
+-- Reexecutavel: a `_nova` e' apagada antes de recriar. A troca roda numa transacao (o runner usa executescript, que
+-- nao abre uma): se o processo cair entre o DROP e o RENAME, nada fica pela metade e a proxima execucao encontra a
+-- tabela original. O PRAGMA fica fora da transacao porque dentro dela o SQLite o ignora.
 PRAGMA foreign_keys=OFF;
+BEGIN;
 
 DROP TABLE IF EXISTS pleito_anexos_nova;
 CREATE TABLE pleito_anexos_nova (
@@ -26,5 +29,6 @@ INSERT INTO pleito_anexos_nova (id, pleito_id, tipo, nome, arquivo, sha256, tama
     SELECT id, pleito_id, tipo, nome, arquivo, sha256, tamanho, ext, removido_em, criado_em FROM pleito_anexos;
 DROP TABLE pleito_anexos;
 ALTER TABLE pleito_anexos_nova RENAME TO pleito_anexos;
+COMMIT;
 
 PRAGMA foreign_keys=ON;

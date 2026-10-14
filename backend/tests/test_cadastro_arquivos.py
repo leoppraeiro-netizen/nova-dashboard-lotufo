@@ -272,6 +272,8 @@ def test_pecas_do_pleito_de_reajuste_no_orgao(tmp_path):
     for ruim in (["falencia", "falencia"], ["certidao-inventada"], "balanco"):
         erros = _erros(_escrever(tmp_path / "b", orgaos=[{**ORGAO, "pecas_pleito_reajuste": ruim}]))
         assert any("pecas_pleito_reajuste" in e for e in erros), ruim
+    from app import pleitos
+    assert ca.PECAS_PLEITO == pleitos.PECAS_ORGAO        # copia de proposito: o cadastro nao importa o envio
 
 
 def test_cno_inexistente_e_tratamento_invalido_sao_erro(tmp_path):
