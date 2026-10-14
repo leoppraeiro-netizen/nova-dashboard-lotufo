@@ -394,13 +394,19 @@ def test_endpoint_responde_igual_em_toda_recusa(client):
     _seed("leo@lotufo.com")
     _seed("bloq@lotufo.com")
     _seed("lixo@lotufo.com")
+    _seed("cortado@lotufo.com")
     conn = db.get_conn()
     conn.execute("UPDATE usuarios SET bloqueado_ate=? WHERE email='bloq@lotufo.com'",
                  ((auth._agora() + auth.timedelta(minutes=10)).isoformat(),))
     conn.execute("UPDATE usuarios SET senha_hash='lixo-nao-argon2' WHERE email='lixo@lotufo.com'")
+    # revisor, 2a rodada: hash real cortado no fim passa no formato, mas o verify levanta
+    # VerificationError (nao InvalidHashError) -- antes virava 500 e entregava a conta
+    conn.execute("UPDATE usuarios SET senha_hash=substr(senha_hash, 1, length(senha_hash) - 10) "
+                 "WHERE email='cortado@lotufo.com'")
     conn.commit()
     respostas = []
-    for email in ("ninguem@lotufo.com", "leo@lotufo.com", "bloq@lotufo.com", "lixo@lotufo.com"):
+    for email in ("ninguem@lotufo.com", "leo@lotufo.com", "bloq@lotufo.com", "lixo@lotufo.com",
+                  "cortado@lotufo.com"):
         r = client.post("/api/auth/login", json={"email": email, "senha": "senha-errada-1"})
         ultimo = conn.execute("SELECT usuario_id, acao, entidade, entidade_id, depois FROM audit_log "
                               "ORDER BY id DESC LIMIT 1").fetchone()

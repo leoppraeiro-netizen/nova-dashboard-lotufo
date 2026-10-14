@@ -93,11 +93,12 @@ def autenticar(conn: sqlite3.Connection, email: str, senha: str) -> dict | None:
                 conn.execute("UPDATE usuarios SET tentativas_falhas=0, bloqueado_ate=? WHERE id=?",
                              ((_agora() + timedelta(minutes=BLOQUEIO_MIN)).isoformat(), row["id"]))
         return None
-    except InvalidHashError:
+    except (InvalidHashError, VerificationError):
         # senha_hash corrompido/invalido: problema de dado, nao senha errada.
         # Nao incrementa o contador nem expoe detalhe ao chamador.
-        # #4: rede de seguranca para hash que passa no formato mas o verify recusa; o formato invalido
-        # sai acima. Paga os dois custos, senao a resposta rapida entregaria a conta.
+        # #4: rede de seguranca para hash que passa no formato mas o verify recusa (hash cortado levanta
+        # VerificationError "Decoding failed", nao InvalidHashError; VerifyMismatchError, que e' subclasse,
+        # ja saiu acima como senha errada). Paga os dois custos, senao a resposta entregaria a conta.
         _verify_dummy(senha)
         _escrita_dummy(conn)
         return None
