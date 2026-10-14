@@ -303,15 +303,16 @@ def para_assinar(conn, medicao_id: int, pdf: bytes) -> int | None:
         raise ValueError(f"As notas mudaram depois da FRC nº {n}: gere de novo na etapa 3 (Nota fiscal), assine no "
                          "DocuSign e anexe a nova")
     vig = _vigente(conn, medicao_id)
-    try:
-        texto = "".join(leitura_pdf.texto_de_pdf_com_limite(pdf).split())
-    except ValueError:                                  # TextoInadequado (digitalizado) ou PDF ilegivel
-        raise ValueError(SEM_TEXTO) from None
-    if not texto:
+    # Falha de leitura (leitor ocupado, tempo estourado, PDF invalido) sobe com a frase dela, que manda tentar de novo;
+    # SEM_TEXTO so' quando o PDF foi lido e nao tem texto (revisor adversarial na PR #179, rodada 2).
+    palavras = set(leitura_pdf.texto_de_pdf_com_limite(pdf).split())
+    if not palavras:
         raise ValueError(SEM_TEXTO)
+    # Cada numero e valor como palavra inteira (as quebras de linha do DocuSign viram espaco): a nota 3456 nao passa
+    # por estar dentro da inscricao 123456 da versao anterior.
     esperados = [f"{n:05d}", _br(vig["bruto_centavos"]), _br(vig["liquido_centavos"]),
                  *(str(x["numero"]) for x in json.loads(vig["notas"]))]
-    if any(e not in texto for e in esperados):
+    if any(e not in palavras for e in esperados):
         raise ValueError(f"Este PDF não é a FRC nº {n} vigente (número, notas ou valores não batem): baixe a FRC "
                          "gerada, assine no DocuSign e anexe a assinada dela")
     return vig["id"]

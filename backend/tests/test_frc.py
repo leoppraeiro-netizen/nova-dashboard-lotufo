@@ -13,7 +13,7 @@ import openpyxl
 import pypdf
 import pytest
 
-from app import cadastro_aplicar, cadastro_arquivos, espelho, espelhos, frc, medicoes, notas, notas_envio, protocolo
+from app import cadastro_aplicar, cadastro_arquivos, espelho, espelhos, frc, leitura_pdf, medicoes, notas, notas_envio, protocolo
 from tests.conftest import CADASTRO_EXEMPLO, _pdf_com_texto
 from tests.test_notas import CNPJ_BETA, CNPJ_PROPRIA, _fixture, _texto, conn, usuario  # noqa: F401  (fixtures)
 
@@ -363,6 +363,26 @@ def test_assinada_sem_vinculo_se_religa_ao_arrastar_de_novo_e_pdf_sem_texto_e_re
     assert _item_frc(conn, cid, mid)[0]["estado"] == "ok"
     with pytest.raises(ValueError, match="não tem texto para conferir"):
         _assinar(conn, usuario, mid, _texto, "FRC digitalizada.pdf", texto="")
+
+
+def test_conferencia_da_assinada_por_palavra_inteira_e_falha_de_leitura_com_a_frase_dela(conn, usuario, consorcio14,
+                                                                                          _texto, monkeypatch):  # noqa: F811
+    """Revisor adversarial na PR #179 (rodada 2): o numero da nota dentro de outro numero (2284 em 122845) nao confere;
+    leitor ocupado ou lento nao vira "digitalizacao": sobe a frase da leitura, que manda tentar de novo."""
+    _, mid = consorcio14
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    certo = _texto_da_frc(conn, mid)
+    assert "\n2284 " in certo
+    with pytest.raises(ValueError, match="Este PDF não é a FRC nº"):
+        _assinar(conn, usuario, mid, _texto, "FRC pedaco.pdf", texto=certo.replace("\n2284 ", "\n122845 "))
+    def ocupado(pdf):
+        raise leitura_pdf.TextoInadequado(leitura_pdf._LOTADO)
+    monkeypatch.setattr(notas.leitura_pdf, "texto_de_pdf_com_limite", ocupado)
+    with pytest.raises(leitura_pdf.TextoInadequado) as erro:
+        notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("ocupado"), "FRC.pdf", tipo_doc="fatura")
+    assert str(erro.value) == leitura_pdf._LOTADO and "não tem texto" not in str(erro.value)
+    # quebras de linha do DocuSign no lugar dos espacos continuam conferindo
+    assert _assinar(conn, usuario, mid, _texto, "FRC docusign.pdf", texto=certo.replace(" ", "\n"))["documento_id"]
 
 
 def test_sem_espelho_e_sem_frc_gerada_a_assinada_feita_a_mao_vale(conn, usuario, consorcio14, _texto):  # noqa: F811
