@@ -5,6 +5,7 @@ das seis certidoes e' testada em test_leitura_certidao.py contra textos reais.
 """
 import base64
 import pathlib
+import re
 import zlib
 
 import pytest
@@ -85,14 +86,36 @@ def test_regexes_nao_explodem_com_espacos_ate_o_teto():
     # dezenas de SEGUNDOS de CPU (backtracking quadratico) numa rota sincrona aberta a
     # quem edita cadastros. Com o `:` dentro de um grupo opcional, custa milissegundos.
     import time
-    for palavra in ("validade", "expedição", "emissão", "válida até",
-                    "código de controle da certidão"):
-        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"  # noqa: F841
+    # Uma palavra-chave por regex de campo: o prefixo literal dela (ate o primeiro metacaractere),
+    # para nenhuma falhar no primeiro caractere e escapar dos espacos. Sai de `_CAMPOS`, nao de lista fixa.
+    # Regex sem prefixo literal (comeca por lookbehind, grupo etc.) nao da' palavra-chave: so' pode
+    # ficar de fora se estiver aqui, de modo que uma regex nova sem prefixo derruba o teste.
+    sem_prefixo_ok = {("municipal", "numero")}
+    palavras, sem_prefixo = set(), set()
+    for tipo, campos in leitura_certidao._CAMPOS.items():
+        for campo, regex in campos.items():
+            prefixo = re.match(r"(?:\\b)?([A-Z0-9 /,\-]*)", regex).group(1)
+            if prefixo:
+                palavras.add(prefixo)
+            else:
+                sem_prefixo.add((tipo, campo))
+    assert sem_prefixo <= sem_prefixo_ok, f"regex sem prefixo literal, nao estressada: {sem_prefixo - sem_prefixo_ok}"
+    assert len(palavras) >= 12, palavras
+    for palavra in sorted(palavras):
+        texto = palavra + " " * (leitura_pdf.TETO_CARACTERES - len(palavra) - 1) + "x"
         inicio = time.perf_counter()
+        # `ler` normaliza os espacos antes de casar (`plano`) e recusa por "sem-texto" (o que sobra
+        # fica abaixo de MIN_TEXTO): so exercita `plano`. O que estressa os padroes e' casar cada
+        # regex de campo contra o texto CRU, com os espacos intactos.
+        with pytest.raises(leitura_certidao.Recusa):
+            leitura_certidao.ler(texto)
+        for campos in leitura_certidao._CAMPOS.values():
+            for regex in campos.values():
+                re.search(regex, texto)
         # 3 s, e nao 1 s: a assercao e' "milissegundos contra dezenas de SEGUNDOS", e
         # nesta maquina compartilhada um orcamento apertado falha por carga alheia, nao
         # por regressao (M7 da revisao final).
-        assert time.perf_counter() - inicio < 3.0, palavra
+        assert time.perf_counter() - inicio < 3.0, repr(palavra)
 
 
 def test_pdf_com_paginas_demais_e_recusado_antes_de_extrair():

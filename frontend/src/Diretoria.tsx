@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { contagem, type Aviso } from "./Alertas";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { ABAS_CARTEIRA, motivosDaLinha, obrasComProblema, porFarol, type Motivo } from "./carteira";
 import { contar, fmtDias, fmtPercentual } from "./formato";
 import { IconeAlerta, IconeBaixar } from "./icones";
@@ -432,7 +432,7 @@ export default function Diretoria({ ir, aba = "resumo" }: { ir: Ir; aba?: AbaCar
     let vivo = true;
     api<Painel>("/api/diretoria")
       .then(d => { if (vivo) setP(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, []);
 

@@ -5,10 +5,7 @@ import Espelho from "./Espelho";
 import { ir } from "./rota";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error {
-  status: number; corpo?: unknown;
-  constructor(status = 0, mensagem = "", corpo?: unknown) { super(mensagem); this.status = status; this.corpo = corpo; }
-} }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const REGRA = { situacao: "ativa", saidas: 4, entradas: [
   { chave: "medicao", rotulo: "Valor da medição", natureza: "medicao" },

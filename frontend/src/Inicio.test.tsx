@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Inicio, { saudacao, type PainelInicio } from "./Inicio";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const USUARIO = { id: 1, nome: "Leonardo Praeiro", email: "leonardo@lotufo.com", perfil: "admin" };
 

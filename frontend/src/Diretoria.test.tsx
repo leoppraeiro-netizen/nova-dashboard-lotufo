@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Diretoria from "./Diretoria";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
 
 const g = (quantidade: number, valor_centavos: number | null) => ({ quantidade, valor_centavos });
 const PAINEL = {

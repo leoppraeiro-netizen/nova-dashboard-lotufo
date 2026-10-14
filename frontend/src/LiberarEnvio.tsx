@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { api, ApiErro } from "./api";
+import { api, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta } from "./icones";
 
 // Reserva de envio presa (10/10/2026): o servidor nao a toma sozinho, porque nao sabe se o e-mail saiu. Quem
@@ -38,7 +38,7 @@ export default function LiberarEnvio({ tabela, id, reserva, aoLiberar }: {
         body: JSON.stringify({ tabela, id, justificativa: motivo, conferi_enviados: conferi }) });
       setLiberado(true);
       aoLiberar();
-    } catch (e) { setErro(e instanceof ApiErro ? e.message : String(e)); } finally { setOcupado(false); }
+    } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
   }
 
   return (
