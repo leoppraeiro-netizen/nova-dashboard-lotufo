@@ -31,4 +31,13 @@ describe("Aguardando pagamento", () => {
     expect((await screen.findByText("Número gravado.")).getAttribute("role")).toBe("status");
     expect(api).toHaveBeenCalledWith("/api/notas/635/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "X-1" }) });
   });
+  it("enquanto o número é gravado, o botão vira 'Registrando…' e fica desabilitado", async () => {
+    api.mockImplementation((url: string) => url === "/api/notas/aguardando-pagamento"
+      ? Promise.resolve([linha()]) : new Promise(() => {}));
+    render(<AguardandoPagamento podeEditar />);
+    fireEvent.change(await screen.findByLabelText("Nº do protocolo de Complexo Xtreme · 15ª medição"), { target: { value: "X-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    const botao = await screen.findByRole("button", { name: "Registrando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+  });
 });

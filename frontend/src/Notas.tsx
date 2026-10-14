@@ -66,6 +66,8 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  // Qual acao roda: so' o botao dela troca o rotulo; os demais apenas ficam desabilitados.
+  const [acao, setAcao] = useState<"manual" | "justificar" | "declarar" | null>(null);
   const [linhas, setLinhas] = useState<string[]>([]);
   const [frc, setFrc] = useState(false);
   // Upload que voltou sem leitura: a pessoa digita numero, data e valor (spec §7.1).
@@ -90,13 +92,13 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
   }, [medicao.id]);
 
   // Toda acao com sucesso recarrega o painel e avisa a lista (o estado da linha pode ter mudado).
-  const agir = async (fn: () => Promise<void>) => {
-    setErro(""); setOcupado(true);
+  const agir = async (qual: "manual" | "justificar" | "declarar", fn: () => Promise<void>) => {
+    setErro(""); setOcupado(true); setAcao(qual);
     try {
       await fn();
       await carregar();
       aoMudar();
-    } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
+    } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); setAcao(null); }
   };
 
   const descrever = (nome: string, r: Anexado): string => {
@@ -147,7 +149,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
     ev.preventDefault();
     if (!manual) return;
     const m = manual;
-    await agir(async () => {
+    await agir("manual", async () => {
       const r = await api<{ nota_id: number; conferencia: Diferenca[]; faltam: number; estado: string }>(
         `/api/medicoes/${medicao.id}/notas/manual`,
         { method: "POST", body: JSON.stringify({ documento_id: m.documento_id, numero: Number(m.numero), emissao: m.emissao, valor: m.valor }) });
@@ -160,7 +162,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
     ev.preventDefault();
     if (!justificar) return;
     const j = justificar;
-    await agir(async () => {
+    await agir("justificar", async () => {
       await api(`/api/notas/${j.nota_id}/justificar`, { method: "POST", body: JSON.stringify({ justificativa: j.texto }) });
       setJustificar(null);
     });
@@ -168,7 +170,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
 
   const enviarDeclaracao = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    await agir(async () => {
+    await agir("declarar", async () => {
       await api(`/api/medicoes/${medicao.id}/notas/completa`, { method: "POST", body: JSON.stringify({ justificativa: declarar }) });
       setLinhas(l => [...l, "Notas declaradas completas: medição em Nota emitida."]);
       setDeclarar("");
@@ -288,7 +290,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-justificativa" name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
               value={justificar.texto} onChange={ev => setJustificar({ ...justificar, texto: ev.target.value })} />
           </div>
-          <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Gravando…" : "Gravar justificativa"}</button>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "justificar" ? "Gravando…" : "Gravar justificativa"}</button>
           <button type="button" className="btn" onClick={() => setJustificar(null)}>Voltar</button>
         </form>
       )}
@@ -333,7 +335,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-valor" name="valor" autoComplete="off" spellCheck={false} className="entrada--media entrada--num num" required inputMode="decimal" placeholder="Ex.: 50.000,00…"
               value={manual.valor} onChange={ev => setManual({ ...manual, valor: ev.target.value })} />
           </div>
-          <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Registrando…" : "Registrar nota"}</button>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "manual" ? "Registrando…" : "Registrar nota"}</button>
           <button type="button" className="btn" onClick={() => setManual(null)}>Deixar só o arquivo</button>
         </form>
       )}
@@ -362,7 +364,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
             <input id="nota-declarar" name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
               value={declarar} onChange={ev => setDeclarar(ev.target.value)} />
           </div>
-          <button type="submit" className="btn btn--pequeno" disabled={ocupado}>{ocupado ? "Gravando…" : "Declarar completas"}</button>
+          <button type="submit" className="btn btn--pequeno" disabled={ocupado}>{acao === "declarar" ? "Gravando…" : "Declarar completas"}</button>
         </form>
       )}
 

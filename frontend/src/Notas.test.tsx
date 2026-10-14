@@ -148,3 +148,57 @@ describe("Notas", () => {
     expect(municipio.textContent).toMatch(/^Cuiabá no espelho; na nota Várzea Grande$/);
   });
 });
+
+describe("Notas: só o botão da ação em curso troca o rótulo", () => {
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
+
+  const COM_DIVERGENCIA = {
+    ...DADOS, faltam: 1, pode_declarar: true,
+    esperadas: [{ ...DADOS.esperadas[0], nota_id: 5 }],
+    notas: [{ nota_id: 5, coligada: 1, numero: "2288", serie: null, emissao: "2026-09-14", valor_centavos: 71919072,
+              valor_pdf_centavos: 71919072, origem_nota: "pdf", confirmacao: "aguardando_rm", documento_id: 3,
+              conferencia: [{ campo: "iss", espelho: 1438381, nota: 1438581, grau: "divergente" }],
+              justificativa: null, leitura: "cuiaba", municipio: "Cuiabá", regra: "pdf", recebido_centavos: 0 }],
+  };
+
+  async function abrir() {
+    api.mockImplementation((_url: string, opts?: { method?: string }) =>
+      opts?.method === "POST" ? new Promise(() => {}) : Promise.resolve(COM_DIVERGENCIA));
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/diverge do espelho: ISS/)).toBeTruthy());
+  }
+
+  it("justificativa em curso: 'Declarar completas' fica desabilitado mas mantém o rótulo", async () => {
+    await abrir();
+    fireEvent.click(screen.getByRole("button", { name: "Justificar" }));
+    fireEvent.change(screen.getByLabelText(/Justificativa da divergência/), { target: { value: "Arredondamento" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gravar justificativa" }));
+    await screen.findByRole("button", { name: "Gravando…" });
+    const vizinho = screen.getByRole("button", { name: "Declarar completas" }) as HTMLButtonElement;
+    expect(vizinho.disabled).toBe(true);
+  });
+
+  it("declaração em curso: 'Declarar completas' vira 'Gravando…' e desabilita", async () => {
+    await abrir();
+    fireEvent.change(screen.getByLabelText(/Declarar as notas completas/), { target: { value: "Sem serviço no mês" } });
+    fireEvent.click(screen.getByRole("button", { name: "Declarar completas" }));
+    const botao = await screen.findByRole("button", { name: "Gravando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+  });
+
+  it("registro manual em curso: 'Registrar nota' vira 'Registrando…' e 'Declarar completas' mantém o rótulo", async () => {
+    apiForm.mockResolvedValue({ documento_id: 9, repetido: false, nota_id: null, conferencia: [], faltam: 1,
+      estado: "espelho_enviado", leitura: { ok: false, motivo: "ilegível" } });
+    await abrir();
+    const arquivo = new File(["x"], "nota.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar notas à medição/), { target: { files: [arquivo] } });
+    await screen.findByRole("button", { name: "Registrar nota" });
+    fireEvent.change(screen.getByLabelText("Número da nota"), { target: { value: "2290" } });
+    fireEvent.change(screen.getByLabelText("Emissão"), { target: { value: "2026-09-14" } });
+    fireEvent.change(screen.getByLabelText(/^Valor/), { target: { value: "719190,72" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar nota" }));
+    const botao = await screen.findByRole("button", { name: "Registrando…" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Declarar completas" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});

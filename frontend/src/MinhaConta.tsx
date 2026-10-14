@@ -13,6 +13,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   const [erro, setErro] = useState("");
   const [teste, setTeste] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [trocandoSenha, setTrocandoSenha] = useState(false);   // so' o botao da troca de senha muda o rotulo
   const timer = useRef<number | undefined>(undefined);
   const arquivo = useRef<HTMLInputElement>(null);
   const [versao, setVersao] = useState(() => Date.now());
@@ -84,13 +85,13 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
     ev.preventDefault();
     setErroSenha(""); setSenhaTrocada("");
     if (senha.nova !== senha.confirmar) { setErroSenha("A confirmação não bate com a senha nova."); return; }
-    setOcupado(true);
+    setOcupado(true); setTrocandoSenha(true);
     try {
       await api("/api/auth/senha", { method: "POST", body: JSON.stringify({ senha_atual: senha.atual, senha_nova: senha.nova }) });
       setSenha({ atual: "", nova: "", confirmar: "" });
       setSenhaTrocada("Senha trocada. As outras sessões abertas com a sua conta foram encerradas.");
     } catch (e) { setErroSenha(mensagemDeErro(e)); }
-    finally { setOcupado(false); }
+    finally { setOcupado(false); setTrocandoSenha(false); }
   }
 
   if (podeEditar && !st) return <p className="vazio">{erro || "Carregando…"}</p>;
@@ -184,7 +185,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
           <input id="senha-confirmar" type="password" required minLength={10} autoComplete="new-password" value={senha.confirmar}
                  onChange={e => setSenha({ ...senha, confirmar: e.target.value })} />
         </div>
-        <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Trocando…" : "Trocar senha"}</button>
+        <button type="submit" className="btn btn--primario" disabled={ocupado}>{trocandoSenha ? "Trocando…" : "Trocar senha"}</button>
       </form>
       {erroSenha && <div className="cartao__corpo"><p role="alert">{erroSenha}</p></div>}
       <p className={senhaTrocada ? "cartao__corpo" : "sr-only"} role="status">{senhaTrocada}</p>

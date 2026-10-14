@@ -127,6 +127,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
   const [erro, setErro] = useState("");
   const [fila, setFila] = useState<ItemFila[]>([]);
   const [ocupado, setOcupado] = useState(false);
+  const [gravandoReg, setGravandoReg] = useState(false);   // so' o botao da regularidade muda o rotulo
   const [dataZip, setDataZip] = useState("");
   const [reg, setReg] = useState<{ entidade_id: number; arquivo: File | null; competencia: string } | null>(null);
   const [erroReg, setErroReg] = useState("");
@@ -202,7 +203,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
   const enviarRegularidade = async (ev: React.FormEvent) => {
     ev.preventDefault();
     if (!reg?.arquivo) return;
-    setOcupado(true); setErroReg(""); setGravada("");
+    setOcupado(true); setGravandoReg(true); setErroReg(""); setGravada("");
     const fd = new FormData();
     fd.append("arquivo", reg.arquivo);
     fd.append("entidade_id", String(reg.entidade_id));
@@ -214,7 +215,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
       setFoco(`reg-anexar-${reg.entidade_id}`);
       setReg(null);
       await carregar();
-    } catch (e) { setErroReg(mensagem(e)); } finally { setOcupado(false); }
+    } catch (e) { setErroReg(mensagem(e)); } finally { setOcupado(false); setGravandoReg(false); }
   };
 
   // `navigator.clipboard` so' existe em contexto seguro, e a producao roda em http: sem ele, a copia antiga
@@ -475,7 +476,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
                                   <input id={`reg-comp-${e.entidade_id}`} type="month" required value={reg.competencia}
                                     onChange={ev => setReg({ ...reg, competencia: ev.target.value })} />
                                 </div>
-                                <button type="submit" className="btn btn--primario btn--pequeno" disabled={ocupado || !reg.arquivo}>{ocupado ? "Gravando…" : "Gravar regularidade"}</button>
+                                <button type="submit" className="btn btn--primario btn--pequeno" disabled={ocupado || !reg.arquivo}>{gravandoReg ? "Gravando…" : "Gravar regularidade"}</button>
                                 <button type="button" className="btn btn--pequeno"
                                   onClick={() => { setFoco(`reg-anexar-${e.entidade_id}`); setReg(null); setErroReg(""); }}>Voltar</button>
                               </form>
