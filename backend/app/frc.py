@@ -227,12 +227,18 @@ def situacao(conn, medicao_id: int) -> dict:
                "desatualizada": atuais != antes}
     itens = [{k: v for k, v in i.items() if not k.startswith("_")} for i in ck["itens"]]
     bloqueio = _bloqueio(ck)
-    doc, recusa = _escolher_assinada(_faturas(conn, medicao_id), vig, bool(frc and frc["desatualizada"]))
+    # Revisor adversarial na PR #179: sem espelho vigente (ou sem notas esperadas) e sem FRC gerada, a dashboard nao
+    # tem como gerar a FRC; a assinada feita a' mao entra sem vinculo e vale, como no consorcio sem formulario.
+    controla = vig is not None or bool(itens)
+    faturas = _faturas(conn, medicao_id)
+    doc, recusa = _escolher_assinada(faturas, vig, bool(frc and frc["desatualizada"])) if controla else \
+        ({"id": faturas[-1]["id"], "nome": faturas[-1]["nome"]} if faturas else None, None)
     return {"disponivel": True, "consorcio": ent["nome"], "motivo": None, "itens": itens,
             "nao_lidas": ck["nao_lidas"], "sobras": ck["sobras"],
             "completa": bool(itens) and all(i["situacao"] == "anexada" for i in itens),
             "bloqueio": bloqueio, "ultima": ult, "sugerido": vig["numero"] if vig else ult + 1, "frc": frc,
-            "assinada": doc is not None, "assinada_documento": doc, "assinada_recusa": recusa}
+            "assinada": doc is not None, "assinada_documento": doc, "assinada_recusa": recusa,
+            "assinada_controla": controla}
 
 
 # --- FRC assinada (issue #169) --------------------------------------------------------------------------------
@@ -271,25 +277,44 @@ def assinada(conn, medicao_id: int) -> dict:
     da FRC vigente (`recusa` diz por que a anexada nao vale). Consorcio sem FRC pela dashboard: a ultima anexada."""
     s = situacao(conn, medicao_id)
     if s["disponivel"]:
-        return {"controla": True, "documento": s["assinada_documento"], "recusa": s["assinada_recusa"],
-                "frc": s["frc"]}
+        return {"controla": s["assinada_controla"], "documento": s["assinada_documento"],
+                "recusa": s["assinada_recusa"], "frc": s["frc"]}
     docs = _faturas(conn, medicao_id)
     return {"controla": False, "documento": {"id": docs[-1]["id"], "nome": docs[-1]["nome"]} if docs else None,
             "recusa": None, "frc": None}
 
 
-def para_assinar(conn, medicao_id: int) -> int | None:
-    """A FRC (frcs.id) a que a assinada sendo anexada fica ligada. Sem FRC gerada, ou desatualizada, recusa: nao ha'
-    o que assinar. Consorcio sem FRC pela dashboard: None (a assinada entra sem vinculo, como antes)."""
+SEM_TEXTO = ("O PDF da FRC assinada não tem texto para conferir com a FRC gerada: anexe o PDF que o DocuSign entrega, "
+             "não uma digitalização")
+
+
+def para_assinar(conn, medicao_id: int, pdf: bytes) -> int | None:
+    """A FRC (frcs.id) que o PDF assinado assina. Sem FRC gerada, ou desatualizada, recusa: nao ha' o que assinar.
+    Revisor adversarial na PR #179: a FRC gerada de novo pode manter o numero, entao o PDF tem que trazer, no TEXTO,
+    o numero, o total bruto, o total liquido e o numero de cada nota da FRC vigente; a assinada da versao anterior
+    (outra nota, outro valor) e' recusada. Consorcio sem FRC pela dashboard: None (entra sem vinculo, como antes)."""
     s = situacao(conn, medicao_id)
-    if not s["disponivel"]:
+    if not s["disponivel"] or not s["assinada_controla"]:
         return None
     if s["frc"] is None:
         raise ValueError("Gere a FRC na etapa 3 (Nota fiscal) antes de anexar a assinada")
+    n = s["frc"]["numero"]
     if s["frc"]["desatualizada"]:
-        raise ValueError(f"As notas mudaram depois da FRC nº {s['frc']['numero']}: gere de novo na etapa 3 "
-                         "(Nota fiscal), assine no DocuSign e anexe a nova")
-    return _vigente(conn, medicao_id)["id"]
+        raise ValueError(f"As notas mudaram depois da FRC nº {n}: gere de novo na etapa 3 (Nota fiscal), assine no "
+                         "DocuSign e anexe a nova")
+    vig = _vigente(conn, medicao_id)
+    try:
+        texto = "".join(leitura_pdf.texto_de_pdf_com_limite(pdf).split())
+    except ValueError:                                  # TextoInadequado (digitalizado) ou PDF ilegivel
+        raise ValueError(SEM_TEXTO) from None
+    if not texto:
+        raise ValueError(SEM_TEXTO)
+    esperados = [f"{n:05d}", _br(vig["bruto_centavos"]), _br(vig["liquido_centavos"]),
+                 *(str(x["numero"]) for x in json.loads(vig["notas"]))]
+    if any(e not in texto for e in esperados):
+        raise ValueError(f"Este PDF não é a FRC nº {n} vigente (número, notas ou valores não batem): baixe a FRC "
+                         "gerada, assine no DocuSign e anexe a assinada dela")
+    return vig["id"]
 
 
 # --- geracao ------------------------------------------------------------------------------------------------

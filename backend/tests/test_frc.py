@@ -275,7 +275,7 @@ def test_frc_gerada_nao_satisfaz_o_envio_e_a_assinada_sim(conn, usuario, consorc
     assert item["frc_gerada"] is None and "gere de novo na etapa 3" in item["detalhe"]
     conn.execute("UPDATE frcs SET notas=? WHERE medicao_id=? AND substituida_em IS NULL", (linhas, mid))
     conn.commit()
-    _texto("qualquer coisa")
+    _texto(_texto_da_frc(conn, mid))
     notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), f"FRC {n} assinada.pdf", tipo_doc="fatura")
     assert protocolo.faltas_consorcio(conn, c, [m]) == []
     itens, _, _ = notas_envio._itens(conn, c, "sinfra", [m], __import__("datetime").date(2026, 10, 9))
@@ -291,8 +291,14 @@ def _item_frc(conn, cid, mid):
     return next(i for i in itens if i["chave"] == f"frc:{mid}"), protocolo.faltas_consorcio(conn, c, [m])
 
 
-def _assinar(conn, usuario, mid, _texto, nome):  # noqa: F811
-    _texto("qualquer coisa")
+def _texto_da_frc(conn, mid) -> str:
+    """O texto do PDF da FRC vigente, como o DocuSign o devolve assinado (o texto e' o mesmo)."""
+    p = frc.arquivo(conn, mid, "pdf")
+    return pypdf.PdfReader(io.BytesIO(p.read_bytes())).pages[0].extract_text() if p else "qualquer coisa"
+
+
+def _assinar(conn, usuario, mid, _texto, nome, texto=None):  # noqa: F811
+    _texto(texto if texto is not None else _texto_da_frc(conn, mid))
     return notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto(nome), nome, tipo_doc="fatura")
 
 
@@ -340,6 +346,37 @@ def test_assinada_so_se_anexa_sobre_a_frc_vigente_atualizada(conn, usuario, cons
         _assinar(conn, usuario, mid, _texto, "FRC outra.pdf")
     assert conn.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura'",
                         (mid,)).fetchone()[0] == 1
+
+
+def test_assinada_sem_vinculo_se_religa_ao_arrastar_de_novo_e_pdf_sem_texto_e_recusado(conn, usuario, consorcio14,
+                                                                                         _texto):  # noqa: F811
+    """Revisor adversarial na PR #179 (aviso 2): a assinada de antes da migracao 038 (sem vinculo) que assina a FRC
+    vigente volta a valer quando o mesmo PDF e' arrastado de novo; PDF sem texto nao se confere e e' recusado."""
+    cid, mid = consorcio14
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    doc = _assinar(conn, usuario, mid, _texto, "FRC assinada.pdf")["documento_id"]
+    conn.execute("UPDATE medicao_documentos SET frc_id=NULL WHERE id=?", (doc,))       # anexada antes da 038
+    conn.commit()
+    assert _item_frc(conn, cid, mid)[0]["estado"] == "falta"
+    r = _assinar(conn, usuario, mid, _texto, "FRC assinada.pdf")                       # o mesmo arquivo
+    assert (r["documento_id"], r["repetido"]) == (doc, True)
+    assert _item_frc(conn, cid, mid)[0]["estado"] == "ok"
+    with pytest.raises(ValueError, match="não tem texto para conferir"):
+        _assinar(conn, usuario, mid, _texto, "FRC digitalizada.pdf", texto="")
+
+
+def test_sem_espelho_e_sem_frc_gerada_a_assinada_feita_a_mao_vale(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Revisor adversarial na PR #179 (aviso 3): medicao de consorcio sem espelho vigente nao gera FRC; a assinada
+    feita a' mao entra sem vinculo e vale, como no consorcio sem formulario (senao o e-mail sairia sem FRC)."""
+    cid, _ = consorcio14
+    mid = medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
+    assert frc.situacao(conn, mid)["bloqueio"] == "A medição não tem espelho vigente com as notas esperadas."
+    doc = _assinar(conn, usuario, mid, _texto, "FRC 9 feita a mão.pdf", texto="")["documento_id"]
+    assert conn.execute("SELECT frc_id FROM medicao_documentos WHERE id=?", (doc,)).fetchone()[0] is None
+    a = frc.assinada(conn, mid)
+    assert (a["controla"], a["documento"], a["recusa"]) == (False, {"id": doc, "nome": "FRC 9 feita a mão.pdf"}, None)
+    item, faltas = _item_frc(conn, cid, mid)
+    assert item["estado"] == "ok" and not [f for f in faltas if "FRC" in f]
 
 
 def test_baixar_frc_desatualizada_e_recusado(client_admin, _texto):  # noqa: F811

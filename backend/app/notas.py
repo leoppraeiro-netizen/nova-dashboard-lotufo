@@ -167,9 +167,17 @@ def _gravar_documento(conn, usuario, medicao_id, caminho: str, sha: str, tamanho
     if ok:
         ent = _entidade_por_cnpj(conn, lida["prestador_cnpj"])
         consorciada = (ent["nome"] if ent and ent["papel"] == "consorciada" else None)
-    ja = conn.execute("SELECT id, leitura FROM medicao_documentos WHERE medicao_id=? AND item_id=?",
+    ja = conn.execute("SELECT id, leitura, frc_id FROM medicao_documentos WHERE medicao_id=? AND item_id=?",
                       (medicao_id, sha)).fetchone()
     if ja:
+        # Revisor adversarial na PR #179: a assinada arrastada de novo, ja' conferida pelo texto contra a FRC vigente
+        # (frc.para_assinar), passa a valer por ela (anexo sem vinculo, de antes da migracao 038, ou de uma versao
+        # que o texto mostra ser igual a' vigente).
+        if frc_id and ja["frc_id"] != frc_id:
+            conn.execute("UPDATE medicao_documentos SET frc_id=? WHERE id=?", (frc_id, ja["id"]))
+            auditoria.registrar(conn, usuario["id"], "medicao.documento", "medicao", medicao_id,
+                                {"documento_id": ja["id"], "frc_id": ja["frc_id"]},
+                                {"documento_id": ja["id"], "frc_id": frc_id})
         # Arrastar de novo o mesmo PDF rele a nota quando a leitura guardada falhou (leiaute que o leitor
         # passou a reconhecer depois, como a nota nova da Guaxe em 09/10/2026); leitura boa nao e' trocada.
         anterior_ok = bool(ja["leitura"] and json.loads(ja["leitura"]).get("ok"))
@@ -277,8 +285,9 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
         raise ValueError("tipo_doc: use nfs (nota) ou fatura (FRC)")
     lida = (leitura_nfse.ler(leitura_pdf.texto_de_pdf_com_limite(pdf)) if tipo_doc == "nfs"
             else {"ok": False, "motivo": "fatura", "leiaute": None})
-    # issue #169: a assinada fica ligada a' FRC vigente que ela assina; sem FRC gerada, ou desatualizada, recusa
-    frc_id = frc.para_assinar(conn, medicao_id) if tipo_doc == "fatura" else None
+    # issue #169: a assinada fica ligada a' FRC vigente que ela assina (conferida pelo texto do PDF); sem FRC gerada,
+    # desatualizada ou PDF de outra versao, recusa
+    frc_id = frc.para_assinar(conn, medicao_id, pdf) if tipo_doc == "fatura" else None
     caminho, sha = arquivos.gravar_bytes("notas", pdf, "pdf")      # disco ANTES do envelope (ver _gravar_documento)
     with db.mutacao(conn):
         m = medicoes.detalhe(conn, medicao_id)

@@ -736,3 +736,23 @@ def test_assinada_de_frc_anterior_recusa_o_envio(conn, usuario, consorcio14, _te
     d = notas_envio.detalhe_envio(conn, pid)
     assert d["bloqueio"] is None
     assert [a["nome"] for a in d["previa"]["anexos"] if a["origem"] == "frc"] == [f"FRC {n} assinada de novo.pdf"]
+
+
+def test_pdf_assinado_da_versao_anterior_com_o_mesmo_numero_e_recusado(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Revisor adversarial na PR #179 (critico 1): baixa a FRC nº N (v1) e assina; troca uma nota; "Gerar de novo"
+    faz a v2 com o mesmo nº N. Anexar o PDF assinado da v1 e' recusado (o texto traz a nota velha); o da v2 entra."""
+    cid, mid = consorcio14
+    n = test_frc.ULTIMA + 1
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    v1 = test_frc._texto_da_frc(conn, mid)
+    trocada = ("lotufo", 2290, *test_frc.NOTAS_FRC[2][2:])       # a nota de Cuiaba reemitida com outro numero
+    test_frc._anexar(conn, usuario, mid, _texto, [trocada])
+    assert frc.situacao(conn, mid)["frc"]["desatualizada"] is True
+    frc.gerar(conn, usuario, mid, n)
+    assert frc.situacao(conn, mid)["frc"]["numero"] == n and "2290" in test_frc._texto_da_frc(conn, mid)
+    with pytest.raises(ValueError, match=f"Este PDF não é a FRC nº {n} vigente"):
+        test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} v1 assinada.pdf", texto=v1)
+    item, _ = test_frc._item_frc(conn, cid, mid)
+    assert item["estado"] == "falta"
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} v2 assinada.pdf")
+    assert test_frc._item_frc(conn, cid, mid)[0]["estado"] == "ok"
