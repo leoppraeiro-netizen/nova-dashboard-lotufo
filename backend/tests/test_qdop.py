@@ -33,7 +33,7 @@ def test_xlsx_no_leiaute_oficial(cenario):  # noqa: F811
     c, ids = cenario
     ws = openpyxl.load_workbook(io.BytesIO(qdop.gerar_xlsx(c, HOJE))).active
     linhas = qdop.linhas(c, HOJE)
-    assert ws["S1"].value == "GL.SGI.FRP.DE.250"
+    assert ws["S1"].value == "FRM.EXEMPLO.001"   # codigo do formulario no modelo de cadastro-exemplo/
     assert ws["A13"].value == "SEQ." and ws["S13"].value == "DESCRIÇÃO DA OBRA"
     assert ws["A14"].value == 1 and ws["I14"].value == 5_000_000.00        # PI do consorcio (inicio 2024) em reais
     ultima = 13 + len(linhas)
