@@ -7,8 +7,8 @@
   por dia, com `.sha256` ao lado, conferida relendo o destino. Retencao em camadas:
   7 diarios, 5 semanais, 12 mensais.
 - Arquivos ao lado do banco (issue #55): `notas`, `espelhos`, `modelos` e `evidencias` vao
-  para `<backups>/arquivos/<pasta>/` a cada rodada, depois do snapshot, e para
-  `<externo>/arquivos/<pasta>/` junto com a copia externa. Os nomes sao o sha256 do
+  para `<backups>/arquivos/<pasta>/` e, havendo pasta externa, para
+  `<externo>/arquivos/<pasta>/`, a cada rodada, depois do snapshot. Os nomes sao o sha256 do
   conteudo e nunca mudam de conteudo: uma copia de cada arquivo serve a todos os
   snapshots (o disco nao cresce 48 vezes) e o backup nunca apaga o que guardou (um
   snapshot antigo pode citar arquivo que ja saiu da pasta de dados).
@@ -193,34 +193,67 @@ def copiar_arquivos(raiz_origem: Path, raiz_destino: Path) -> int:
     (backups/arquivos -> dados). So' copia o que falta no destino; nunca apaga nada.
     Temporarios (`*.tmp`, upload em andamento) ficam de fora. Cada copia vai para um
     `.tmp`, e' conferida pelo sha256 contra a origem e so' entao renomeada: ou o
-    arquivo aparece inteiro, ou nao aparece. Devolve quantos arquivos copiou.
+    arquivo aparece inteiro, ou nao aparece. Origem cujo conteudo nao bate com o
+    sha256 do proprio nome nao e' copiada (copiaria o defeito para o backup).
+    Um arquivo com problema nao impede os outros: todos sao tentados e, no fim, sobe
+    um OSError com os que ficaram sem copia. Devolve quantos arquivos copiou.
     """
     copiados = 0
+    falhas: list[str] = []
+    agora = time.time()
     for nome in PASTAS_ARQUIVOS:
         origem = raiz_origem / nome
         if not origem.is_dir():
             continue
         destino = raiz_destino / nome
         destino.mkdir(parents=True, exist_ok=True)
+        _limpar_parciais_abandonados(destino, agora)
         for arquivo in sorted(origem.iterdir()):
             if not arquivo.is_file() or arquivo.name.endswith(".tmp"):
                 continue
-            alvo = destino / arquivo.name
-            # o nome e' o sha256 do conteudo: mesmo nome e mesmo tamanho = mesmo arquivo
-            if alvo.exists() and alvo.stat().st_size == arquivo.stat().st_size:
-                continue
-            esperado = _sha256(arquivo)
-            parcial = destino / f"{arquivo.name}.{os.getpid()}.tmp"
             try:
-                shutil.copyfile(arquivo, parcial)
-                if _sha256(parcial) != esperado:
-                    raise OSError(f"sha256 divergente ao copiar {nome}/{arquivo.name}")
-                parcial.replace(alvo)
-            except BaseException:
-                parcial.unlink(missing_ok=True)
-                raise
-            copiados += 1
+                if _copiar_um(arquivo, destino / arquivo.name):
+                    copiados += 1
+            except OSError as e:
+                falhas.append(f"{nome}/{arquivo.name} ({e})")
+    if falhas:
+        mais = f" e mais {len(falhas) - 3}" if len(falhas) > 3 else ""
+        raise OSError(f"{len(falhas)} arquivo(s) sem copia: {'; '.join(falhas[:3])}{mais}")
     return copiados
+
+
+_PARCIAL_NOSSO = re.compile(r"\.\d+\.tmp$")  # `<nome>.<pid>.tmp`, so' o que _copiar_um cria
+
+
+def _limpar_parciais_abandonados(destino: Path, agora: float) -> None:
+    """Sobra de copia interrompida (processo morto no meio): o PID muda na proxima
+    rodada, entao ninguem mais a renomeia. Mesmo corte de 1 hora dos snapshots."""
+    for sobra in destino.glob("*.tmp"):
+        try:
+            if _PARCIAL_NOSSO.search(sobra.name) and agora - sobra.stat().st_mtime > IDADE_TMP_SEG:
+                sobra.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _copiar_um(arquivo: Path, alvo: Path) -> bool:
+    """Copia um arquivo conferido; False se ja estava la."""
+    # o nome e' o sha256 do conteudo: mesmo nome e mesmo tamanho = mesmo arquivo
+    if alvo.exists() and alvo.stat().st_size == arquivo.stat().st_size:
+        return False
+    esperado = _sha256(arquivo)
+    if re.fullmatch(r"[0-9a-f]{64}", arquivo.stem) and arquivo.stem != esperado:
+        raise OSError("conteudo nao bate com o sha256 do nome")
+    parcial = alvo.parent / f"{arquivo.name}.{os.getpid()}.tmp"
+    try:
+        shutil.copyfile(arquivo, parcial)
+        if _sha256(parcial) != esperado:
+            raise OSError("sha256 divergente na copia")
+        parcial.replace(alvo)
+    except BaseException:
+        parcial.unlink(missing_ok=True)
+        raise
+    return True
 
 
 def _copiou_hoje(pasta_externa: Path, hoje: datetime.date) -> bool:
@@ -235,8 +268,10 @@ def _copiou_hoje(pasta_externa: Path, hoje: datetime.date) -> bool:
 # --- rodada e agendamento ------------------------------------------------------------
 
 def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> None:
-    """Uma rodada completa: snapshot + ensaio; copia externa se ainda nao houve hoje."""
+    """Uma rodada completa: snapshot + ensaio; arquivos (local e externo); copia externa
+    do banco se ainda nao houve hoje."""
     agora = tempo.para_local(tempo.agora_utc())
+    snapshot = None
     try:
         snapshot = criar_snapshot(origem_db, pasta_destino)
         ESTADO["ultimo_snapshot"] = agora.isoformat(timespec="seconds")
@@ -244,17 +279,26 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
     except Exception as e:
         ESTADO["ultimo_snapshot_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
         log.exception("snapshot falhou")
-        return
-    # DEPOIS do snapshot: todo arquivo que ele cita ja estava no disco (o sistema grava o
-    # arquivo antes da linha do banco), entao a copia o alcanca.
-    try:
-        copiar_arquivos(origem_db.parent, pasta_destino / SUBPASTA_ARQUIVOS)
+    # Arquivos DEPOIS do snapshot: todo arquivo que ele cita ja estava no disco (o sistema
+    # grava o arquivo antes da linha do banco), entao a copia o alcanca. Copiam mesmo se o
+    # snapshot falhou (nao dependem dele), e para fora a cada rodada (so' o que falta), antes
+    # da copia externa do banco: o snapshot que sai hoje encontra do outro lado o que cita.
+    destinos = [("", pasta_destino / SUBPASTA_ARQUIVOS)]
+    if pasta_externa is not None:
+        destinos.append(("copia externa: ", pasta_externa / SUBPASTA_ARQUIVOS))
+    erros = []
+    for rotulo, destino in destinos:
+        try:
+            copiar_arquivos(origem_db.parent, destino)
+        except Exception as e:
+            erros.append(f"{rotulo}{e}")
+            log.exception("copia dos arquivos falhou (%s)", destino)
+    if erros:
+        ESTADO["ultima_copia_arquivos_erro"] = f"{agora.isoformat(timespec='seconds')}: {'; '.join(erros)}"
+    else:
         ESTADO["ultima_copia_arquivos"] = agora.isoformat(timespec="seconds")
         ESTADO["ultima_copia_arquivos_erro"] = None
-    except Exception as e:
-        ESTADO["ultima_copia_arquivos_erro"] = f"{agora.isoformat(timespec='seconds')}: {e}"
-        log.exception("copia dos arquivos falhou")
-    if pasta_externa is None:
+    if pasta_externa is None or snapshot is None:
         return
     try:
         # `exists()`/`glob()` num compartilhamento sem permissao levantam PermissionError
@@ -262,9 +306,6 @@ def rodada(origem_db: Path, pasta_destino: Path, pasta_externa: Path | None) -> 
         # calada e o health segue dizendo "sem erro" para sempre.
         if _copiou_hoje(pasta_externa, agora.date()):
             return
-        # Arquivos ANTES do banco: o dia so' conta como feito (o .sha256 do banco) quando
-        # os arquivos que esse snapshot cita ja estao do outro lado.
-        copiar_arquivos(origem_db.parent, pasta_externa / SUBPASTA_ARQUIVOS)
         copiar_externo(snapshot, pasta_externa)
         ESTADO["ultima_copia_externa"] = agora.isoformat(timespec="seconds")
         ESTADO["ultima_copia_externa_erro"] = None

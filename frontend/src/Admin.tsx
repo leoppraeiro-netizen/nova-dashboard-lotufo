@@ -279,7 +279,7 @@ function Backup() {
         <h2 className="cartao__titulo" id="titulo-backup">Backup</h2>
         {/* o resultado de relance: Falhou se uma das tentativas falhou; OK quando alguma deu certo e nenhuma falhou */}
         {b && (b.ultimo_snapshot_erro || b.ultima_copia_arquivos_erro || b.ultima_copia_externa_erro ? <SeloRodada estado="failed" />
-          : b.ultimo_snapshot || b.ultima_copia_externa ? <SeloRodada estado="success" /> : null)}
+          : b.ultimo_snapshot || b.ultima_copia_arquivos || b.ultima_copia_externa ? <SeloRodada estado="success" /> : null)}
         <span className="cartao__dica">desde que o servidor subiu</span>
       </div>
       <div className="cartao__corpo pilha">

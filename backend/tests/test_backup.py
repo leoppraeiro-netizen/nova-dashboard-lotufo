@@ -321,3 +321,59 @@ def test_copia_de_arquivo_corrompida_e_recusada(tmp_path, monkeypatch):
     assert "sha256" in backup.ESTADO["ultima_copia_arquivos_erro"]
     assert backup.ESTADO["ultimo_snapshot_erro"] is None  # o banco foi salvo mesmo assim
     assert _arquivos_no(destino / "arquivos") == []
+
+
+def test_arquivo_com_defeito_nao_impede_os_outros(tmp_path):
+    # um PDF cujo conteudo nao bate com o sha256 do nome nao vai para o backup (copiaria o
+    # defeito), mas tambem nao pode deixar sem copia os que vem depois dele
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    estragado = tmp_path / "dados" / "notas" / f"{'0' * 64}.pdf"
+    estragado.write_bytes(b"conteudo trocado")
+    destino = tmp_path / "dados" / "backups"
+    backup.rodada(origem, destino, None)
+    erro = backup.ESTADO["ultima_copia_arquivos_erro"]
+    assert erro and estragado.name in erro
+    assert not (destino / "arquivos" / "notas" / estragado.name).exists()
+    for rel in gravados:
+        assert (destino / "arquivos" / rel).exists(), rel
+
+
+def test_arquivos_copiam_mesmo_com_snapshot_falhando(tmp_path, monkeypatch):
+    origem, gravados = _dados_com_arquivos(tmp_path)
+    destino = tmp_path / "dados" / "backups"
+    monkeypatch.setattr(backup, "criar_snapshot",
+                        lambda o, d: (_ for _ in ()).throw(sqlite3.OperationalError("database is locked")))
+    backup.rodada(origem, destino, tmp_path / "externo")
+    assert "locked" in backup.ESTADO["ultimo_snapshot_erro"]
+    for rel in gravados:
+        assert (destino / "arquivos" / rel).exists(), rel
+        assert (tmp_path / "externo" / "arquivos" / rel).exists(), rel
+
+
+def test_falha_dos_arquivos_la_fora_nao_segura_o_banco(tmp_path, monkeypatch):
+    # um arquivo travado nao pode impedir o banco de sair do servidor
+    origem, _ = _dados_com_arquivos(tmp_path)
+    fora = tmp_path / "externo"
+    real = backup.copiar_arquivos
+
+    def falha_so_fora(o, d):
+        if fora in d.parents:
+            raise OSError("cota cheia")
+        return real(o, d)
+
+    monkeypatch.setattr(backup, "copiar_arquivos", falha_so_fora)
+    backup.rodada(origem, tmp_path / "dados" / "backups", fora)
+    assert len(list(fora.glob("dashboard-*.db"))) == 1
+    assert backup.ESTADO["ultima_copia_externa_erro"] is None
+    assert "copia externa: cota cheia" in backup.ESTADO["ultima_copia_arquivos_erro"]
+
+
+def test_parcial_abandonado_de_copia_e_limpo(tmp_path):
+    origem, _ = _dados_com_arquivos(tmp_path)
+    notas = tmp_path / "dados" / "backups" / "arquivos" / "notas"; notas.mkdir(parents=True)
+    velho = notas / f"{'a' * 64}.pdf.4242.tmp"; velho.write_bytes(b"parcial")
+    envelhecer(velho, 7200)
+    recente = notas / f"{'b' * 64}.pdf.4343.tmp"; recente.write_bytes(b"em andamento")
+    backup.rodada(origem, tmp_path / "dados" / "backups", None)
+    assert not velho.exists()
+    assert recente.exists()
