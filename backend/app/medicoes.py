@@ -534,19 +534,18 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
 
     abertas = {x["contrato_id"] for x in linhas}
     prevista_de: dict[int, int] = {}
-    for r in conn.execute("SELECT contrato_id, id FROM medicoes WHERE estado='prevista' "
+    prevista_dados: dict[int, dict] = {}   # a MESMA medicao de prevista_de: o rotulo e o link da aba nao divergem
+    for r in conn.execute("SELECT contrato_id, id, numero, competencia FROM medicoes WHERE estado='prevista' "
                           "ORDER BY competencia, numero, id"):
-        prevista_de.setdefault(r["contrato_id"], r["id"])
-    # #154: ultima medicao de execucao (a cancelada/desistida e a prevista nao contam), a prevista mais antiga e o
-    # maior numero ja usado (UNIQUE contrato+numero+tipo: a proxima e' a seguinte, ou a prevista)
+        if r["contrato_id"] not in prevista_de:
+            prevista_de[r["contrato_id"]] = r["id"]
+            prevista_dados[r["contrato_id"]] = {"numero": r["numero"], "competencia": r["competencia"]}
+    # #154: ultima medicao de execucao (a cancelada/desistida e a prevista nao contam) e o maior numero ja usado
+    # (UNIQUE contrato+numero+tipo, a cancelada tambem ocupa o numero: a proxima e' a seguinte, ou a prevista)
     ultima_de: dict[int, dict] = {}
     for r in conn.execute("SELECT contrato_id, numero, competencia FROM medicoes WHERE tipo='execucao' AND estado "
                           "NOT IN ('prevista','cancelada','desistida') ORDER BY competencia DESC, numero DESC"):
         ultima_de.setdefault(r["contrato_id"], {"numero": r["numero"], "competencia": r["competencia"]})
-    prevista_dados: dict[int, dict] = {}
-    for r in conn.execute("SELECT contrato_id, numero, competencia FROM medicoes WHERE tipo='execucao' AND "
-                          "estado='prevista' ORDER BY competencia, numero, id"):
-        prevista_dados.setdefault(r["contrato_id"], {"numero": r["numero"], "competencia": r["competencia"]})
     maior_numero = dict(conn.execute("SELECT contrato_id, MAX(numero) FROM medicoes WHERE tipo='execucao' "
                                      "GROUP BY contrato_id").fetchall())
 
@@ -554,7 +553,7 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
         """Dias desde o FIM da competencia; competencia ainda em curso: nulo (a contagem nao comecou)."""
         ano, mes = int(competencia[:4]), int(competencia[5:7])
         dias = (hoje - datetime.date(ano, mes, calendar.monthrange(ano, mes)[1])).days
-        return dias if dias > 0 else None
+        return dias if dias >= 0 else None
     ativas = sorted((o for o in obras.values() if o["estado"] == "ativo"), key=lambda o: _chave_nome(o["obra"]))
     lista_obras = [{"contrato_id": o["id"], "obra": o["obra"], "contratante": o["contratante"],
                     "orgao_sub": o["orgao_sub"], "aberta": o["id"] in abertas, "prevista_id": prevista_de.get(o["id"]),

@@ -162,6 +162,24 @@ def test_obra_sem_medicao_traz_ultima_ha_quanto_tempo_prevista_e_proxima(conn):
     assert obras["E"]["prevista"] is None and obras["E"]["proxima"] == 1
 
 
+def test_prevista_da_aba_e_a_mesma_que_o_iniciar_abre(conn):
+    """O rótulo "Iniciar a Nª medição" e o link (prevista_id) vêm da mesma medição prevista."""
+    c = conn
+    a = _obra(c, "A", _orgao(c, "sinfra-suef1", "SINFRA - SUEF I", "sinfra"))
+    pid = c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+                    "VALUES (?,2,'projeto','2026-02','prevista')", (a,)).lastrowid
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,5,'execucao','2026-03','prevista')", (a,))
+    c.commit()
+    o = medicoes.resumo(conn, HOJE)["obras"][0]
+    assert o["prevista_id"] == pid and o["prevista"] == {"numero": 2, "competencia": "2026-02"} and o["proxima"] == 2
+    # competência que termina hoje já conta: "hoje"
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,1,'execucao','2026-09','recebida')", (a,))
+    c.commit()
+    assert medicoes.resumo(conn, datetime.date(2026, 9, 30))["obras"][0]["ha_dias"] == 0
+
+
 def test_rota_do_resumo(client_admin):
     r = client_admin.get("/api/medicoes/resumo")
     assert r.status_code == 200, r.text
