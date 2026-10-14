@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, apiForm } from "./api";
+import { api, apiForm, mensagemDeErro } from "./api";
 import type { Usuario } from "./Login";
 import Selo from "./Selo";
 
@@ -13,6 +13,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   const [erro, setErro] = useState("");
   const [teste, setTeste] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [trocandoSenha, setTrocandoSenha] = useState(false);   // so' o botao da troca de senha muda o rotulo
   const timer = useRef<number | undefined>(undefined);
   const arquivo = useRef<HTMLInputElement>(null);
   const [versao, setVersao] = useState(() => Date.now());
@@ -21,7 +22,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   const [erroSenha, setErroSenha] = useState("");
   const [senhaTrocada, setSenhaTrocada] = useState("");
 
-  const carregar = () => api<Status>("/api/correio/status").then(setSt).catch(e => setErro(String(e.message ?? e)));
+  const carregar = () => api<Status>("/api/correio/status").then(setSt).catch(e => setErro(mensagemDeErro(e)));
   useEffect(() => { if (podeEditar) carregar(); return () => window.clearInterval(timer.current); }, [podeEditar]);
 
   // Enquanto a Microsoft espera a pessoa digitar o codigo, consultar o estado a cada 5 s.
@@ -33,7 +34,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   async function conectar() {
     setErro(""); setOcupado(true);
     try { setSt(await api<Status>("/api/correio/conectar", { method: "POST" })); }
-    catch (e) { setErro(String((e as Error).message ?? e)); }
+    catch (e) { setErro(mensagemDeErro(e)); }
     finally { setOcupado(false); }
   }
 
@@ -42,7 +43,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
     try {
       const r = await api<{ remetente: string }>("/api/correio/teste", { method: "POST" });
       setTeste(`E-mail de teste enviado para ${r.remetente}. Confira a caixa de entrada e os itens enviados.`);
-    } catch (e) { setErro(String((e as Error).message ?? e)); }
+    } catch (e) { setErro(mensagemDeErro(e)); }
     finally { setOcupado(false); }
   }
 
@@ -63,7 +64,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
       const fd = new FormData(); fd.append("arquivo", f);
       setSt(await apiForm<Status>("/api/correio/assinatura", fd));
       setVersao(Date.now());
-    } catch (e) { setErro(String((e as Error).message ?? e)); }
+    } catch (e) { setErro(mensagemDeErro(e)); }
     finally { setOcupado(false); if (arquivo.current) arquivo.current.value = ""; }
   }
 
@@ -76,7 +77,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   async function removerAssinatura() {
     setErro(""); setOcupado(true);
     try { setSt(await api<Status>("/api/correio/assinatura", { method: "DELETE" })); }
-    catch (e) { setErro(String((e as Error).message ?? e)); }
+    catch (e) { setErro(mensagemDeErro(e)); }
     finally { setOcupado(false); }
   }
 
@@ -84,13 +85,13 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
     ev.preventDefault();
     setErroSenha(""); setSenhaTrocada("");
     if (senha.nova !== senha.confirmar) { setErroSenha("A confirmação não bate com a senha nova."); return; }
-    setOcupado(true);
+    setOcupado(true); setTrocandoSenha(true);
     try {
       await api("/api/auth/senha", { method: "POST", body: JSON.stringify({ senha_atual: senha.atual, senha_nova: senha.nova }) });
       setSenha({ atual: "", nova: "", confirmar: "" });
       setSenhaTrocada("Senha trocada. As outras sessões abertas com a sua conta foram encerradas.");
-    } catch (e) { setErroSenha(String((e as Error).message ?? e)); }
-    finally { setOcupado(false); }
+    } catch (e) { setErroSenha(mensagemDeErro(e)); }
+    finally { setOcupado(false); setTrocandoSenha(false); }
   }
 
   if (podeEditar && !st) return <p className="vazio">{erro || "Carregando…"}</p>;
@@ -184,7 +185,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
           <input id="senha-confirmar" type="password" required minLength={10} autoComplete="new-password" value={senha.confirmar}
                  onChange={e => setSenha({ ...senha, confirmar: e.target.value })} />
         </div>
-        <button type="submit" className="btn btn--primario" disabled={ocupado}>Trocar senha</button>
+        <button type="submit" className="btn btn--primario" disabled={ocupado}>{trocandoSenha ? "Trocando…" : "Trocar senha"}</button>
       </form>
       {erroSenha && <div className="cartao__corpo"><p role="alert">{erroSenha}</p></div>}
       <p className={senhaTrocada ? "cartao__corpo" : "sr-only"} role="status">{senhaTrocada}</p>

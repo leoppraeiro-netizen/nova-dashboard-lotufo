@@ -4,7 +4,7 @@ import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 // Cada cartao tem fluxo proprio; aqui so' importa que, ao avisar a pagina, ela releia o que os outros mostram.
 vi.mock("./Espelho", () => ({ default: () => null }));
 vi.mock("./Frc", () => ({ FrcConsorcio: () => null }));
@@ -49,6 +49,22 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Anexar nota (teste)" }));
     await waitFor(() => expect(leituras("/api/contratos/1/protocolos")).toHaveLength(2));
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes")).toHaveLength(2));
+  });
+
+  // issue #100 (revisor na PR #141): NF anexada na etapa 3 com o envio aberto na etapa 4 faz o envio reler os anexos
+  it("com a nota emitida, anexar nota na etapa 3 relê o envio aberto na etapa 4", async () => {
+    responder();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => {
+      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }];
+      if (url === "/api/notas/a-enviar") return { envios: [{ chave: "m5", contrato_id: 1, medicao_ids: [5], protocolo_id: 3, notas: [] }], contadores: {} };
+      if (url === "/api/notas/envio/3") return null;
+      return base(url, opcoes);
+    });
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Anexar nota (teste)" }));
+    await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(2));
   });
 
   it("depois de enviar um protocolo, a medição é lida de novo", async () => {

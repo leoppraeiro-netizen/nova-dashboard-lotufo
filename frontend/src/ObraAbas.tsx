@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import Cronograma from "./Cronograma";
 import { IconeAlerta } from "./icones";
 import Instrumentos from "./Instrumentos";
@@ -24,7 +24,7 @@ function useDados<T>(url: string): { dados: T | null; erro: string } {
     setDados(null); setErro("");
     api<T>(url)
       .then(d => { if (vivo) setDados(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, [url]);
   return { dados, erro };

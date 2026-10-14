@@ -28,6 +28,22 @@ def test_rotacao_mantem_48(tmp_path):
     assert len(list(destino.glob("dashboard-*.db"))) == 48
 
 
+def test_rotacao_nao_conta_nem_apaga_backup_pre(tmp_path):
+    origem = tmp_path / "app.db"
+    sqlite3.connect(origem).execute("CREATE TABLE t (x)")
+    destino = tmp_path / "backups"; destino.mkdir()
+    for i in range(50):
+        (destino / f"dashboard-PRE-DEPLOY-{i:02d}.db").write_bytes(b"pre")
+    for i in range(48):
+        (destino / f"dashboard-20260101-{i:06d}.db").write_bytes(b"velho")
+    novo = backup.criar_snapshot(origem, destino)
+    horarios = [a for a in destino.glob("dashboard-*.db") if backup._NOME.match(a.name)]
+    assert len(horarios) == 48
+    assert novo.exists()
+    assert not (destino / "dashboard-20260101-000000.db").exists()  # o horario mais velho saiu
+    assert len(list(destino.glob("dashboard-PRE-*.db"))) == 50
+
+
 # --- snapshot atomico (revisao final: parcial nao pode expulsar backup bom) ----
 
 def test_tmp_nao_conta_na_rotacao_e_e_limpo(tmp_path):
@@ -202,3 +218,77 @@ def test_rodada_registra_erro_da_copia_sem_derrubar(tmp_path, monkeypatch):
     backup.rodada(origem, tmp_path / "backups", tmp_path / "externo")
     assert backup.ESTADO["ultimo_snapshot_erro"] is None
     assert "rede fora" in backup.ESTADO["ultima_copia_externa_erro"]
+
+
+# --- saude do backup na tela de Administracao (issue #31) ----------------------
+
+def _agora():
+    import datetime
+    return datetime.datetime(2026, 10, 13, 12, 0, tzinfo=datetime.timezone.utc)
+
+def _snapshot_com_idade(pasta, nome, segundos, tamanho=10):
+    pasta.mkdir(exist_ok=True)
+    arq = pasta / nome
+    arq.write_bytes(b"x" * tamanho)
+    instante = _agora().timestamp() - segundos
+    os.utime(arq, (instante, instante))
+    return arq
+
+def test_situacao_conta_guardados_e_le_o_ultimo_do_disco(tmp_path):
+    # o ultimo backup vem do disco, nao da memoria: sobrevive ao servidor reiniciar
+    local = tmp_path / "backups"
+    _snapshot_com_idade(local, "dashboard-20261013-060000.db", 3 * 3600, tamanho=5)
+    _snapshot_com_idade(local, "dashboard-20261013-070000.db", 1800, tamanho=2048)
+    # nome que ordena depois mas foi gravado antes: o ultimo e' o mais recente pelo disco, nao pelo nome
+    _snapshot_com_idade(local, "dashboard-20261013-090000.db", 4 * 3600, tamanho=7)
+    (local / "dashboard-20261013-080000-pid9.db.tmp").write_bytes(b"parcial")  # nao conta
+    s = backup.situacao(local, True, _agora())
+    assert s["guardados"] == 3 and s["copia_externa_configurada"] is True
+    assert s["tamanho_bytes"] == 2048
+    assert s["ultimo_backup"] == "2026-10-13T07:30:00-04:00"  # hora de Cuiaba
+    assert s["atrasado"] is False
+
+def test_situacao_atrasado_acima_de_2h(tmp_path):
+    local = tmp_path / "backups"
+    arq = _snapshot_com_idade(local, "dashboard-20261013-060000.db", 2 * 3600 - 60)
+    assert backup.situacao(local, False, _agora())["atrasado"] is False
+    instante = _agora().timestamp() - (2 * 3600 + 60)
+    os.utime(arq, (instante, instante))
+    s = backup.situacao(local, False, _agora())
+    assert s["atrasado"] is True and s["copia_externa_configurada"] is False
+
+def test_situacao_sem_backup_e_atrasado(tmp_path):
+    s = backup.situacao(tmp_path / "nao-existe", False, _agora())
+    assert s["guardados"] == 0 and s["ultimo_backup"] is None and s["tamanho_bytes"] is None
+    assert s["atrasado"] is True
+
+def test_situacao_pasta_ilegivel_nao_derruba_e_fica_atrasado(tmp_path, monkeypatch):
+    local = tmp_path / "backups"
+    _snapshot_com_idade(local, "dashboard-20261013-070000.db", 1800)
+    def negado(self, padrao):
+        raise PermissionError("Acesso negado")
+    monkeypatch.setattr(type(local), "glob", negado)
+    s = backup.situacao(local, False, _agora())
+    assert s["guardados"] == 0 and s["atrasado"] is True
+
+def test_situacao_pre_migracao_recente_nao_esconde_o_horario_parado(tmp_path):
+    # gate Sol S1: o dashboard-PRE-*.db do deploy casa com PADRAO, mas nao e' a rotina horaria
+    local = tmp_path / "backups"
+    _snapshot_com_idade(local, "dashboard-20261013-050000.db", 5 * 3600)
+    _snapshot_com_idade(local, "dashboard-PRE-abc1234-20261013-115500.db", 300)
+    s = backup.situacao(local, False, _agora())
+    assert s["atrasado"] is True and s["guardados"] == 1
+    assert s["ultimo_backup"] == "2026-10-13T03:00:00-04:00"
+
+def test_situacao_traz_o_ultimo_erro_sem_caminho_nem_maquina(tmp_path, monkeypatch):
+    # gate Sol S3: a excecao crua (caminho, compartilhamento, maquina) fica no log; a tela recebe frase fixa
+    monkeypatch.setitem(backup.ESTADO, "ultimo_snapshot_erro",
+                        r"2026-10-13T08:00:00-04:00: [Errno 28] No space left: 'C:\\dados\\backups\\x.db'")
+    monkeypatch.setitem(backup.ESTADO, "ultima_copia_externa_erro",
+                        r"2026-10-13T03:00:00-04:00: [WinError 53] \\\\servidor\\backup")
+    s = backup.situacao(tmp_path / "backups", False, _agora())
+    assert s["ultimo_snapshot_erro_em"] == "2026-10-13T08:00:00-04:00"
+    assert s["ultimo_snapshot_erro"] == "não foi possível gravar o snapshot; o detalhe está no log do servidor"
+    assert s["ultima_copia_externa_erro_em"] == "2026-10-13T03:00:00-04:00"
+    assert "cópia externa" in s["ultima_copia_externa_erro"]
+    assert not any("\\" in str(v) or "Errno" in str(v) for v in s.values())

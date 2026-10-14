@@ -1,7 +1,7 @@
 import datetime
 import sqlite3
 from fastapi import APIRouter, Depends, Query
-from app import auditoria, correio
+from app import auditoria, backup, correio, tempo
 from app.api_auth import conexao
 from app.permissoes import exigir
 
@@ -27,6 +27,13 @@ def listar_auditoria(limite: int = Query(default=100, ge=1, le=500),
     return {"cadeia_integra": auditoria.verificar_cadeia(conn) if antes_de is None else None,
             "ha_mais": len(linhas) > limite,
             "eventos": [dict(l) for l in linhas[:limite]]}
+
+
+@router.get("/backup")
+def saude_do_backup(usuario: dict = Depends(exigir("administrar", com_csrf=False))):
+    """Administracao > Saude (issue #31): ultimo backup, quantos estao guardados, ultimo erro
+    e se esta atrasado (mais de 2 h sem snapshot). So' admin: traz caminhos e erros do servidor."""
+    return backup.situacao(backup.pasta_local(), backup.pasta_externa() is not None, tempo.agora_utc())
 
 
 @router.get("/contas-microsoft")

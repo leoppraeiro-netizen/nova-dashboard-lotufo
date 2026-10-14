@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { contagem, type Aviso } from "./Alertas";
-import { api, ApiErro } from "./api";
+import { api, mensagemDeErro } from "./api";
 import { ABAS_CARTEIRA, motivosDaLinha, obrasComProblema, porFarol, type Motivo } from "./carteira";
 import { contar, fmtDias, fmtPercentual } from "./formato";
 import { IconeAlerta, IconeBaixar } from "./icones";
@@ -155,11 +155,11 @@ function GraficoAno({ serie }: { serie: MesAno["serie"] }) {
 function Kpi({ valorTexto, rotulo, dinheiro = true, comparacoes = [] }:
     { valorTexto: string; rotulo: string; dinheiro?: boolean; comparacoes?: { rotulo: string; valor: string }[] }) {
   return (
-    <div className={`kpi${dinheiro ? " kpi--dinheiro" : ""}`} role="listitem">
+    <li className={`kpi${dinheiro ? " kpi--dinheiro" : ""}`}>
       <span className="kpi__valor num">{valorTexto}</span>
       <span className="kpi__rotulo">{rotulo}</span>
       {comparacoes.map(c => <span key={c.rotulo} className="kpi__comparacao num">{c.rotulo}: {c.valor}</span>)}
-    </div>
+    </li>
   );
 }
 
@@ -203,12 +203,12 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
     <>
       <Secao id="dir-dinheiro" titulo="Onde está o dinheiro"
         dica={p.total_a_receber_liberado ? undefined : "Valores do protocolado a conciliar com a controladoria."}>
-        <div className="kpis" role="list" aria-label="Onde está o dinheiro">
+        <ul className="kpis" aria-label="Onde está o dinheiro">
           <Kpi valorTexto={brl(d.medido_esperando_nota.valor_centavos)} rotulo={`medido esperando nota (${d.medido_esperando_nota.quantidade})`} />
           <Kpi valorTexto={brl(d.nota_esperando_protocolo.valor_centavos)} rotulo={`nota emitida esperando protocolo (${d.nota_esperando_protocolo.quantidade})`} />
           <Kpi valorTexto={valor(d.protocolado.valor_centavos)} rotulo={`protocolado esperando pagamento (${d.protocolado.quantidade})`} />
           <Kpi valorTexto={brl(d.recebido_mes.valor_centavos)} rotulo={`recebido no mês (${d.recebido_mes.quantidade})`} />
-        </div>
+        </ul>
         {/* o protocolado por orgao (faixas, obras) e os reajustes esperando apostilamento moram em A receber */}
         <div className="cartao__corpo">
           <p>
@@ -222,14 +222,14 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
       </Secao>
 
       <Secao id="dir-mes" titulo="O mês" dica={`Competência ${fmtCompetencia(m.mes)}`}>
-        <div className="kpis" role="list" aria-label="O mês">
+        <ul className="kpis" aria-label="O mês">
           <Kpi valorTexto={brl(m.medido_mes_centavos)} rotulo="medido no mês"
             comparacoes={[{ rotulo: "previsto no mês", valor: brl(m.previsto_mes_centavos) },
               { rotulo: "mesmo mês do ano anterior", valor: brl(m.mesmo_mes_ano_anterior_centavos) }]} />
           <Kpi valorTexto={brl(m.acumulado_ano_centavos)} rotulo="acumulado do ano"
             comparacoes={[{ rotulo: "previsto do ano", valor: brl(m.previsto_ano_centavos) }]} />
           <Kpi valorTexto={protocolos.v} rotulo={protocolos.r} dinheiro={false} />
-        </div>
+        </ul>
       </Secao>
 
       <Secao id="dir-problema" titulo="Obras com problema" dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Ação, Atenção ou Crítico`}>
@@ -401,12 +401,12 @@ function Producao({ p, ir }: { p: Painel; ir: Ir }) {
       </Secao>
 
       <Secao id="dir-saldo" titulo="Saldo a executar" dica="Vigente − medido. O saldo do QDOP é outra conta: contratual − faturado.">
-        <div className="kpis" role="list" aria-label="Saldo a executar">
+        <ul className="kpis" aria-label="Saldo a executar">
           <Kpi valorTexto={brl(k.saldo_centavos)} rotulo="saldo a executar" />
           <Kpi valorTexto={brl(k.ritmo_mensal_centavos)} rotulo="ritmo (média dos últimos 6 meses)" />
           <Kpi valorTexto={k.meses_de_producao === null ? "—" : `${k.meses_de_producao.toLocaleString("pt-BR")}\u00a0meses`}
             rotulo="de produção no ritmo atual" dinheiro={false} />
-        </div>
+        </ul>
         <Rolagem rotulo="Saldo a executar por órgão">
           <table className="tabela tabela--estreita">
             <caption className="sr-only">Saldo a executar por órgão, na cota da Lotufo</caption>
@@ -432,7 +432,7 @@ export default function Diretoria({ ir, aba = "resumo" }: { ir: Ir; aba?: AbaCar
     let vivo = true;
     api<Painel>("/api/diretoria")
       .then(d => { if (vivo) setP(d); })
-      .catch(e => { if (vivo) setErro(e instanceof ApiErro ? e.message : String(e)); });
+      .catch(e => { if (vivo) setErro(mensagemDeErro(e)); });
     return () => { vivo = false; };
   }, []);
 

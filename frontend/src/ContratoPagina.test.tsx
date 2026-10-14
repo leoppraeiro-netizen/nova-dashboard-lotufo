@@ -4,7 +4,7 @@ import ContratoPagina from "./ContratoPagina";
 import type { Usuario } from "./Login";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm: vi.fn(), ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 // O espelho tem fluxo proprio; aqui so' importa que ele avise a pagina quando muda algo.
 vi.mock("./Espelho", () => ({
   default: ({ aoMudar }: { aoMudar: () => void }) => <button type="button" onClick={aoMudar}>Gerar espelho (teste)</button>,

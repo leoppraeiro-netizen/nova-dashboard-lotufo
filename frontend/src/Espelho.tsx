@@ -1,7 +1,8 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
-import { api, apiForm, ApiErro } from "./api";
+import { api, apiForm, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
 import { larDoEspelho, tituloMedicao } from "./medicao";
 import { brl } from "./Medicoes";
@@ -52,7 +53,7 @@ function mesCivil(comp: string): [string, string] {
   return [`${m[1]}-${m[2]}-01`, `${m[1]}-${m[2]}-${String(ultimo).padStart(2, "0")}`];
 }
 function mensagem(e: unknown): string {
-  return e instanceof ApiErro ? e.message : String(e);
+  return mensagemDeErro(e);
 }
 const col = (v: number | null) => (v === null ? "—" : brl(v));
 
@@ -88,6 +89,8 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
   // o espelho que acabou de ser gerado na obra: a mensagem aponta para a medicao dele
   const [gerado, setGerado] = useState<number | null>(null);
   const geracao = useRef(0);
+  const baseForm = useRef(JSON.stringify(form));   // o formulario como abriu: so' conta como rascunho o que mudou
+  useRascunho(passo.tipo !== "lista" && passo.tipo !== "envio" && JSON.stringify(form) !== baseForm.current);
 
   const carregar = async () => {
     const g = geracao.current;
@@ -141,11 +144,13 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     setErro(""); setFeito(""); setGerado(null);
     const [pi, pf] = base?.periodo_inicio && base.periodo_fim ? [base.periodo_inicio, base.periodo_fim]
       : mesCivil(base ? base.competencia : "");
-    setForm({ numero: base ? String(base.numero) : "", competencia: base ? base.competencia : "",
+    const novo = { numero: base ? String(base.numero) : "", competencia: base ? base.competencia : "",
       entradas: Object.fromEntries(regra.entradas.map(e => {
         const c = base?.entradas?.[e.chave];
         return [e.chave, c ? brlPuro(c) : ""];
-      })), motivo: "", periodoInicio: pi, periodoFim: pf });
+      })), motivo: "", periodoInicio: pi, periodoFim: pf };
+    baseForm.current = JSON.stringify(novo);
+    setForm(novo);
     setPasso({ tipo: "form" });
   };
 

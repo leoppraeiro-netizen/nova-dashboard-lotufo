@@ -180,10 +180,9 @@ def create_app() -> FastAPI:
     app.include_router(usuarios_router)
 
     if os.environ.get("DASH_SEM_JOBS") != "1":
-        # backups ficam ao lado do banco (nunca dependem do diretorio de trabalho)
-        externo = os.environ.get("DASH_BACKUP_EXTERNO")
-        backup_mod.agendar_backup_horario(db.db_path(), db.db_path().parent / "backups",
-                                          Path(externo) if externo else None)
+        # as pastas saem de backup.py, as mesmas que Administracao > Saude le (issue #31)
+        backup_mod.agendar_backup_horario(db.db_path(), backup_mod.pasta_local(),
+                                          backup_mod.pasta_externa())
         # Sincronizacao horaria com o RM (fase 5): so' sobe se o RM estiver configurado.
         # Bloco 9: a observacao do Outlook e do SharePoint (fase 6) saiu; o RM e' a unica fonte automatica.
         from app import sincronizacao_rm

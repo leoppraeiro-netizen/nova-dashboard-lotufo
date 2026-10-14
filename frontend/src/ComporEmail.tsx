@@ -1,3 +1,4 @@
+import { useRascunho } from "./rascunho";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import ErroCampo from "./ErroCampo";
@@ -232,6 +233,7 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
   const [nomes, setNomes] = useState<Map<string, string | null>>(new Map());
   const [assinatura, setAssinatura] = useState<"carregando" | "sim" | "nao">("carregando");
   const versao = useMemo(() => Date.now(), []);
+  useRascunho(JSON.stringify(m) !== JSON.stringify(inicial));   // e-mail editado e ainda nao enviado
 
   useEffect(() => {
     buscar<{ remetente: string | null }>("/api/correio/remetente").then(r => setRemetente(r.remetente)).catch(() => setRemetente(null));

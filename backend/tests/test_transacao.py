@@ -27,8 +27,8 @@ def test_registrar_sem_transacao_falha_alto(conn):
         auditoria.registrar(conn, 1, "x.y", "x", 1, None, {})
 
 def test_mutacao_commita_junto(conn, cid):
-    mid = medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 1,
-                                   "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 1,
+                             "tipo": "execucao", "competencia": "2026-07"})
     outra = db.get_conn()
     try:
         assert outra.execute("SELECT COUNT(*) c FROM medicoes").fetchone()["c"] == 1
@@ -132,3 +132,13 @@ def test_reentrante_desfaz_so_a_parte_interna(conn, cid):
     from app.auditoria import verificar_cadeia
     assert verificar_cadeia(conn)
     assert not conn.in_transaction
+
+
+def test_exigir_uma_linha_e_o_unico_lugar_da_corrida_perdida(conn, cid):
+    """Dívida da fase 3: o "rowcount != 1 -> ValueError" dos UPDATEs condicionais mora em db.py."""
+    with db.mutacao(conn):
+        ganhou = conn.execute("UPDATE contratos SET estado='ativo' WHERE id=? AND estado='ativo'", (cid,))
+        db.exigir_uma_linha(ganhou, "nunca")
+        perdeu = conn.execute("UPDATE contratos SET estado='ativo' WHERE id=? AND estado='encerrado'", (cid,))
+        with pytest.raises(ValueError, match="mudou concorrentemente"):
+            db.exigir_uma_linha(perdeu, "Estado mudou concorrentemente; tente novamente")

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import Reajuste from "./Reajuste";
 
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", () => ({ api, apiForm, ApiErro: class ApiErro extends Error { status = 0; } }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 describe("Reajuste", () => {
   afterEach(() => { cleanup(); api.mockReset(); });

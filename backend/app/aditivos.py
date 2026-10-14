@@ -89,8 +89,7 @@ def atualizar(conn: sqlite3.Connection, usuario_id: int, aditivo_id: int, dados:
             "nova_vigencia_fim=?, nova_execucao_fim=? WHERE id=? AND status='em_andamento' AND cancelado_em IS NULL",
             (novo["tipo"], novo["numero"], novo["objeto"], novo["observacao"], novo["delta_valor_centavos"],
              novo["nova_vigencia_fim"], novo["nova_execucao_fim"], aditivo_id))
-        if cur.rowcount != 1:
-            raise ValueError("Aditivo mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Aditivo mudou concorrentemente; tente novamente")
         auditoria.registrar(conn, usuario_id, "aditivo.atualizar", "aditivo", aditivo_id,
                             {c: a[c] for c in CAMPOS_EDITAVEIS}, novo)
 
@@ -101,8 +100,7 @@ def cancelar(conn: sqlite3.Connection, usuario_id: int, aditivo_id: int, motivo:
         cur = conn.execute(
             "UPDATE aditivos SET cancelado_em=datetime('now'), cancelado_motivo=? "
             "WHERE id=? AND status='em_andamento' AND cancelado_em IS NULL", (motivo, aditivo_id))
-        if cur.rowcount != 1:
-            raise ValueError("Aditivo mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Aditivo mudou concorrentemente; tente novamente")
         auditoria.registrar(conn, usuario_id, "aditivo.cancelar", "aditivo", aditivo_id,
                             {"cancelado": False}, {"cancelado": True, "motivo": motivo})
 
@@ -149,8 +147,7 @@ def assinar(conn: sqlite3.Connection, usuario_id: int, aditivo_id: int, data_ass
             "valor_novo_centavos=?, ressalva_reajuste=?, assinado_por=? "
             "WHERE id=? AND status='em_andamento' AND cancelado_em IS NULL",
             (data_assinatura, anterior, esperado, ressalva_reajuste, usuario_id, aditivo_id))
-        if cur.rowcount != 1:
-            raise ValueError("Aditivo mudou concorrentemente; tente novamente")
+        db.exigir_uma_linha(cur, "Aditivo mudou concorrentemente; tente novamente")
         auditoria.registrar(conn, usuario_id, "aditivo.assinar", "aditivo", aditivo_id,
                             {"status": "em_andamento"},
                             {"status": "assinado", "data_assinatura": data_assinatura,
