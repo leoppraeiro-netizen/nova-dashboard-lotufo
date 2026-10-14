@@ -126,6 +126,20 @@ if ($GraphClientId) {
 else {
     Write-Warning "Sem -GraphClientId: envio de e-mail pela dashboard desligado. Ver docs\runbook.md (Envio de e-mail)."
 }
+# Hosts do OneDrive/SharePoint aceitos nos links de arquivo grande do protocolo (issue #118). O tenant da
+# empresa fica FORA do repositorio, que e' publico. Ordem: variavel DASH_SHAREPOINT_HOSTS (nivel da maquina),
+# primeira linha de $Raiz\segredos\sharepoint-hosts.txt. Lista separada por virgula. Sem nenhuma das duas,
+# o servidor recusa todo link (falha fechada).
+if (-not $env:DASH_SHAREPOINT_HOSTS) {
+    $arquivoHosts = Join-Path $Raiz "segredos\sharepoint-hosts.txt"
+    if (Test-Path -LiteralPath $arquivoHosts) {
+        $linhaHosts = Get-Content -LiteralPath $arquivoHosts -TotalCount 1
+        if ($linhaHosts) { $env:DASH_SHAREPOINT_HOSTS = $linhaHosts.Trim() }
+    }
+}
+if (-not $env:DASH_SHAREPOINT_HOSTS) {
+    Write-Warning "Sem DASH_SHAREPOINT_HOSTS (variavel ou $Raiz\segredos\sharepoint-hosts.txt): links do OneDrive no protocolo serao recusados. Ver docs\runbook.md (Envio de e-mail)."
+}
 if ($BackupExterno) {
     # "Externo" tem que ser outro disco: no mesmo volume do banco, a falha que leva o
     # banco leva a copia junto. UNC (\\servidor\...) passa; letra igual a do banco, nao.
