@@ -47,6 +47,12 @@ def test_linhas_do_editor_viram_quebras():
         "Bom dia,<br><br>Segue a <b>nota</b>.<br>Att."
 
 
+def test_tabela_colada_vira_uma_linha_por_celula():
+    assert html_email.sanitizar("<table><tr><td>Item 1</td><td>R$ 100,00</td></tr>"
+                                "<tr><td>Item 2</td><td>R$ 200,00</td></tr></table>") == \
+        "Item 1<br>R$ 100,00<br>Item 2<br>R$ 200,00"
+
+
 def test_colar_do_word_mantem_so_a_lista_fechada():
     word = ('<html xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8">'
             '<style>@font-face{font-family:Calibri}</style><!--[if gte mso 9]><xml><o:x>1</o:x></xml><![endif]-->'

@@ -85,6 +85,10 @@ function Barra({ rotulo, comando, className, style }: {
   );
 }
 
+const LARGURA_BARRA = 320;
+// as tags que o servidor reconhece como corpo vindo do editor (backend/app/html_email.py, `_TAG`)
+const TAG_DO_EDITOR = /<\/?(div|p|br|b|strong|i|em|u|s|strike|span|font|ul|ol|li)(\s[^<>]*)?\/?>/i;
+
 export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoMudar: (html: string) => void }) {
   const editor = useRef<HTMLDivElement>(null);
   const caixa = useRef<HTMLDivElement>(null);
@@ -96,25 +100,38 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
     return !!no && !!editor.current?.contains(no);
   }
 
+  // O servidor so' trata como HTML o corpo com alguma tag do editor; texto apagado e redigitado sem nenhuma linha
+  // nova fica sem tag (e com &amp;): embrulhado num <div>, nao e' escapado de novo como texto puro.
+  function avisar() {
+    if (!editor.current) return;
+    const h = editor.current.innerHTML;
+    aoMudar(TAG_DO_EDITOR.test(h) ? h : `<div>${h}</div>`);
+  }
+
   function atualizar() {
     const s = document.getSelection();
     if (!s || s.rangeCount === 0) return;
     const r = s.getRangeAt(0);
     if (!dentro(r.commonAncestorContainer)) {
-      if (!caixa.current?.contains(document.activeElement)) setFlutuante(null);
+      // a pessoa foi para outro campo: a selecao antiga do corpo nao volta no proximo clique da barra
+      if (!caixa.current?.contains(document.activeElement)) { setFlutuante(null); salva.current = null; }
       return;
     }
     salva.current = r.cloneRange();
     if (s.isCollapsed) { setFlutuante(null); return; }
     const sel = typeof r.getBoundingClientRect === "function" ? r.getBoundingClientRect() : null;
     const base = caixa.current?.getBoundingClientRect();
-    setFlutuante({ x: sel && base ? Math.max(0, sel.left - base.left) : 0, y: sel && base ? sel.top - base.top : 0 });
+    // a barra (~320px) nao passa da borda direita do corpo: sem rolagem lateral a 1024px nem no celular
+    const x = sel && base ? Math.max(0, Math.min(sel.left - base.left, base.width - LARGURA_BARRA)) : 0;
+    setFlutuante({ x, y: sel && base ? sel.top - base.top : 0 });
   }
-
+  const ouvinte = useRef(atualizar);
+  useEffect(() => { ouvinte.current = atualizar; });
   useEffect(() => {
-    document.addEventListener("selectionchange", atualizar);
-    return () => document.removeEventListener("selectionchange", atualizar);
-  });
+    const f = () => ouvinte.current();
+    document.addEventListener("selectionchange", f);
+    return () => document.removeEventListener("selectionchange", f);
+  }, []);
 
   const comando: Comando = (cmd, valor) => {
     if (typeof document.execCommand !== "function") return;
@@ -124,7 +141,7 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
     // cor e realce em <span style>, o resto em tag (<b>, <i>...): e' o que a lista fechada do servidor aceita
     document.execCommand("styleWithCSS", false, cmd === "foreColor" || cmd === "hiliteColor" ? "true" : "false");
     document.execCommand(cmd, false, valor);
-    if (editor.current) aoMudar(editor.current.innerHTML);
+    avisar();
   };
 
   function teclas(e: React.KeyboardEvent<HTMLDivElement>) {
@@ -143,7 +160,7 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
     const h = dados.getData("text/html");
     if (h) document.execCommand("insertHTML", false, limparHtml(h));
     else document.execCommand("insertText", false, dados.getData("text/plain"));
-    if (editor.current) aoMudar(editor.current.innerHTML);
+    avisar();
   }
 
   return (
@@ -155,7 +172,7 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
       )}
       <div ref={editor} className="ol-editor" contentEditable suppressContentEditableWarning role="textbox"
         aria-multiline="true" aria-label="Corpo da mensagem" dangerouslySetInnerHTML={html} spellCheck
-        onInput={e => aoMudar(e.currentTarget.innerHTML)} onKeyDown={teclas} onPaste={colar}
+        onInput={avisar} onKeyDown={teclas} onPaste={colar}
         onMouseUp={atualizar} onKeyUp={atualizar} />
     </div>
   );

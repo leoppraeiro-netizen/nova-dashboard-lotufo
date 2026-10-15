@@ -191,6 +191,32 @@ describe("ComporEmail: formatação do corpo", () => {
       '<div>Bom dia.</div><div>Segue a <b>nota</b> <span style="color: rgb(255, 0, 0);">hoje</span>.</div>');
   });
 
+  it("corpo apagado e redigitado sem linha nova vai embrulhado, para o servidor não o escapar de novo", async () => {
+    const aoEnviar = vi.fn();
+    const corpo = abrir(aoEnviar);
+    escrever(corpo, "Segue NF &amp; boleto");
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await waitFor(() => expect(aoEnviar).toHaveBeenCalled());
+    expect(aoEnviar.mock.calls[0][0].corpo).toBe("<div>Segue NF &amp; boleto</div>");
+  });
+
+  it("seleção que saiu do corpo não volta no clique da barra", () => {
+    const corpo = abrir();
+    const r = document.createRange();
+    r.selectNodeContents(corpo.firstChild!);
+    document.getSelection()!.removeAllRanges();
+    document.getSelection()!.addRange(r);
+    fireEvent.mouseUp(corpo);
+    const assunto = screen.getByLabelText("Assunto");
+    assunto.focus();
+    document.getSelection()!.selectAllChildren(assunto.parentElement!);
+    document.dispatchEvent(new Event("selectionchange"));
+    fireEvent.click(within(screen.getByRole("toolbar", { name: "Formatação" })).getByRole("button", { name: "Negrito" }));
+    // o negrito vale para o que se digitar em seguida (cursor no corpo), e nao para o trecho selecionado antes
+    expect(document.getSelection()!.toString()).toBe("");
+    expect(comandos()).toEqual([["bold", undefined]]);
+  });
+
   it("colar do Word ou do Outlook mantém só a formatação da lista fechada", () => {
     const corpo = abrir();
     const word = '<html><head><style>p{font-family:Calibri}</style></head><body><!--StartFragment-->'
@@ -208,5 +234,10 @@ describe("limparHtml", () => {
     expect(limparHtml('<b onclick="x()">a</b><strike>b</strike><font color="#0070c0">c</font>'
       + '<span style="position:fixed;color:red">d</span><span style="color:url(javascript:x)">e</span><div>f</div>'))
       .toBe('<b>a</b><s>b</s><span style="color: #0070c0">c</span><span style="color: red">d</span>e<div>f</div>');
+  });
+
+  it("tabela e título colados viram linhas, e não texto grudado", () => {
+    expect(limparHtml("<h2>Itens</h2><table><tr><td>Item 1</td><td>R$ 100,00</td></tr></table>"))
+      .toBe("<div>Itens</div><div><div><div>Item 1</div><div>R$ 100,00</div></div></div>");
   });
 });

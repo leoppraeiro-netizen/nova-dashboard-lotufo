@@ -1424,6 +1424,7 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
 .ol-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 0 0 8px; margin-bottom: 8px;
   border-bottom: 1px solid var(--ol-linha); }
 .ol-barra--flutuante { position: absolute; z-index: 20; transform: translateY(calc(-100% - 6px)); margin: 0; padding: 4px;
+  max-width: 100%; box-sizing: border-box;
   background: #fff; border: 1px solid #d1d1d1; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); }
 .ol-formato { min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid transparent; border-radius: 4px;
   background: transparent; color: #242424; font: 14px "Aptos", "Segoe UI", sans-serif; cursor: pointer;

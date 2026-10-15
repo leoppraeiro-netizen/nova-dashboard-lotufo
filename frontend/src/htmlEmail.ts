@@ -11,6 +11,8 @@ export function textoParaHtml(texto: string): string {
 const TAGS: Record<string, string> = {
   b: "b", strong: "strong", i: "i", em: "em", u: "u", s: "s", strike: "s", del: "s", p: "p", ul: "ul", ol: "ol",
   li: "li", br: "br", div: "div", span: "span", font: "span",
+  // tabela e titulo nao entram (como no servidor), mas cada linha/celula/titulo vira uma linha, e nao texto colado
+  table: "div", tr: "div", td: "div", th: "div", h1: "div", h2: "div", h3: "div", h4: "div", h5: "div", h6: "div",
 };
 const SEM_CONTEUDO = new Set(["script", "style", "head", "title", "iframe", "object", "embed", "noscript", "template",
   "svg", "math", "xml", "textarea", "select", "button", "meta", "link", "img"]);

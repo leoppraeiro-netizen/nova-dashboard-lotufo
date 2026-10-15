@@ -15,7 +15,7 @@ _PERMITIDAS = {"b": "b", "strong": "strong", "i": "i", "em": "em", "u": "u", "s"
 _BLOCOS = {"p", "ul", "ol", "li"}
 # tags que viram uma linha (o editor do navegador poe cada linha num <div>)
 _LINHAS = {"div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "address", "center", "section",
-           "article", "header", "footer", "tr", "dt", "dd", "table"}
+           "article", "header", "footer", "tr", "td", "th", "dt", "dd", "table"}
 # somem com tudo o que tem dentro
 _SEM_CONTEUDO = {"script", "style", "head", "title", "iframe", "object", "embed", "noscript", "template", "svg",
                  "math", "xml", "textarea", "select", "button", "frameset", "noembed", "noframes", "applet"}
