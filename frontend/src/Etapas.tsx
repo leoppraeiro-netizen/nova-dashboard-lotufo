@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import EnviarNota from "./EnviarNota";
 import { IconeAlerta } from "./icones";
+import { Link } from "./Link";
+import type { Rota } from "./rota";
 import { avisoPorFora, EnvioPorFora, iniciarEnvio, IconeCheck, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
 import "./etapas.css";
 
@@ -31,7 +33,10 @@ export function situacaoDa(n: number, atual: number): SituacaoEtapa {
 /** A barra no alto: cada etapa e' um link para o cartao dela. `espera` (issue #188): a etapa da vez esta' parada
  *  esperando a outra metade (execucao x reajuste no mesmo e-mail). `rotulo`: a trilha de uma das metades, onde o
  *  orgao separa medicao e reajuste (MTPAR, SES). */
-export function BarraEtapas({ atual, espera = false, rotulo }: { atual: number; espera?: boolean; rotulo?: string }) {
+export function BarraEtapas({ atual, espera = false, rotulo, pagina }: {
+  atual: number; espera?: boolean; rotulo?: string;
+  pagina?: Rota;   // trilha da OUTRA metade: os passos levam aos cartoes da pagina dela (gate Sol S3, #188)
+}) {
   return (
     <nav className={`etapas-barra${rotulo ? " etapas-barra--trilha" : ""}`}
       aria-label={rotulo ? `Etapas: ${rotulo.toLocaleLowerCase("pt-BR")}` : "Etapas da medição"}>
@@ -43,10 +48,17 @@ export function BarraEtapas({ atual, espera = false, rotulo }: { atual: number; 
           const parada = espera && s === "atual";
           return (
             <li key={t} className={`etapas-barra__item etapas-barra__item--${parada ? "espera" : s}`} aria-current={s === "atual" ? "step" : undefined}>
-              <a href={`#etapa-${n}`}>
-                <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
-                <span>{parada ? `${t} · em espera` : t}</span>
-              </a>
+              {pagina ? (
+                <Link para={pagina} secao={`etapa-${n}`}>
+                  <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
+                  <span>{t}</span>
+                </Link>
+              ) : (
+                <a href={`#etapa-${n}`}>
+                  <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
+                  <span>{parada ? `${t} · em espera` : t}</span>
+                </a>
+              )}
             </li>
           );
         })}

@@ -1024,6 +1024,21 @@ def test_registro_por_fora_tambem_espera(api):
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
 
 
+def test_protocolo_registrado_a_mao_tambem_espera(api):
+    """Revisor R2 / Sol S1 (rodada 1 da #188): POST /api/medicoes/{id}/protocolo nao contorna a espera."""
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    corpo = {"data": "2026-09-15", "numero_oficio": "LT 1/2026", "apesar_das_pendencias": True,
+             "justificativa": "protocolado no balcão do órgão"}
+    r = cl.post(f"/api/medicoes/{ids['sinfra_exec']}/protocolo", json=corpo)
+    assert r.status_code == 422 and "esperando as notas do reajuste" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM medicao_protocolos WHERE medicao_id=?", (ids["sinfra_exec"],)).fetchone()[0] == 0
+    # orgao que separa: o registro a mao segue como antes
+    _sem_notas(c, ids["mtpar_reaj"])
+    assert cl.post(f"/api/medicoes/{ids['mtpar_exec']}/protocolo", json=corpo).status_code == 201
+
+
 def test_rascunho_montado_antes_da_espera_nao_envia(svc):
     """O protocolo criado antes (ou por outro caminho) tambem espera: o envio recusa antes de reservar."""
     c, ids = svc

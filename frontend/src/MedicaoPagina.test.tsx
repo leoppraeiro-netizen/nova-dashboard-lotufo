@@ -247,6 +247,9 @@ describe("Página da medição: notas da medição e do reajuste", () => {
     expect(exec.querySelector("[aria-current='step']")!.textContent).toContain("Envio ao órgão");
     expect(reaj.querySelector("[aria-current='step']")!.textContent).toContain("Nota fiscal");
     expect(screen.queryByRole("navigation", { name: "Etapas da medição" })).toBeNull();
+    // a trilha da outra metade leva aos cartoes da pagina dela; a desta pagina, aos cartoes daqui (gate Sol S3)
+    expect(within(reaj).getByRole("link", { name: "Nota fiscal" }).getAttribute("href")).toMatch(/6.*#etapa-3$/);
+    expect(within(exec).getByRole("link", { name: "Envio ao órgão" }).getAttribute("href")).toBe("#etapa-4");
     expect(container.querySelector(".etapas-barra__item--espera")).toBeNull();
     expect(screen.queryByRole("button", { name: /sem o reajuste/ })).toBeNull();
     expect(container.querySelector("#etapa-4")!.className).toContain("etapa--atual");

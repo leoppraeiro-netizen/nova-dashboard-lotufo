@@ -203,7 +203,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             {/* orgao que separa (MTPAR, SES): uma trilha por metade; onde junta, a barra da medicao com a espera */}
             {metades.length > 0 && !par?.junta
               ? metades.map(x => <BarraEtapas key={x.medicao_id} atual={etapaDe(x.estado)}
-                  rotulo={x.tipo === "execucao" ? "Execução" : "Reajuste"} />)
+                  rotulo={x.tipo === "execucao" ? "Execução" : "Reajuste"}
+                  pagina={x.medicao_id === m.id ? undefined : { tela: "medicao", obra: contratoId, id: x.medicao_id }} />)
               : atual > 0 && <BarraEtapas atual={atual} espera={!!esperaAqui} />}
             {/* Cabecalho da medicao: estado, proximo passo, valor e os atos que nao sao de uma etapa */}
             <section className="cartao" aria-label="Resumo da medição">
