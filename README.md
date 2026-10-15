@@ -74,6 +74,29 @@ nome da maquina; a CI le o secret `DASH_SERVIDOR`. A lista local de nomes de pes
 (ignorada pelo git, uma por linha, o Leo mantem). Dado ficticio de proposito vai em `scripts/vazamento-excecoes.txt`.
 Mudar essa lista, o proprio script ou os hooks exige merge do Leo: o job falha na PR que os altera.
 
+## Rodar no Mac
+
+Para desenvolver num Mac (zsh); a produção continua só no Windows. Uma vez, na raiz do clone:
+
+```bash
+brew install python@3.12 node@24
+python3.12 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.lock
+(cd frontend && npm ci)
+git config core.hooksPath .githooks
+```
+
+E no `~/.zshrc`: `export DASH_SERVIDOR=` seguido do nome do servidor de produção (ver o último item abaixo).
+
+- Backend: `cd backend && DASH_DEV=1 DASH_SEM_JOBS=1 .venv/bin/python -m uvicorn --factory app.main:create_app --reload --port 8080`.
+  Frontend igual ao Windows (`cd frontend && npm run dev`). No app do Claude: `backend-dev-mac`, `frontend-dev-mac`
+  e `prototipo-login-mac` em `.claude/launch.json`.
+- Testes: `cd backend && .venv/bin/python -m pytest -q` e os de frontend acima. A suíte oficial é a CI (Windows);
+  teste que só vale no Windows é pulado ou pode falhar no Mac.
+- Os hooks do Claude passam por `.claude/hooks/rodar.sh`, que roda o `.ps1` no Windows e o `.sh` de mesmo nome
+  no Mac; num worktree, `node_modules` e `.venv` viram links simbólicos para os do clone principal.
+- `DASH_SERVIDOR` é o nome do servidor de produção para a varredura de dado real nos hooks do git. Sem ela,
+  essa parte da varredura é pulada com aviso (o Mac não tem `COMPUTERNAME`).
+
 ## Produção
 
 Roda no `<servidor>` (`http://<servidor>`), de um worktree pinado em `C:\DashboardLotufo\app`, com dados,
