@@ -24,7 +24,8 @@ type Regularidade = NonNullable<EmpresaDoc["regularidade"]>;
 // Issue #65: garantia (tem validade) e ART (nao tem) por obra ativa, como o servidor respondeu.
 type Garantia = { apolice: string | null; vigencia_fim: string; dias: number; origem: "contrato" | "endosso";
                   situacao: "ok" | "vencendo" | "vencida" | "baixada" };
-type ObraDoc = { contrato_id: number; obra: string; garantia: Garantia | null; art: { numero: string | null; anexada: boolean } };
+type ObraDoc = { contrato_id: number; obra: string; garantia: Garantia | null;
+                 art: { numero: string | null; anexada: boolean; exigida: boolean } };
 type Painel = { hoje: string; empresas: EmpresaDoc[]; contratos?: ObraDoc[] };
 type Lida = {
   tipo: string; tipo_nome: string; natureza: string; entidade_id: number; entidade: string;
@@ -106,7 +107,7 @@ function EmDia({ texto }: { texto: string }) {
 function CelulaGarantia({ g }: { g: Garantia | null }) {
   if (!g) return <Selo classe="">sem vigência no cadastro</Selo>;
   const ate = fmtDataPura(g.vigencia_fim);
-  const nota = <div className="campo__nota num">{g.situacao === "vencida" ? `venceu em ${ate}` : `até ${ate}`}
+  const nota = <div className="campo__nota num">{g.dias < 0 ? `venceu em ${ate}` : `até ${ate}`}
     {g.origem === "endosso" && " (endosso)"}{g.apolice && ` · apólice ${g.apolice}`}</div>;
   if (g.situacao === "baixada") return <><Selo classe="">baixada</Selo>{nota}</>;
   if (g.situacao === "vencida") return <><Selo classe="selo--acao" forte>vencida</Selo>{nota}</>;
@@ -133,7 +134,8 @@ function GarantiaEArt({ obras }: { obras: ObraDoc[] }) {
                 <th scope="row" className="matriz__empresa"><Link para={{ tela: "obra", id: o.contrato_id, aba: "documentos" }}>{o.obra}</Link></th>
                 <td><CelulaGarantia g={o.garantia} /></td>
                 <td>
-                  {o.art.anexada ? <EmDia texto="anexada" /> : <Selo classe="selo--atencao">não anexada</Selo>}
+                  {o.art.anexada ? <EmDia texto="anexada" /> : o.art.exigida ? <Selo classe="selo--atencao">não anexada</Selo>
+                    : <Selo classe="">não exigida</Selo>}
                   {o.art.numero && <div className="campo__nota num">nº {o.art.numero}</div>}
                 </td>
               </tr>

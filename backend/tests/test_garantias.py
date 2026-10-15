@@ -117,4 +117,16 @@ def test_painel_de_documentos_traz_garantia_e_art_por_contrato(cenario):
     (o,) = documentos.painel(c, HOJE)["contratos"]
     assert o["contrato_id"] == ids["contrato"] and o["obra"] == "Obra A"
     assert (o["garantia"]["situacao"], o["garantia"]["dias"], o["garantia"]["apolice"]) == ("vencendo", 17, "AP-1")
-    assert o["art"] == {"numero": None, "anexada": True}
+    assert o["art"] == {"numero": None, "anexada": True, "exigida": True}
+    c.execute("UPDATE contratos SET encerramento_iniciado_em='2026-09-01'"); c.commit()
+    assert documentos.painel(c, HOJE)["contratos"][0]["art"]["exigida"] is False      # painel e aviso concordam
+
+
+def test_correcao_de_endosso_vale_mesmo_com_data_anterior(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-12-01")
+    ids["instrumento"]("endosso_garantia", "2026-09-01", {"vigencia_fim": "2027-09-30"}, "end-errado")
+    ids["instrumento"]("endosso_garantia", "2026-08-15", {"vigencia_fim": "2026-10-25", "corrige": "end-errado"},
+                       "end-certo")
+    g = garantias.garantia(c, ids["contrato"], HOJE)
+    assert (g["endosso"], g["vigencia_fim"]) == ("end-certo", "2026-10-25")

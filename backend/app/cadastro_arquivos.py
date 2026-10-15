@@ -251,8 +251,10 @@ def _garantia_e_art(bruto: dict, raiz: Path, c: dict, falha) -> None:
     if isinstance(art, dict):
         c["art"] = str(art["numero"]).strip() if art.get("numero") not in (None, "") else None
         c["art_caminho"] = _arquivo_do_cadastro(raiz, art.get("arquivo"), "art.arquivo", falha)
-    else:
-        c["art"] = art
+    elif isinstance(art, (str, int)) and not isinstance(art, bool) and str(art).strip():
+        c["art"] = str(art).strip()
+    elif art is not None:
+        falha("art", "use o número em texto ou {numero, arquivo}")
     gar = bruto.get("garantia")
     if gar is None:
         return

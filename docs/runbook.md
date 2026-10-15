@@ -324,7 +324,7 @@ portaria), `objeto_completo` e comprovante do CNO (`cno_pdf`): YAML do contrato.
 `fundo` do emitente em `cartas.yaml`. Depois: `cadastro validar` → `aplicar --ensaio` → `aplicar`.
 Levantamento das cartas reais: `docs/levantamento-protocolo-2026-09-24.md`.
 
-**Garantia e ART do contrato** (issue #65). No YAML do contrato: `garantia: {apolice, vigencia_fim, arquivo}` e
+**Garantia e ART do contrato** (issue #65, decisão de 15/10/2026). No YAML do contrato: `garantia: {apolice, vigencia_fim, arquivo}` e
 `art: {numero, arquivo}` (`art: 123456` em texto continua valendo; `arquivo` é o PDF, dentro da pasta do
 cadastro, copiado por `aplicar`). Cada instrumento `endosso_garantia` com `vigencia_fim` substitui a vigência
 da garantia (vale o de data mais recente; instrumento aplicado não muda, correção é instrumento novo). A garantia

@@ -21,9 +21,9 @@ vi.mock("./api", async (original) => ({
         ],
       }],
       contratos: [
-        { contrato_id: 5, obra: "Obra Alfa", art: { numero: "1234567", anexada: true },
+        { contrato_id: 5, obra: "Obra Alfa", art: { numero: "1234567", anexada: true, exigida: true },
           garantia: { apolice: "AP-9", vigencia_fim: "2026-10-05", dias: 12, origem: "endosso", situacao: "vencendo" } },
-        { contrato_id: 6, obra: "Obra Beta", art: { numero: null, anexada: false }, garantia: null },
+        { contrato_id: 6, obra: "Obra Beta", art: { numero: null, anexada: false, exigida: true }, garantia: null },
       ],
     };
     return {};

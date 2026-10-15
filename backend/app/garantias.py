@@ -1,4 +1,4 @@
-"""Garantia contratual e ART como documentos do contrato (issue #65, decisao do Leo de 15/10/2026).
+"""Garantia contratual e ART como documentos do contrato (issue #65, decisao de 15/10/2026).
 
 GARANTIA tem validade: o cadastro traz `garantia: {apolice, vigencia_fim, arquivo}` e cada instrumento
 `endosso_garantia` com `vigencia_fim` substitui a vigencia anterior (o mais recente por data vale; o historico
@@ -36,8 +36,10 @@ def garantia(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict 
     if c is None:
         return None
     fim, origem, chave = c["garantia_vigencia_fim"], "contrato", None
-    for e in _instrumentos(conn, contrato_id, "endosso_garantia"):    # o ultimo por data substitui a vigencia
-        if _d(e["dados"].get("vigencia_fim")):
+    todos = _instrumentos(conn, contrato_id, "endosso_garantia")
+    corrigidos = {e["dados"].get("corrige") for e in todos}       # correcao e' instrumento novo: o corrigido sai
+    for e in todos:                                               # o ultimo por data substitui a vigencia
+        if e["chave"] not in corrigidos and _d(e["dados"].get("vigencia_fim")):
             fim, origem, chave = str(e["dados"]["vigencia_fim"])[:10], "endosso", e["chave"]
     if not _d(fim):
         return None
@@ -51,8 +53,9 @@ def garantia(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict 
 
 
 def art(conn, contrato_id: int) -> dict:
-    c = conn.execute("SELECT art, art_arquivo FROM contratos WHERE id=?", (contrato_id,)).fetchone()
-    return {"numero": c["art"] if c else None, "anexada": bool(c and c["art_arquivo"])}
+    c = conn.execute("SELECT art, art_arquivo, encerramento_iniciado_em FROM contratos WHERE id=?", (contrato_id,)).fetchone()
+    return {"numero": c["art"] if c else None, "anexada": bool(c and c["art_arquivo"]),
+            "exigida": bool(c and c["encerramento_iniciado_em"] is None)}
 
 
 def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
@@ -73,7 +76,8 @@ def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:
                     f"garantia vence em {dias} dia{'s' if dias > 1 else ''} ({br})"
             out.append({"tipo": "garantia_vencendo", "nivel": nivel, "publico": ["operacao", "diretoria"],
                         "contrato_id": cid, "dias": dias, "data": g["vigencia_fim"], "mensagem": msg})
-        if not r["encerramento_iniciado_em"] and not art(conn, cid)["anexada"]:
+        a = art(conn, cid)
+        if a["exigida"] and not a["anexada"]:
             out.append({"tipo": "art_nao_anexada", "nivel": "atencao", "publico": ["operacao"],
                         "contrato_id": cid, "dias": None, "data": None, "mensagem": "ART não anexada"})
     return out
