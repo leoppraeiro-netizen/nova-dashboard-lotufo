@@ -24,6 +24,8 @@ export type Envio = {
   valor_centavos: number; emitida_em: string | null; dias: number | null; situacao: string;
   aviso: string | null; itens: ItemEnvio[]; protocolo_id: number | null;
   irmas?: Irma[];   // issue #172: SINFRA e Pref. VG: a medicao/reajuste irma com nota emitida fora deste envio
+  // issue #188: onde o orgao junta, a outra metade ainda sem as notas segura o envio (situacao "esperando")
+  espera?: { medicao_id: number; titulo: string; tipo: string; texto: string } | null;
 };
 export type Irma = { medicao_id: number; titulo: string; tipo: string };
 export type ListaEnvios = { envios: Envio[]; contadores: Record<string, number> };
@@ -258,6 +260,7 @@ function Painel({ e, aoMudar, podeEditar }: { e: Envio; aoMudar: (msg?: string) 
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
   const bloqueado = e.situacao === "bloqueado";
+  const esperando = e.situacao === "esperando";
 
   async function enviar() {
     // o envio acontece na etapa 4 da pagina da medicao (opcao A, 2026-10-09); o protocolo e' iniciado aqui
@@ -285,8 +288,16 @@ function Painel({ e, aoMudar, podeEditar }: { e: Envio; aoMudar: (msg?: string) 
         <ItensEnvio itens={e.itens} aoMudar={() => aoMudar()} podeEditar={podeEditar} />
       </div>
       {bloqueado && <CaixaAviso nivel="critico">{e.aviso ?? "Envio bloqueado."}</CaixaAviso>}
+      {/* issue #188: a medicao e o reajuste vao no mesmo e-mail; sem as notas da outra metade, nao ha' o que iniciar */}
+      {esperando && (
+        <CaixaAviso nivel="atencao">
+          {e.orgao} recebe a medição e o reajuste no mesmo e-mail: {e.espera?.texto ?? "esperando a outra metade"}.
+          {" "}Para mandar sem {e.espera?.tipo === "execucao" ? "a medição" : "o reajuste"}, use a saída de emergência na{" "}
+          <Link para={{ tela: "medicao", obra: e.contrato_id, id: e.medicao_ids[0] }} secao="etapa-3">página da medição</Link>.
+        </CaixaAviso>
+      )}
       {/* B-09 (10/10/2026): a diretoria via o botao e recebia 403; quem so' consulta nao ve as acoes */}
-      {podeEditar && <div className="nota-painel__acao">
+      {podeEditar && !esperando && <div className="nota-painel__acao">
         <button type="button" className="btn btn--primario nota-principal" disabled={bloqueado || ocupado} onClick={() => void enviar()}>
           {ocupado ? "Abrindo…" : "Enviar a nota →"}
         </button>

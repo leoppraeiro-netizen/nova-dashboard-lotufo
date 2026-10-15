@@ -863,6 +863,14 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     # Reserva atomica antes do e-mail (A-02, 10/10/2026): dois cliques simultaneos nao mandam dois e-mails.
     # Todos os protocolos do e-mail numa transacao so': se um ja' esta' em envio, nenhum fica reservado.
     with db.mutacao(conn):
+        if e.chave in ("nota", "unico"):
+            # Issue #188: onde o orgao junta medicao e reajuste, a metade pronta espera a outra. Conferido aqui, sob o
+            # lock da reserva, para valer em toda rota de envio (Notas a enviar e a de protocolos).
+            from app import notas_envio      # import local: notas_envio importa este modulo
+            for x in ps:
+                for m in _medicoes(conn, x["id"]):
+                    if m["estado"] == "nota_emitida":
+                        notas_envio.recusar_se_espera(conn, m)
         for x in ps:
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
     try:

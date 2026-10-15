@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import CaixaAviso from "./CaixaAviso";
 import { baseDosValores } from "./formato";
 import { api, mensagemDeErro } from "./api";
 import Espelho from "./Espelho";
@@ -6,9 +7,9 @@ import { BarraEtapas, Etapa, EnvioDaMedicao, etapaDe, situacaoDa } from "./Etapa
 import { FrcConsorcio } from "./Frc";
 import { IconeAlerta } from "./icones";
 import type { Usuario } from "./Login";
-import { eventosDaMedicao, EXCECOES, FINAIS, passoDe, PROXIMOS, rotuloDoValor,
-         tituloMedicao, type EspelhoResumo } from "./medicao";
-import { FormDesmarcarFinal, FormEstado, FormFinal, FormProtocoloManual, FormRecebimento, FormValor,
+import { eventosDaMedicao, EXCECOES, FINAIS, metadeQueEspera, passoDe, PROXIMOS, resumoDoPar, rotuloDoBloco,
+         rotuloDoValor, tituloMedicao, type EspelhoResumo, type MedicaoBase, type ParDaMedicao } from "./medicao";
+import { FormDesmarcarFinal, FormEstado, FormFinal, FormProtocoloManual, FormRecebimento, FormSemAOutra, FormValor,
          notaDoEspelho, valorEditavel, type Agir } from "./MedicaoAtos";
 import { brl, Estado, type Medicao } from "./Medicoes";
 import { Notas } from "./Notas";
@@ -24,7 +25,8 @@ import { Migalhas, VoltarOrigem } from "./Topo";
 
 type Cabecalho = { obra: string; orgao: string; instrumento: string; percentual_lotufo_bp: number };
 type LinhaAndamento = { id: number; proximo_passo: string; desde: string };
-type Painel = "protocolado" | "atestado" | "fora" | "recebimento" | "cancelada" | "desistida" | "final" | "desfinal" | null;
+type Painel = "protocolado" | "atestado" | "fora" | "recebimento" | "cancelada" | "desistida" | "final" | "desfinal"
+  | "sozinha" | null;
 
 function quando(iso: string): string {
   return iso.length > 10 ? fmtDataHora(iso) : fmtDataPura(iso);
@@ -37,6 +39,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   const [medicoes, setMedicoes] = useState<Medicao[] | null>(null);
   const [andamento, setAndamento] = useState<LinhaAndamento[]>([]);
   const [espelhos, setEspelhos] = useState<EspelhoResumo[]>([]);
+  // issue #188: a execucao e o reajuste da mesma competencia (as notas dos dois, a espera e a liberacao)
+  const [par, setPar] = useState<ParDaMedicao | null>(null);
   const [erro, setErro] = useState("");
   const [feito, setFeito] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -55,19 +59,22 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   // Tudo o que a pagina le alem dos cartoes que se leem sozinhos (espelho, notas, protocolos).
   const carregar = useCallback(async () => {
     const g = geracao.current;
-    const [lista, abertas, esp] = await Promise.all([
+    const [lista, abertas, esp, duas] = await Promise.all([
       api<Medicao[]>(`/api/contratos/${contratoId}/medicoes`),
       api<LinhaAndamento[]>(`/api/medicoes/andamento?contrato_id=${contratoId}`).catch(() => []),
       api<{ espelhos: EspelhoResumo[] }>(`/api/contratos/${contratoId}/espelho`).catch(() => ({ espelhos: [] })),
+      // sem o par a pagina fica como antes (um bloco so'): a falha aqui nao derruba a medicao
+      api<ParDaMedicao>(`/api/medicoes/${medicaoId}/par`).catch(() => null),
     ]);
     if (g !== geracao.current) return;
     setMedicoes(lista); setAndamento(abertas); setEspelhos(esp.espelhos ?? []);
-  }, [contratoId]);
+    setPar(duas && Array.isArray(duas.metades) ? duas : null);
+  }, [contratoId, medicaoId]);
 
   useEffect(() => {
     geracao.current += 1;
     const g = geracao.current;
-    setCab(null); setMedicoes(null); setErro(""); setFeito(""); setPainel(null);
+    setCab(null); setMedicoes(null); setPar(null); setErro(""); setFeito(""); setPainel(null);
     api<Cabecalho>(`/api/contratos/${contratoId}/cabecalho`).then(c => { if (g === geracao.current) setCab(c); }).catch(() => {});
     carregar().catch(e => { if (g === geracao.current) setErro(mensagemDeErro(e)); });
     return () => { geracao.current += 1; };
@@ -106,7 +113,11 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   const titulo = m ? tituloMedicao(m) : "Medição";
   const obra = cab?.obra ?? "Obra";
   const linha = andamento.find(x => x.id === medicaoId);
-  const passo = passoDe(linha?.proximo_passo);
+  // issue #188: a metade pronta que espera a outra (orgao que junta); nesta pagina o passo da vez e' a espera
+  const pronta = metadeQueEspera(par);
+  const esperaAqui = pronta?.medicao_id === medicaoId ? pronta.espera : null;
+  const passo = esperaAqui ? { rotulo: esperaAqui.texto.charAt(0).toUpperCase() + esperaAqui.texto.slice(1), secao: "etapa-3" }
+    : passoDe(linha?.proximo_passo);
   const aqui: Rota = { tela: "medicao", obra: contratoId, id: medicaoId };
 
   const cabeca = (
@@ -149,14 +160,25 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
     );
   }
 
-  const atual = etapaDe(m.estado);
+  // issue #188: pronta e esperando a outra metade, a medicao fica na etapa 3 (Nota fiscal) em espera
+  const atual = esperaAqui ? 3 : etapaDe(m.estado);
   const sit = (n: number) => situacaoDa(n, atual);
+  const metades = par?.metades.length === 2 ? par.metades : [];
+  const medicaoDa = (id: number) => medicoes.find(x => x.id === id);
+  const umaCompleta = metades.some(x => x.completa) && !metades.every(x => x.completa);
+  const minha = metades.find(x => x.medicao_id === m.id);
   const espVigente = espelhos.find(e => e.situacao === "vigente" && e.medicoes.some(x => x.id === m.id));
   const valor = m.valor_protocolado_centavos;
   const abrir = (p: Painel, id: string) => { disparador.current = id; setErro(""); setFeito(""); setPainel(p); };
   const fechar = () => setPainel(null);
   const irmas = medicoes.filter(x => x.numero === m.numero && x.id !== m.id);
-  const eventos = eventosDaMedicao(m, espelhos, protocolos.dados?.protocolos ?? []);
+  const lib = minha?.liberacao;
+  // a liberacao vem da auditoria, como as edicoes de valor (mesmo formato de data): entra na linha do tempo junto delas
+  const base: MedicaoBase = m;
+  const comLiberacao: MedicaoBase = lib ? { ...base, edicoes_valor: [...(base.edicoes_valor ?? []), { data: lib.em,
+    texto: `Envio liberado sem ${m.tipo === "execucao" ? "o reajuste" : "a medição"}${lib.por ? ` por ${lib.por}` : ""}. `
+      + `Justificativa: “${lib.justificativa ?? ""}”` }] } : m;
+  const eventos = eventosDaMedicao(comLiberacao, espelhos, protocolos.dados?.protocolos ?? []);
   const registrados = m.protocolos.filter(p => !p.protocolo_id);
   const ultimo = eventos.at(-1);
   const listaEventos = eventos.length === 0
@@ -178,7 +200,11 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
         <p className={feito ? "notas__ok" : "sr-only"} role="status">{feito}</p>
         <div className="com-lateral">
           <div className="pilha">
-            {atual > 0 && <BarraEtapas atual={atual} />}
+            {/* orgao que separa (MTPAR, SES): uma trilha por metade; onde junta, a barra da medicao com a espera */}
+            {metades.length > 0 && !par?.junta
+              ? metades.map(x => <BarraEtapas key={x.medicao_id} atual={etapaDe(x.estado)}
+                  rotulo={x.tipo === "execucao" ? "Execução" : "Reajuste"} />)
+              : atual > 0 && <BarraEtapas atual={atual} espera={!!esperaAqui} />}
             {/* Cabecalho da medicao: estado, proximo passo, valor e os atos que nao sao de uma etapa */}
             <section className="cartao" aria-label="Resumo da medição">
               <div className="cartao__corpo">
@@ -306,12 +332,50 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             {/* consorcio com a FRC ainda por fazer: a etapa 3 fica aberta mesmo depois da nota da Lotufo, e (issue #148)
                 depois de gerada, ate' a assinada estar anexada: e' dali que se baixa a FRC para assinar. Medicao
                 encerrada (recebida, cancelada, desistida) nao tem mais o que fazer ali */}
-            <Etapa n={3} situacao={sit(3)} aberta={frcPendente && !FINAIS.includes(m.estado)} resumo={m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
+            <Etapa n={3} situacao={sit(3)} aberta={frcPendente && !FINAIS.includes(m.estado)} resumo={metades.length > 0
+              ? resumoDoPar(metades)
+              : m.nota_emitida_em ? `nota emitida em ${fmtDataPura(m.nota_emitida_em.slice(0, 10))}` : undefined}>
               {sit(3) === "atual" && <p className="campo__nota">O sistema lê o RM a cada 1 hora e liga a nota sozinho. Se ela não aparecer, anexe o PDF aqui.</p>}
               <div id="notas">
-                <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
-                  aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
+                {/* issue #188: a execucao e o reajuste da mesma competencia lado a lado; a nota anexada num bloco vai
+                    para a medicao daquele bloco */}
+                {metades.length > 0 ? (
+                  <div className="notas-blocos">
+                    {metades.map(x => {
+                      const mx = medicaoDa(x.medicao_id);
+                      return mx ? (
+                        <section key={`${x.medicao_id}-${versaoNotas}`} className="notas-bloco" aria-label={rotuloDoBloco(mx)}>
+                          <Notas medicao={mx} rotulo={rotuloDoBloco(mx)} podeEditar={podeEditar && !FINAIS.includes(mx.estado)}
+                            aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
+                        </section>
+                      ) : null;
+                    })}
+                  </div>
+                ) : (
+                  <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+                    aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
+                )}
               </div>
+              {pronta && (
+                <CaixaAviso nivel="atencao">
+                  {par?.orgao ? `Na ${par.orgao}` : "Neste órgão"} a medição e o reajuste vão no mesmo e-mail. O envio ao
+                  órgão abre quando chegarem as notas {pronta.tipo === "execucao" ? "do reajuste" : "da medição"}.
+                </CaixaAviso>
+              )}
+              {metades.length > 0 && !par?.junta && umaCompleta && (
+                <p className="campo__nota">Neste órgão a medição e o reajuste vão em ofícios e e-mails separados: cada um segue quando as suas notas chegam.</p>
+              )}
+              {podeEditar && pronta && painel !== "sozinha" && (
+                <div>
+                  <button type="button" id="ato-sozinha" className="btn btn--pequeno" disabled={salvando}
+                    onClick={() => abrir("sozinha", "ato-sozinha")}>
+                    {pronta.tipo === "execucao" ? "Enviar a medição sem o reajuste…" : "Enviar o reajuste sem a medição…"}
+                  </button>
+                </div>
+              )}
+              {painel === "sozinha" && pronta && (
+                <FormSemAOutra pronta={pronta} orgao={par?.orgao ?? null} salvando={salvando} agir={agir} aoFechar={fechar} erro={erro} />
+              )}
               <FrcConsorcio medicaoId={m.id} podeEditar={podeEditar && !FINAIS.includes(m.estado)} versao={versaoFrc}
                 aoMudar={() => { recarregar(); setVersaoNotas(v => v + 1); }}
                 aoLer={f => setFrcPendente(f.disponivel && (!f.frc || f.frc.desatualizada || !f.assinada))} />

@@ -1,6 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { eventosDaMedicao, itensOQueFalta, larDoEspelho, protocolosDa, resumoNotas, separarMedicoes, tituloMedicao,
-         type EspelhoResumo, type MedicaoBase, type ProtocoloResumo } from "./medicao";
+import { eventosDaMedicao, itensOQueFalta, larDoEspelho, metadeQueEspera, protocolosDa, resumoDoPar, resumoNotas,
+         rotuloDoBloco, separarMedicoes, tituloMedicao,
+         type EspelhoResumo, type MedicaoBase, type Metade, type ProtocoloResumo } from "./medicao";
+
+// issue #188: o titulo do quadro "Nota fiscal" diz o que falta por bloco
+describe("medição e reajuste na mesma página", () => {
+  const metade = (tipo: string, extra: Partial<Metade> = {}): Metade => ({ medicao_id: tipo === "execucao" ? 1 : 2, tipo,
+    titulo: "", estado: "nota_emitida", faltam: 0, esperadas: [], completa: true, espera: null, liberacao: null, ...extra });
+
+  it("o que falta por bloco", () => {
+    expect(resumoDoPar([metade("execucao"), metade("reajuste", { completa: false, faltam: 2 })]))
+      .toBe("execução completa · reajuste: faltam 2 notas");
+    expect(resumoDoPar([metade("execucao", { completa: false, faltam: 1 }), metade("reajuste", { completa: false, faltam: 2 })]))
+      .toBe("execução: falta 1 nota · reajuste: faltam 2 notas");
+    expect(resumoDoPar([metade("execucao"), metade("reajuste")])).toBe("notas completas");
+  });
+
+  it("rótulo do bloco e a metade que espera só onde o órgão junta", () => {
+    expect(rotuloDoBloco({ numero: 14, tipo: "execucao" })).toBe("Execução · 14ª Medição");
+    expect(rotuloDoBloco({ numero: 14, tipo: "reajuste" })).toBe("Reajuste da 14ª Medição");
+    const espera = { medicao_id: 2, titulo: "Reajuste da 14ª Medição", tipo: "reajuste", texto: "esperando as notas do reajuste" };
+    const metades = [metade("execucao", { espera }), metade("reajuste", { completa: false })];
+    expect(metadeQueEspera({ junta: true, orgao: "SINFRA", metades })?.medicao_id).toBe(1);
+    expect(metadeQueEspera({ junta: false, orgao: "MTPAR", metades })).toBeNull();
+    expect(metadeQueEspera(null)).toBeNull();
+  });
+});
 
 const m23: MedicaoBase = {
   id: 723, numero: 23, tipo: "execucao", competencia: "2026-07", estado: "nota_emitida",
