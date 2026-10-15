@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel, Field
 
-from app import espelhos, medicoes, tempo
+from app import espelhos, medicoes, permissoes, tempo
 from app.api_auth import conexao
 from app.dinheiro import parse_brl
 from app.permissoes import exigir
@@ -171,13 +171,27 @@ def protocolo(medicao_id: ID, dados: ProtocoloIn,
     return {"id": pid, "ressalva": ressalva}
 
 
+MOTIVO_RECEBIMENTO_MINIMO = 10  # a tela acompanha (MIN_MOTIVO_RECEBIMENTO em MedicaoAtos.tsx)
+
+
 @router.post("/api/medicoes/{medicao_id}/estado")
 def estado(medicao_id: ID, dados: EstadoIn,
            usuario: dict = Depends(exigir("editar_cadastros")),
            conn: sqlite3.Connection = Depends(conexao)):
     _medicao_existe(conn, medicao_id)
+    motivo = dados.motivo
+    if dados.estado == "recebida":
+        # Issue #53 (decisao do dono, 15/10/2026): o recebimento vem do RM (spec §7.1); a mao, so' o
+        # admin, com motivo obrigatorio que vai para a auditoria -- saida para quando o RM falhar.
+        # As baixas do RM e da conciliacao chamam medicoes.mudar_estado direto, sem passar por aqui.
+        if not permissoes.tem(usuario["perfil"], "administrar"):
+            raise HTTPException(403, "Só o administrador registra o recebimento à mão: o RM marca a baixa sozinho")
+        motivo = (motivo or "").strip()
+        if len(motivo) < MOTIVO_RECEBIMENTO_MINIMO:
+            raise HTTPException(422, f"Informe o motivo do recebimento à mão (ao menos {MOTIVO_RECEBIMENTO_MINIMO} "
+                                     "caracteres): fica registrado na auditoria")
     try:
-        medicoes.mudar_estado(conn, usuario["id"], medicao_id, dados.estado, dados.motivo,
+        medicoes.mudar_estado(conn, usuario["id"], medicao_id, dados.estado, motivo,
                               dados.data.isoformat() if dados.data else None)
     except ValueError as e:
         raise _erro_do_cliente(conn, e)

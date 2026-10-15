@@ -6,11 +6,14 @@ medicao e reajuste da mesma competencia vao juntos (D9); na MTPAR e na SES, um p
 """
 import datetime
 import json
+import logging
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
 from app import arquivos, auditoria, certidoes, db, documentos, frc, medicoes, notas, oficios, protocolo, tempo
+
+log = logging.getLogger(__name__)
 
 SUB_SINFRA = {"sinfra-sagpm": "SAGPM", "sinfra-suef1": "SUEF I", "sinfra-suef2": "SUEF II", "sinfra-supu": "SUPU",
               "sinfra-sacid": "SACID"}
@@ -518,31 +521,77 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     if not obs:
         raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
     _conferir_externo(conn, ids, irmas)
-    rel = sha = None
     if eml:
         if len(eml[1]) > TETO_EML:
             raise ValueError("Arquivo .eml acima de 25 MB")
         if not _e_email(eml[1]):
             raise ValueError(NAO_E_EML)
+    gravado: dict = {}
+    try:
+        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado)
+    except BaseException:
+        if gravado.get("novo"):
+            _remover_eml_sem_registro(conn, gravado["rel"])
+        raise
+
+
+def _remover_eml_sem_registro(conn, rel: str) -> None:
+    """Issue #180: o registro falhou no proprio COMMIT (ou a limpeza sob o lock falhou) depois de gravar um .eml que nao
+    existia. O banco voltou atras; o arquivo sai, sob o lock de escrita, so' se nenhuma linha o cita: outro registro
+    com o mesmo .eml que entrou depois do ROLLBACK e antes daqui o achou ja' gravado e o usa. Se nem isso der
+    (disco ou banco fora), o arquivo fica: orfao e' melhor que registro apontando para o nada.
+    So' le' o banco: o lock e' pego e devolvido com ROLLBACK, sem depender de um COMMIT que acabou de falhar."""
+    proprio = not conn.in_transaction       # dentro de um envelope de fora, o lock ja' e' dele
+    try:
+        if proprio:
+            conn.execute("BEGIN IMMEDIATE")
+        try:
+            if not conn.execute("SELECT 1 FROM medicao_documentos WHERE arquivo=? LIMIT 1", (rel,)).fetchone():
+                arquivos.caminho_seguro(rel).unlink(missing_ok=True)
+        finally:
+            if proprio:
+                conn.rollback()
+    except Exception:
+        log.warning("Envio por fora: o .eml %s ficou na pasta sem registro (a limpeza falhou)", rel, exc_info=True)
+
+
+def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], data: datetime.date, obs: str,
+                       eml: tuple[str, bytes] | None, gravado: dict) -> None:
+    rel = sha = None
     with db.mutacao(conn):
-        ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
-        if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
-            rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
-        for m in ms:
-            medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
-                                         protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
-                                         apesar_das_pendencias=True, justificativa=f"Envio feito por fora: {obs}")
-            conn.execute("UPDATE medicoes SET envio_origem='externo', envio_externo_em=?, envio_externo_obs=? "
-                         "WHERE id=?", (data.isoformat(), obs, m["id"]))
-            if rel:
-                conn.execute("INSERT OR IGNORE INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, "
-                             "arquivo, sha256, tamanho) VALUES (?,'operacao','evidencia_orgao',?,?,?,?,?)",
-                             (m["id"], (eml[0] or "envio.eml")[-200:], sha, rel, sha, len(eml[1])))
-            for etapa in ("nota", "unico"):
-                for p in _ativos(conn, etapa, m["id"]):
-                    protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
-        auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
-                            {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel})
+        try:
+            ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
+            if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
+                # issue #180: anota se ESTE registro criou o arquivo; o que ja' existia (mesmo hash) nunca e' apagado
+                ja_existia = (arquivos.pasta("evidencias") / f"{arquivos.sha_de(eml[1])}.eml").exists()
+                rel, sha = arquivos.gravar_bytes("evidencias", eml[1], "eml")
+                gravado.update(rel=rel, novo=not ja_existia)
+            for m in ms:
+                medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
+                                             protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
+                                             apesar_das_pendencias=True, justificativa=f"Envio feito por fora: {obs}")
+                conn.execute("UPDATE medicoes SET envio_origem='externo', envio_externo_em=?, envio_externo_obs=? "
+                             "WHERE id=?", (data.isoformat(), obs, m["id"]))
+                if rel:
+                    conn.execute("INSERT OR IGNORE INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, "
+                                 "arquivo, sha256, tamanho) VALUES (?,'operacao','evidencia_orgao',?,?,?,?,?)",
+                                 (m["id"], (eml[0] or "envio.eml")[-200:], sha, rel, sha, len(eml[1])))
+                for etapa in ("nota", "unico"):
+                    for p in _ativos(conn, etapa, m["id"]):
+                        protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
+            auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
+                                {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel})
+        except BaseException:
+            # gate Sol S1 (PR #199): ainda sob o lock de escrita, antes do ROLLBACK. O arquivo que ESTE registro criou
+            # ninguem mais cita (so' este caminho grava .eml em evidencias, sempre sob o lock): sai sem consultar o
+            # banco nem pegar o lock de novo. So' a falha no proprio COMMIT fica para `_remover_eml_sem_registro`.
+            if gravado.get("novo"):
+                try:
+                    arquivos.caminho_seguro(gravado["rel"]).unlink(missing_ok=True)
+                    gravado["novo"] = False
+                except Exception:
+                    pass
+            raise
 
 
 # --- aguardando pagamento --------------------------------------------------------------------------

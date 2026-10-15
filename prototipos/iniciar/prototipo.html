@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iniciar processo de medição · protótipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Tokens copiados de frontend/src/tokens.css (os mesmos de prototipos/medicoes-abas). */
+:root {
+  --fonte: "IBM Plex Sans", system-ui, "Segoe UI", Roboto, sans-serif;
+  --fonte-num: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --bg: #F6F8FB; --superficie: #FFFFFF; --superficie-2: #F8FAFC; --neutro-fundo: #F1F5F9;
+  --hover: #EEF0FF; --linha: #E2E8F0; --linha-suave: #F1F5F9; --linha-forte: #CBD5E1; --linha-campo: #CBD5E1;
+  --texto: #0F172A; --texto-2: #64748B; --texto-menu: #334155; --texto-fraco: #94A3B8;
+  --marca: #4F46E5; --acento: #4F46E5; --acento-forte: #4338CA; --acento-mais: #3730A3;
+  --acento-fundo: #EEF0FF; --acento-linha: #C7D2FE; --foco: var(--acento);
+  --atencao: #B45309; --atencao-fundo: #FFFBEB; --atencao-linha: #FDE68A; --atencao-ponto: #F59E0B;
+  --ok-ponto: #10B981;
+  --raio-micro: 4px; --raio-ctrl: 8px; --raio: 8px; --raio-sobreposicao: 10px; --raio-pilula: 999px;
+  --sombra-sobreposicao: 0 12px 32px rgba(15,23,42,.16), 0 2px 6px rgba(15,23,42,.08);
+  --trilho: 64px; --sit-sem-texto: #475569; --proto: 40px;
+  color-scheme: light;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--texto); font-family: var(--fonte); font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { font-weight: 600; letter-spacing: -.01em; margin: 0; }
+p { margin: 0; }
+button, input { font: inherit; color: inherit; }
+:where(a, button, input, [tabindex]):focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; border-radius: var(--raio-ctrl); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.num { font-family: var(--fonte-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.icone { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.icone--p { width: 16px; height: 16px; }
+[hidden] { display: none !important; }
+
+.proto { position: fixed; top: 0; left: 0; right: 0; z-index: 70; height: var(--proto); display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #1E293B; color: #CBD5E1; font-size: 12px; overflow: hidden; white-space: nowrap; }
+.proto b { color: #fff; font-weight: 500; }
+
+/* casca (fundo: a pagina de Medicoes, estatica) */
+.trilho { position: fixed; top: var(--proto); bottom: 0; left: 0; z-index: 40; width: var(--trilho); background: var(--marca); display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 6px; }
+.trilho__marca { height: 40px; margin-bottom: 18px; display: flex; align-items: center; }
+.trilho__item { width: 44px; height: 44px; border-radius: var(--raio-ctrl); }
+.trilho__item--ativo { background: var(--acento-mais); }
+.casca { margin-left: var(--trilho); padding-top: var(--proto); min-height: 100vh; }
+.barra { height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 32px; background: var(--superficie); box-shadow: 0 1px 0 var(--linha); }
+.barra h1 { font-size: 22px; line-height: 28px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--acento-fundo); color: var(--acento-mais); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+.abas { display: flex; gap: 4px; padding: 0 32px; background: var(--superficie); border-bottom: 1px solid var(--linha); overflow: hidden; }
+.abas span { height: 48px; display: flex; align-items: center; padding: 0 14px; color: var(--sit-sem-texto); white-space: nowrap; }
+.abas span:first-child { color: var(--acento); font-weight: 600; box-shadow: inset 0 -2px 0 var(--acento); }
+.pagina { padding: 24px 32px; display: flex; flex-direction: column; gap: 16px; }
+.acoes { display: flex; justify-content: flex-end; }
+.cartoes { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+.cartao-n { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); padding: 16px; display: flex; flex-direction: column; gap: 4px; color: var(--texto-2); }
+.cartao-n strong { font-size: 32px; line-height: 40px; color: var(--texto); font-family: var(--fonte-num); font-weight: 500; }
+.fundo-tabela { background: var(--superficie); border: 1px solid var(--linha); border-radius: var(--raio); height: 420px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 40px; padding: 0 16px; border: 1px solid var(--linha-campo); border-radius: var(--raio-ctrl); background: var(--superficie); font-weight: 500; cursor: pointer; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn--primario { background: var(--acento); border-color: var(--acento); color: #fff; font-weight: 600; }
+.btn--primario:hover { background: var(--acento-forte); }
+.btn--primario:disabled { background: var(--acento-linha); border-color: var(--acento-linha); cursor: not-allowed; }
+.btn--grande { height: 44px; padding: 0 20px; font-size: 15px; font-weight: 600; }
+
+/* ---------------------------------------------------------------- a janela */
+dialog.iniciar { width: min(600px, calc(100vw - 32px)); max-height: min(820px, calc(100dvh - 64px)); padding: 0; border: 0; border-radius: 12px; box-shadow: var(--sombra-sobreposicao); color: var(--texto); display: none; flex-direction: column; overflow: hidden; }
+dialog.iniciar[open] { display: flex; }
+dialog.iniciar::backdrop { background: rgba(15,23,42,.45); }
+.iniciar__cabeca { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 22px 24px 12px; }
+.iniciar__cabeca h2 { font-size: 20px; line-height: 28px; }
+.iniciar__dica { color: var(--texto-2); }
+.fechar { width: 36px; height: 36px; flex: none; border: 0; background: none; border-radius: var(--raio-ctrl); color: var(--texto-2); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.fechar:hover { background: var(--hover); }
+.busca { position: relative; margin: 0 24px 12px; }
+.busca .icone { position: absolute; left: 12px; top: 12px; color: var(--texto-2); }
+.busca input { width: 100%; height: 44px; padding: 0 12px 0 40px; border: 1px solid var(--linha-campo); border-radius: var(--raio-ctrl); }
+.lista { flex: 1 1 auto; min-height: 120px; overflow-y: auto; border-top: 1px solid var(--linha); padding: 4px 12px 8px; }
+.grupo h3 { position: sticky; top: 0; z-index: 1; background: var(--superficie); padding: 12px 12px 6px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--texto-2); }
+.obra { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 12px; align-items: start; padding: 10px 12px; border-radius: var(--raio-ctrl); cursor: pointer; }
+.obra:hover { background: var(--superficie-2); }
+.obra:has(input:checked) { background: var(--acento-fundo); }
+.obra input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--acento); }
+.obra__nome { font-weight: 600; }
+.obra__ult { color: var(--texto-2); }
+.obra__sub { display: block; font-size: 13px; line-height: 18px; color: var(--texto-2); }
+.obra__sub--andamento { color: var(--atencao); }
+.obra__sub--prevista { color: var(--acento-mais); }
+.vazio { padding: 24px 12px; color: var(--texto-2); text-align: center; }
+
+.rodape { border-top: 1px solid var(--linha); padding: 16px 24px 20px; display: flex; flex-direction: column; gap: 14px; }
+.aviso { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: var(--raio); border: 1px solid; }
+.aviso .icone { margin-top: 1px; }
+.aviso--atencao { background: var(--atencao-fundo); border-color: var(--atencao-linha); }
+.aviso--atencao .icone { color: var(--atencao); }
+.aviso--info { background: var(--acento-fundo); border-color: var(--acento-linha); }
+.aviso--info .icone { color: var(--acento); }
+.tipo { display: inline-flex; border: 1px solid var(--linha-campo); border-radius: var(--raio-ctrl); padding: 3px; gap: 3px; width: fit-content; }
+.tipo label { display: inline-flex; align-items: center; height: 32px; padding: 0 14px; border-radius: 6px; cursor: pointer; color: var(--texto-menu); font-weight: 500; }
+.tipo input { position: absolute; opacity: 0; pointer-events: none; }
+.tipo label:has(input:checked) { background: var(--acento); color: #fff; }
+.tipo label:has(input:focus-visible) { outline: 2px solid var(--foco); outline-offset: 2px; }
+.campos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.campo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.campo span { font-weight: 500; font-size: 13px; color: var(--texto-menu); }
+.campo input { height: 40px; padding: 0 10px; border: 1px solid var(--linha-campo); border-radius: var(--raio-ctrl); font-family: var(--fonte-num); min-width: 0; width: 100%; }
+.campo input[type=month] { font-family: var(--fonte); }
+.campo input[readonly] { background: var(--superficie-2); color: var(--texto-menu); }
+.nota { color: var(--texto-2); font-size: 13px; line-height: 18px; }
+.botoes { display: flex; justify-content: flex-end; gap: 10px; }
+
+.aviso-proto { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2147483647; max-width: calc(100vw - 32px); padding: 10px 16px; background: var(--texto); color: #fff; border-radius: var(--raio-ctrl); font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.aviso-proto.visivel { opacity: 1; }
+
+@media (max-width: 767px) {
+  .barra { padding: 0 16px; } .barra h1 { font-size: 18px; } .conta__nome { display: none; }
+  .abas { padding: 0 16px; } .pagina { padding: 16px; }
+  .acoes .btn { width: 100%; }
+  dialog.iniciar { width: 100vw; max-width: 100vw; max-height: calc(100dvh - var(--proto)); margin: auto 0 0; border-radius: 12px 12px 0 0; }
+  .iniciar__cabeca { padding: 18px 16px 10px; }
+  .busca { margin: 0 16px 10px; }
+  .lista { padding: 4px 4px 8px; }
+  .rodape { padding: 14px 16px 16px; }
+  .botoes { flex-direction: column-reverse; }
+  .botoes .btn { width: 100%; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-busca" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></symbol>
+  <symbol id="i-alerta" viewBox="0 0 24 24"><path d="M10.3 3.9 2.6 17.4A2 2 0 0 0 4.3 20.4h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></symbol>
+  <symbol id="i-mais" viewBox="0 0 24 24"><path d="M12 5.5v13"/><path d="M5.5 12h13"/></symbol>
+</defs></svg>
+
+<div class="proto" role="region" aria-label="Controle do protótipo (não faz parte da tela)">Protótipo&nbsp;·&nbsp;<b>clique nas obras:</b>&nbsp;Estações BRT (em andamento) · MT-401 e Complexo Xtreme (prevista) · Coxipó 3ª Etapa (sem nada) · Terminais BRT (série de Projeto)</div>
+
+<!-- fundo: a pagina de Medicoes (estatica) -->
+<nav class="trilho" aria-label="Menu principal">
+  <div class="trilho__marca"><svg width="15" height="22" viewBox="0 0 15 22" aria-hidden="true"><g fill="#fff"><rect width="6.5" height="6.5" rx="1.5"/><rect y="7.75" width="6.5" height="6.5" rx="1.5"/><rect y="15.5" width="6.5" height="6.5" rx="1.5"/><rect x="8.5" y="15.5" width="6.5" height="6.5" rx="1.5"/></g></svg></div>
+  <span class="trilho__item"></span><span class="trilho__item trilho__item--ativo"></span><span class="trilho__item"></span><span class="trilho__item"></span>
+</nav>
+<div class="casca">
+  <header class="barra"><h1>Medições</h1><span style="display:flex;align-items:center;gap:8px"><span class="avatar">UE</span><span class="conta__nome">Usuário Exemplo</span></span></header>
+  <div class="abas"><span>Resumo</span><span>Sem medição aberta</span><span>Enviar ao faturamento</span><span>Aguardando nota</span><span>Enviar nota</span><span>Aguardando pagamento</span></div>
+  <main class="pagina">
+    <div class="acoes"><button type="button" class="btn btn--primario btn--grande" id="abrir"><svg class="icone"><use href="#i-mais"/></svg>Iniciar processo de medição</button></div>
+    <div class="cartoes"><div class="cartao-n">Sem medição aberta<strong>12</strong></div><div class="cartao-n">Enviar ao faturamento<strong>3</strong></div><div class="cartao-n">Aguardando nota<strong>2</strong></div><div class="cartao-n">Enviar nota<strong>3</strong></div><div class="cartao-n">Aguardando pagamento<strong>10</strong></div></div>
+    <div class="fundo-tabela" aria-hidden="true"></div>
+  </main>
+</div>
+
+<dialog class="iniciar" id="janela" aria-labelledby="j-titulo" aria-describedby="j-dica">
+  <div class="iniciar__cabeca">
+    <div><h2 id="j-titulo">Iniciar processo de medição</h2><p id="j-dica" class="iniciar__dica">Escolha a obra. A medição começa pelo espelho.</p></div>
+    <button type="button" class="fechar" aria-label="Fechar" data-fechar><svg class="icone"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="busca"><svg class="icone icone--p" aria-hidden="true"><use href="#i-busca"/></svg>
+    <input type="search" id="busca" placeholder="Buscar obra ou contratante" aria-label="Buscar obra ou contratante" autocomplete="off" aria-controls="lista"></div>
+  <div class="lista" id="lista" role="radiogroup" aria-label="Obras ativas, por contratante"></div>
+  <div class="rodape" id="rodape" aria-live="polite"></div>
+</dialog>
+
+<div class="aviso-proto" id="aviso" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const MES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+// Dados ficticios. andamento: medicao aberta (passo da vez); prevista: criada pelo cronograma; projeto: serie de Projeto
+const OBRAS = [
+  { c: "SINFRA", o: "5 Bairros", setor: null, ult: [31, "06/2026"] },
+  { c: "SINFRA", o: "Estações BRT", setor: "SAGPM", ult: [7, "09/2026"], andamento: { n: 7, passo: "Enviar nota" }, projeto: { ult: [3, "09/2026"], andamento: { n: 3, passo: "Aguardando nota" } } },
+  { c: "SINFRA", o: "Integra BRT", setor: "SAGPM", ult: [16, "09/2026"], andamento: { n: 16, passo: "Aguardando nota" } },
+  { c: "SINFRA", o: "Leblon", setor: "SUEF II", ult: [30, "09/2026"], andamento: { n: 30, passo: "Nota fiscal (falta a FRC assinada)" } },
+  { c: "SINFRA", o: "MT-401", setor: "SUEF I", ult: [23, "01/2026"], prevista: [24, "09/2026"] },
+  { c: "SINFRA", o: "Terminais BRT", setor: "SAGPM", ult: [8, "08/2026"], projeto: { ult: [2, "09/2026"], andamento: { n: 2, passo: "Aguardando nota" } } },
+  { c: "MTPAR", o: "Complexo Cultural", setor: null, ult: [24, "09/2026"], andamento: { n: 24, passo: "Envio ao órgão (falta o reajuste)" } },
+  { c: "MTPAR", o: "Complexo Xtreme", setor: null, ult: [11, "05/2026"], prevista: [12, "06/2026"] },
+  { c: "MTPAR", o: "Espaço Show", setor: null, ult: [25, "06/2026"] },
+  { c: "Pref. Cuiabá", o: "Coxipó 3ª Etapa", setor: null, ult: [12, "06/2026"] },
+  { c: "Pref. Várzea Grande", o: "Av. da FEB", setor: null, ult: [4, "07/2026"] },
+  { c: "SES-MT", o: "Hospital Central", setor: null, ult: [25, "08/2026"], andamento: { n: 25, passo: "Aguardando pagamento" } },
+  { c: "Rota do Oeste", o: "BR-163 · duplicação", setor: null, ult: [17, "08/2026"], prevista: [18, "09/2026"] },
+];
+const janela = document.getElementById("janela"), busca = document.getElementById("busca");
+let escolhida = null, tipo = "execucao";
+
+const prox = comp => { const [m, a] = comp.split("/").map(Number); return m === 12 ? `01/${a + 1}` : `${String(m + 1).padStart(2, "0")}/${a}`; };
+const porExtenso = comp => { const [m, a] = comp.split("/").map(Number); return `${MES[m - 1]} de ${a}`; };
+const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+function linhaSub(x) {
+  const s = [];
+  if (x.setor) s.push(x.setor);
+  if (x.andamento) s.push(`<span class="obra__sub--andamento">${x.andamento.n}ª em andamento: ${x.andamento.passo}</span>`);
+  else if (x.prevista) s.push(`<span class="obra__sub--prevista">Prevista pelo cronograma: ${x.prevista[0]}ª · ${x.prevista[1]}</span>`);
+  if (x.projeto) s.push(x.projeto.andamento ? `<span class="obra__sub--andamento">${x.projeto.andamento.n}ª de Projeto em andamento</span>` : "tem série de Projeto");
+  return s.length ? `<span class="obra__sub">${s.join(" · ")}</span>` : "";
+}
+
+function desenharLista() {
+  const t = norm(busca.value.trim());
+  const filtradas = OBRAS.filter(x => !t || norm(x.o).includes(t) || norm(x.c).includes(t) || norm(x.setor ?? "").includes(t));
+  const grupos = [...new Set(filtradas.map(x => x.c))];
+  document.getElementById("lista").innerHTML = grupos.length === 0
+    ? `<p class="vazio" role="status">Nenhuma obra ativa com “${esc(busca.value.trim())}”.</p>`
+    : grupos.map(g => `<section class="grupo" aria-label="${g}"><h3>${g}</h3>${filtradas.filter(x => x.c === g).map(x => {
+        const i = OBRAS.indexOf(x);
+        return `<label class="obra"><input type="radio" name="obra" value="${i}"${escolhida === i ? " checked" : ""}>
+          <span><span class="obra__nome">${esc(x.o)}</span> <span class="obra__ult">· última: ${x.ult[0]}ª · ${x.ult[1]}</span>${linhaSub(x)}</span></label>`;
+      }).join("")}</section>`).join("");
+}
+
+function desenharRodape() {
+  const r = document.getElementById("rodape");
+  const cancelar = `<button type="button" class="btn" data-fechar>Cancelar</button>`;
+  if (escolhida === null) {
+    r.innerHTML = `<p class="nota">Obra com medição em andamento abre a medição; com medição prevista, começa por ela.</p>
+      <div class="botoes">${cancelar}<button type="button" class="btn btn--primario" disabled>Escolha uma obra</button></div>`;
+    return;
+  }
+  const x = OBRAS[escolhida];
+  const serie = x.projeto && tipo === "projeto" ? x.projeto : x;
+  const nomeSerie = x.projeto && tipo === "projeto" ? " de Projeto" : "";
+  const escolhaTipo = x.projeto ? `<fieldset style="border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px">
+      <legend class="nota" style="padding:0;margin-bottom:6px">Esta obra tem duas séries de medição</legend>
+      <div class="tipo"><label><input type="radio" name="tipo" value="execucao"${tipo === "execucao" ? " checked" : ""}>Execução</label><label><input type="radio" name="tipo" value="projeto"${tipo === "projeto" ? " checked" : ""}>Projeto</label></div></fieldset>` : "";
+  if (serie.andamento) {
+    const a = serie.andamento;
+    r.innerHTML = `${escolhaTipo}<div class="aviso aviso--atencao"><svg class="icone icone--p" aria-hidden="true"><use href="#i-alerta"/></svg>
+      <span>${esc(x.o)} já tem a ${a.n}ª${nomeSerie} em andamento (${a.passo.toLowerCase()}). Continue nela em vez de começar outra.</span></div>
+      <div class="botoes">${cancelar}<button type="button" class="btn btn--primario" data-ir="abriria a página da ${a.n}ª medição${nomeSerie} de ${esc(x.o)}, na etapa da vez">Abrir a ${a.n}ª medição${nomeSerie}</button></div>`;
+    return;
+  }
+  if (serie.prevista) {
+    const [n, c] = serie.prevista;
+    r.innerHTML = `${escolhaTipo}<div class="aviso aviso--info"><svg class="icone icone--p" aria-hidden="true"><use href="#i-info"/></svg>
+      <span>${esc(x.o)} tem a ${n}ª prevista pelo cronograma (${c}). O processo começa por ela, sem criar outra medição.</span></div>
+      <div class="campos"><label class="campo"><span>Nº da medição</span><input value="${n}" readonly></label><label class="campo"><span>Competência</span><input value="${porExtenso(c)}" readonly></label></div>
+      <div class="botoes">${cancelar}<button type="button" class="btn btn--primario" data-ir="começaria a ${n}ª de ${esc(x.o)} pela prevista e abriria a página da medição na etapa 1, Espelho (protótipo da página, cenário c)">Começar a ${n}ª pelo espelho</button></div>`;
+    return;
+  }
+  const n = serie.ult[0] + 1, c = prox(serie.ult[1]);
+  const [m, a] = c.split("/");
+  r.innerHTML = `${escolhaTipo}<p class="nota">Sugestão: a próxima depois da ${serie.ult[0]}ª${nomeSerie} (${serie.ult[1]}). Mude se precisar.</p>
+    <div class="campos"><label class="campo"><span>Nº da medição${nomeSerie}</span><input id="n" inputmode="numeric" value="${n}"></label>
+      <label class="campo"><span>Competência</span><input id="comp" type="month" value="${a}-${m}"></label></div>
+    <div class="botoes">${cancelar}<button type="button" class="btn btn--primario" id="comecar">Começar a ${n}ª${nomeSerie} pelo espelho</button></div>`;
+  document.getElementById("n").addEventListener("input", ev => {
+    const v = ev.target.value.replace(/\D/g, "");
+    document.getElementById("comecar").textContent = v ? `Começar a ${v}ª${nomeSerie} pelo espelho` : "Informe o número";
+    document.getElementById("comecar").disabled = !v;
+  });
+}
+
+let relogio;
+function avisar(t) { const a = document.getElementById("aviso"); a.textContent = t; a.classList.add("visivel"); clearTimeout(relogio); relogio = setTimeout(() => a.classList.remove("visivel"), 3600); }
+function abrir() { escolhida = null; tipo = "execucao"; busca.value = ""; desenharLista(); desenharRodape(); janela.showModal(); busca.focus(); }
+
+document.getElementById("abrir").addEventListener("click", abrir);
+busca.addEventListener("input", desenharLista);
+janela.addEventListener("change", ev => {
+  if (ev.target.name === "obra") { escolhida = +ev.target.value; tipo = "execucao"; desenharRodape(); }
+  if (ev.target.name === "tipo") { tipo = ev.target.value; desenharRodape(); document.querySelector(`[name=tipo][value=${tipo}]`).focus(); }
+});
+janela.addEventListener("click", ev => {
+  if (ev.target === janela || ev.target.closest("[data-fechar]")) { janela.close(); return; }
+  const ir = ev.target.closest("[data-ir]");
+  if (ir) { janela.close(); avisar(`Aqui o sistema ${ir.dataset.ir}.`); return; }
+  if (ev.target.id === "comecar") { const x = OBRAS[escolhida]; janela.close(); avisar(`Aqui o sistema criaria a ${document.getElementById("n").value}ª de ${x.o} e abriria a página da medição na etapa 1, Espelho.`); }
+});
+// Esc fecha (nativo do <dialog>); o foco volta ao botao que abriu
+janela.addEventListener("close", () => document.getElementById("abrir").focus());
+
+// para as capturas: #obra=Nome abre com a obra escolhida; #tipo=projeto
+abrir();
+const h = new URLSearchParams(location.hash.slice(1));
+if (h.get("obra")) { escolhida = OBRAS.findIndex(x => x.o === h.get("obra")); tipo = h.get("tipo") ?? "execucao"; desenharLista(); desenharRodape();
+  document.querySelector("input[name=obra]:checked")?.scrollIntoView({ block: "center" }); }
+</script>
+</body>
+</html>

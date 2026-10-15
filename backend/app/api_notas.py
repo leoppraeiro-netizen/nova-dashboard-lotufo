@@ -88,6 +88,22 @@ def completa(medicao_id: ID, dados: JustificativaIn, usuario: dict = Depends(exi
     return {"ok": True, "estado": medicoes.detalhe(conn, medicao_id)["estado"]}
 
 
+class DesfazerIn(BaseModel):
+    motivo: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/api/medicoes/{medicao_id}/notas/alocacoes/{alocacao_id}/desfazer")
+def desfazer_vinculo(medicao_id: ID, alocacao_id: ID, dados: DesfazerIn, usuario: dict = Depends(exigir("administrar")),
+                     conn: sqlite3.Connection = Depends(conexao)):
+    """Issue #71: so' o admin desfaz o vinculo de uma nota com a medicao, com motivo (auditado)."""
+    _medicao_existe(conn, medicao_id)
+    try:
+        sincronizacao_rm.desalocar(conn, usuario["id"], medicao_id, alocacao_id, dados.motivo)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"ok": True, "estado": medicoes.detalhe(conn, medicao_id)["estado"]}
+
+
 class LiberarIn(BaseModel):
     justificativa: str = Field(max_length=2000)
 

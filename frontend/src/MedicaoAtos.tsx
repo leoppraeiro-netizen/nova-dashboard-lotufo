@@ -238,18 +238,31 @@ export function FormProtocoloManual({ contratoId, m, salvando, agir, aoFechar, e
   );
 }
 
+// Issue #53 (decisao do dono, 15/10/2026): o recebimento vem do RM; a mao, so' o admin, quando o RM falhar, e com
+// motivo obrigatorio, que vai para a auditoria. O servidor recusa sem o motivo (422) e para outro perfil (403).
+const MIN_MOTIVO_RECEBIMENTO = 10;   // o servidor recusa menos que isso (api_medicoes.MOTIVO_RECEBIMENTO_MINIMO)
+
 export function FormRecebimento({ m, salvando, agir, aoFechar, erro }: Base) {
   const [data, setData] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [tentou, setTentou] = useState(false);
+  // Conta por caractere (code point), como o len() do servidor, e nao por unidade UTF-16.
+  const falta = [...motivo.trim()].length < MIN_MOTIVO_RECEBIMENTO
+    ? `Escreva o motivo, com pelo menos ${MIN_MOTIVO_RECEBIMENTO} caracteres.` : undefined;
+  const erroMotivo = tentou ? falta : undefined;
   async function salvar(ev: React.FormEvent) {
     ev.preventDefault();
+    setTentou(true);
+    if (falta) { document.getElementById("campo-motivo-recebimento")?.focus(); return; }
+    const corpo = { estado: "recebida", motivo: motivo.trim(), ...(data ? { data } : {}) };
     const ok = await agir(() => api(`/api/medicoes/${m.id}/estado`, {
-      method: "POST", body: JSON.stringify(data ? { estado: "recebida", data } : { estado: "recebida" }),
+      method: "POST", body: JSON.stringify(corpo),
     }), "Recebimento registrado.");
     if (ok) aoFechar();
   }
   return (
-    <form onSubmit={salvar} onKeyDown={ev => ev.key === "Escape" && aoFechar()}>
-      <p className="painel__titulo">Registrar o recebimento da {m.numero}ª medição</p>
+    <form onSubmit={salvar} noValidate onKeyDown={ev => ev.key === "Escape" && aoFechar()}>
+      <p className="painel__titulo">Registrar à mão o recebimento da {m.numero}ª medição</p>
       <Erro erro={erro} />
       <div className="form-inline">
         <div className="campo">
@@ -257,10 +270,19 @@ export function FormRecebimento({ m, salvando, agir, aoFechar, erro }: Base) {
           <input id="campo-data-marco" name="data_baixa" autoComplete="off" type="date" className="entrada--media" autoFocus value={data}
             onChange={ev => setData(ev.target.value)} />
         </div>
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor="campo-motivo-recebimento">Motivo</label>
+          <input id="campo-motivo-recebimento" name="motivo" autoComplete="off" className="entrada--larga" required maxLength={1000}
+            placeholder="Ex.: a baixa não entrou no RM; conferida no extrato…" value={motivo}
+            {...(erroMotivo ? { "aria-invalid": true as const, "aria-describedby": "campo-motivo-recebimento-erro" } : {})}
+            onChange={ev => setMotivo(ev.target.value)} />
+          <ErroCampo id="campo-motivo-recebimento-erro" erro={erroMotivo} />
+        </div>
         <button type="submit" className="btn btn--primario" disabled={salvando}>{salvando ? "Registrando…" : "Registrar recebimento"}</button>
         <button type="button" className="btn" onClick={aoFechar}>Cancelar</button>
         <span className="campo__nota">
-          Estado final: a medição não volta atrás. Sem a data, a baixa fica “sem data”. O RM marca o recebimento sozinho quando a baixa entra.
+          Só quando o RM falhar: ele marca o recebimento sozinho quando a baixa entra. Estado final: a medição não volta
+          atrás. O motivo fica registrado na auditoria. Sem a data, a baixa fica “sem data”.
         </span>
       </div>
     </form>

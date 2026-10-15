@@ -347,6 +347,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                       return mx ? (
                         <section key={`${x.medicao_id}-${versaoNotas}`} className="notas-bloco" aria-label={rotuloDoBloco(mx)}>
                           <Notas medicao={mx} rotulo={rotuloDoBloco(mx)} podeEditar={podeEditar && !FINAIS.includes(mx.estado)}
+                            podeDesfazer={usuario.perfil === "admin" && !FINAIS.includes(mx.estado)}
                             aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                         </section>
                       ) : null;
@@ -354,6 +355,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                   </div>
                 ) : (
                   <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+                    podeDesfazer={usuario.perfil === "admin" && !FINAIS.includes(m.estado)}
                     aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                 )}
               </div>
@@ -423,7 +425,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                     NF {Number(n.numero) || n.numero}: recebido {brl(n.recebido_centavos)}{n.recebido_em ? ` em ${fmtDataPura(n.recebido_em)}` : ""}
                   </p>
                 ))}
-                {podeEditar && (PROXIMOS[m.estado] ?? []).includes("recebida") && painel !== "recebimento" && (
+                {/* issue #53: o recebimento a mão é só do admin (o servidor recusa outro perfil) */}
+                {usuario.perfil === "admin" && (PROXIMOS[m.estado] ?? []).includes("recebida") && painel !== "recebimento" && (
                   <div>
                     <button type="button" id="ato-recebimento" className="btn btn--pequeno" disabled={salvando} onClick={() => abrir("recebimento", "ato-recebimento")}>
                       Registrar recebimento
