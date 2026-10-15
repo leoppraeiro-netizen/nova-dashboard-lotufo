@@ -237,6 +237,11 @@ def registrar_protocolo(conn, usuario_id: int, medicao_id: int, data: str,
         atual = m["estado"]
         if atual in ("cancelada", "desistida", "recebida"):
             raise ValueError(f"Medição em estado final ({atual}) não recebe protocolo")
+        if exige_nota and atual == "nota_emitida":
+            # Issue #188: o protocolo registrado a mao tambem espera a outra metade onde o orgao junta medicao e
+            # reajuste (conferido aqui, sob o mesmo lock da gravacao)
+            from app import notas_envio      # import local: notas_envio importa protocolo, que importa este modulo
+            notas_envio.recusar_se_espera(conn, m)
         # Bloco 4: a exigencia depende da natureza (medicao/projeto x reajuste) e inclui consorciadas.
         ck = checklist.pronto_para_protocolar(conn, m["contrato_id"], m["tipo"])
         itens_pendentes = [i for i in ck["itens"] if i["situacao"] == "pendente"]

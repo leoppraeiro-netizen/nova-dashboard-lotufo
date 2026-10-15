@@ -104,6 +104,14 @@ def test_sem_permissao_nao_anexa(medicao_qualquer, client_diretoria):
     assert client_diretoria.get(f"/api/medicoes/{medicao_qualquer}/notas").status_code == 200
 
 
+def test_sem_permissao_nao_libera_o_envio_sem_a_outra_metade(medicao_qualquer, client_diretoria):
+    """Issue #188: a saida de emergencia e' de quem edita; quem so' consulta le as metades."""
+    r = client_diretoria.post(f"/api/medicoes/{medicao_qualquer}/envio-sem-a-outra",
+                              json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 403
+    assert client_diretoria.get(f"/api/medicoes/{medicao_qualquer}/par").json()["metades"] == []
+
+
 def test_valor_acima_do_teto_da_422_na_nota_manual(client_admin, medicao_qualquer, monkeypatch):
     """A-08 (testes de quebra 10/10/2026): valor acima de int64 estourava o INSERT (500)."""
     _fixar_texto(monkeypatch, "")
