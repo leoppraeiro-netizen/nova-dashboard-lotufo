@@ -238,6 +238,18 @@ describe("ComporEmail: formatação do corpo", () => {
     fireEvent.drop(corpo, { dataTransfer: { getData: (t: string) => (t === "text/plain" ? "só texto" : "") } });
     expect(comandos()).toEqual([["insertText", "só texto"]]);
   });
+
+  // revisor na PR #195 (rodada 2): mover uma linha dentro do corpo apaga o no' de origem e o dragend nao chega;
+  // o proximo soltar de fora tem de passar pela limpeza do mesmo jeito
+  it("depois de mover um trecho dentro do corpo, soltar de fora continua limpo", () => {
+    const corpo = abrir();
+    fireEvent.dragStart(corpo);
+    fireEvent.drop(corpo, { dataTransfer: { getData: () => "Bom dia." } });      // interno: fica com o navegador
+    expect(comandos()).toEqual([]);
+    const html = '<p><b>Prazo</b><img src="https://x.exemplo.com.br/a.png"></p>';
+    fireEvent.drop(corpo, { dataTransfer: { getData: (t: string) => (t === "text/html" ? html : "") } });
+    expect(comandos()).toEqual([["insertHTML", "<p><b>Prazo</b></p>"]]);
+  });
 });
 
 describe("limparHtml", () => {

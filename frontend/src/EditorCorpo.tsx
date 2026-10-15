@@ -171,7 +171,11 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
   // servidor tira depois. Arrastar um trecho de dentro do proprio corpo (mover) fica com o navegador.
   const deDentro = useRef(false);
   function soltar(e: React.DragEvent<HTMLDivElement>) {
-    if (deDentro.current || !e.dataTransfer || typeof document.execCommand !== "function") return;
+    // a marca se le' e se zera aqui (o drop vem antes do dragend): movendo uma linha inteira, o navegador apaga o
+    // no' de origem e o dragend nao chega, e a marca ligada deixaria todo soltar de fora entrar sem limpeza
+    const interno = deDentro.current;
+    deDentro.current = false;
+    if (interno || !e.dataTransfer || typeof document.execCommand !== "function") return;
     e.preventDefault();
     const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
     let ponto: Range | null = null;
