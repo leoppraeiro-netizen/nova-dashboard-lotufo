@@ -12,7 +12,7 @@ import { Migalhas } from "./Topo";
 
 // A janela "Iniciar processo" manda o numero e a competencia pela busca da URL (?numero=25&competencia=2026-10).
 export default function NovaMedicao({ contratoId, usuario, busca = {} }: { contratoId: number; usuario: Usuario; busca?: Busca }) {
-  const numero = /^[0-9]{1,3}$/.test(busca.numero ?? "") ? busca.numero : "";
+  const numero = /^[1-9][0-9]{0,2}$/.test(busca.numero ?? "") ? busca.numero : "";
   const competencia = /^\d{4}-(0[1-9]|1[0-2])$/.test(busca.competencia ?? "") ? busca.competencia : "";
   const inicial = numero || competencia ? { numero, competencia } : undefined;
   const podeEditar = usuario.perfil === "engenharia" || usuario.perfil === "admin";

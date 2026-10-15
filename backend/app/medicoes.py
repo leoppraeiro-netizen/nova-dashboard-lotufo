@@ -510,7 +510,8 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
         return _dia(m["protocolado_em"])
 
     grupos: dict[tuple, list[dict]] = {}
-    for m in em_andamento(conn):
+    andamento = em_andamento(conn)
+    for m in andamento:
         grupos.setdefault((m["contrato_id"], m["numero"], m["competencia"], SITUACAO[m["estado"]]), []).append(m)
     linhas = []
     for (cid, _numero, _comp, situacao), ms in grupos.items():
@@ -538,19 +539,17 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
 
     abertas = {x["contrato_id"] for x in linhas}
     prevista_de: dict[int, int] = {}
-    for r in conn.execute("SELECT contrato_id, id FROM medicoes WHERE estado='prevista' "
-                          "ORDER BY competencia, numero, id"):
-        prevista_de.setdefault(r["contrato_id"], r["id"])
     # #151 (15/10/2026): a janela "Iniciar processo" mostra a medicao aberta (id, numero e passo), a prevista (numero e
     # competencia) e a ultima de cada serie. Serie de execucao = execucao + reajuste (o reajuste acompanha o numero);
     # a de Projeto so' existe na obra que ja' teve uma medicao de Projeto.
     prevista_dados: dict[int, tuple[int, str]] = {}
     for r in conn.execute("SELECT contrato_id, id, numero, competencia FROM medicoes WHERE estado='prevista' "
                           "ORDER BY competencia, numero, id"):
-        if prevista_de.get(r["contrato_id"]) == r["id"]:
+        if r["contrato_id"] not in prevista_de:   # a mais antiga da obra
+            prevista_de[r["contrato_id"]] = r["id"]
             prevista_dados[r["contrato_id"]] = (r["numero"], r["competencia"])
     aberta_de: dict[tuple[int, bool], dict] = {}
-    for m in em_andamento(conn):
+    for m in andamento:
         chave = (m["contrato_id"], m["tipo"] == "projeto")
         atual = aberta_de.get(chave)
         # a de execucao vence o reajuste do mesmo numero; entre numeros, a maior

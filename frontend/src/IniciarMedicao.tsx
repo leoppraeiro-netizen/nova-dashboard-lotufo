@@ -48,9 +48,6 @@ function SubObra({ o }: { o: ObraResumo }) {
   } else if (o.prevista_id !== null) {
     partes.push(<span key="p" className="iniciar__sub--prevista">
       Prevista pelo cronograma: {o.prevista_numero}ª · {fmtCompetencia(o.prevista_competencia)}</span>);
-  } else if (o.aberta) {
-    // aberta so' no Projeto ou sem numero conhecido: o servidor sempre manda o numero; texto de reserva
-    partes.push(<span key="a" className="iniciar__sub--andamento">já tem medição em andamento</span>);
   }
   if (o.projeto) {
     partes.push(o.projeto.aberta_numero !== null
@@ -137,7 +134,7 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
             Começar a {o.prevista_numero}ª pelo espelho</button></div></>;
     }
     const u = serie.ultima;
-    const pronto = /^[0-9]{1,3}$/.test(numero) && competencia !== "";
+    const pronto = /^[1-9][0-9]{0,2}$/.test(numero) && competencia !== "";
     return <>{escolhaTipo}
       <p className="iniciar__nota">{u
         ? <>Sugestão: a próxima depois da {u.numero}ª{de} ({fmtCompetencia(u.competencia)}). Mude se precisar.</>
@@ -190,7 +187,7 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
             </section>
           ))}
         </div>
-        <div className="iniciar__rodape" aria-live="polite">
+        <div className="iniciar__rodape">
           {obra ? rodape(obra) : <>
             <p className="iniciar__nota">Obra com medição em andamento abre a medição; com medição prevista, começa por ela.</p>
             <div className="iniciar__botoes"><button type="button" className="btn" onClick={fechar}>Cancelar</button>
