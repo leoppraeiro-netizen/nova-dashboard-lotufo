@@ -53,13 +53,37 @@ jobs:
           else
             python scripts/vazamento.py
           fi
-      # v2.3.9, fixado no commit. Pulado na fila de merge: o action so' aceita push, pull_request,
-      # workflow_dispatch e schedule e sai com erro em merge_group; os commits da fila ja' passaram
-      # pelo gitleaks na propria PR, e o push na master roda de novo depois do merge.
-      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
-        if: ${{ !cancelled() && github.event_name != 'merge_group' }}
+      # gitleaks pela linha de comando (MIT, sem chave): o gitleaks-action exige licenca paga em repositorio de
+      # organizacao, e o repositorio mora na organizacao lotufo-dev desde 15/10/2026 (fila de merge). Versao e
+      # sha256 fixados. Varre so' os commits novos: os da PR (--first-parent: sem os da master que entram por merge
+      # na branch), os do push e os das PRs do grupo da fila (o commit de merge em si fica de fora, --no-merges).
+      # --redact: o log e' publico.
+      - name: Segredo tecnico (gitleaks)
+        if: ${{ !cancelled() }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENTO: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_ANTES: ${{ github.event.before }}
+          FILA_BASE: ${{ github.event.merge_group.base_sha }}
+          FILA_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: |
+          versao=8.30.1
+          sha=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -sSfL -o /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${versao}/gitleaks_${versao}_linux_x64.tar.gz"
+          echo "${sha}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          case "$EVENTO" in
+            pull_request) faixa="--no-merges --first-parent ${PR_BASE}..${PR_HEAD}" ;;
+            merge_group)  faixa="--no-merges ${FILA_BASE}..${FILA_HEAD}" ;;
+            *)
+              if [ -n "$PUSH_ANTES" ] && ! echo "$PUSH_ANTES" | grep -q '^0*$'; then
+                faixa="--no-merges ${PUSH_ANTES}..${GITHUB_SHA}"
+              else
+                faixa="-1 ${GITHUB_SHA}"
+              fi ;;
+          esac
+          /tmp/gitleaks git --redact --verbose --exit-code 1 --log-opts="$faixa" .
       # A CI roda o script da propria PR; por isso quem decide se o script, a lista de excecoes ou os hooks
       # mudaram e' este passo (o ci.yml e' protegido por `.github/`), nao o script. Arquivo novo nao conta.
       # Fica por ultimo e os passos acima usam `!cancelled()`: um passo vermelho nao pode esconder a varredura
