@@ -566,11 +566,11 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
       )}
 
       {mostra("recebidas") && (
-        <Grupo id="recebidas" titulo="Recebidas à mão sem baixa no RM" conta={conta("recebidas")} carregadas={d.recebidas_sem_baixa.length}
+        <Grupo id="recebidas" titulo="Notas de recebimentos à mão sem baixa no RM" conta={conta("recebidas")} carregadas={d.recebidas_sem_baixa.length}
           mostrando={quantas(d.recebidas_sem_baixa.length)} verTodas={verTodas("recebidas")} mais={null}>
-          <Rolagem rotulo="Recebidas à mão sem baixa no RM">
+          <Rolagem rotulo="Notas de recebimentos à mão sem baixa no RM">
             <table className="tabela">
-              <caption className="sr-only">Medições com recebimento registrado à mão cuja NF ainda tem título aberto no RM</caption>
+              <caption className="sr-only">NFs de medições com recebimento registrado à mão cujo título ainda está aberto no RM, uma linha por NF</caption>
               <thead><tr><th scope="col">Obra</th><th scope="col">Medição</th><th scope="col">Recebida em</th><th scope="col">NF</th>
                 <th scope="col" className="col-num">Em aberto no RM</th></tr></thead>
               <tbody>

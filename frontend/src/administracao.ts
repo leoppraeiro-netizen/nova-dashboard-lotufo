@@ -41,7 +41,7 @@ export const CATEGORIAS_REC: { id: CategoriaRec; campo: Exclude<keyof Reconcilia
   { id: "medicoes", campo: "medicoes_sem_nf", titulo: "Medições sem NF do RM" },
   { id: "divergencias", campo: "divergencias", titulo: "Divergências de valor" },
   { id: "desfeitas", campo: "alocacoes_desfeitas", titulo: "Alocações desfeitas" },
-  { id: "recebidas", campo: "recebidas_sem_baixa", titulo: "Recebidas à mão sem baixa no RM" },
+  { id: "recebidas", campo: "recebidas_sem_baixa", titulo: "Notas de recebimentos à mão sem baixa no RM" },
 ];
 
 // #22: a API (`sincronizacao_rm.reconciliacao`) manda duas listas em paginas (200 NFs sem medicao, 50 alocacoes
@@ -108,7 +108,7 @@ export function rotuloRec(c: CategoriaRec, n: number): string {
     case "medicoes": return n === 1 ? "medição sem NF do RM" : "medições sem NF do RM";
     case "divergencias": return n === 1 ? "divergência de valor" : "divergências de valor";
     case "desfeitas": return n === 1 ? "alocação desfeita" : "alocações desfeitas";
-    case "recebidas": return n === 1 ? "recebida à mão sem baixa no RM" : "recebidas à mão sem baixa no RM";
+    case "recebidas": return n === 1 ? "nota de recebimento à mão sem baixa no RM" : "notas de recebimentos à mão sem baixa no RM";
   }
 }
 
