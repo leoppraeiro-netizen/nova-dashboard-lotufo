@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { brl } from "./formato";
 import { api, apiForm, mensagemDeErro } from "./api";
+import CampoValor from "./CampoValor";
 import { IconeAlerta } from "./icones";
 import { tituloMedicao } from "./medicao";
 import type { Medicao } from "./Medicoes";
@@ -333,8 +334,8 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
           </div>
           <div className="campo">
             <label className="campo__rotulo" htmlFor={`nota-valor-${medicao.id}`}>Valor bruto (R$)</label>
-            <input id={`nota-valor-${medicao.id}`} name="valor" autoComplete="off" spellCheck={false} className="entrada--media entrada--num num" required inputMode="decimal" placeholder="Ex.: 50.000,00…"
-              value={manual.valor} onChange={ev => setManual({ ...manual, valor: ev.target.value })} />
+            <CampoValor id={`nota-valor-${medicao.id}`} name="valor" required
+              value={manual.valor} onChange={v => setManual({ ...manual, valor: v })} />
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "manual" ? "Registrando…" : "Registrar nota"}</button>
           <button type="button" className="btn" onClick={() => setManual(null)}>Deixar só o arquivo</button>

@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FormProtocoloManual, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
+import { FormProtocoloManual, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
 import type { Medicao } from "./Medicoes";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -81,5 +81,59 @@ describe("FormProtocoloManual", () => {
     fireEvent.change(just, { target: { value: "órgão aceita a CND em 5 dias" } });
     fireEvent.click(botao);
     expect(agir).toHaveBeenCalledTimes(1);
+  });
+});
+
+// issue #190: o valor se digita como em caixa registradora e vai ao servidor no mesmo formato de antes
+describe("FormValor (CampoValor)", () => {
+  afterEach(() => { cleanup(); api.mockReset(); });
+
+  it("digitar 5000000 manda \"50.000,00\" ao servidor", async () => {
+    api.mockResolvedValue({});
+    const agir = vi.fn(async (fn: () => Promise<unknown>) => { await fn(); return true; });
+    const m = { ...base, valor_protocolado_origem: null, valor_protocolado_centavos: null };
+    render(<FormValor m={m} campo="protocolado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("");
+    for (const c of "5000000") fireEvent.input(valor, { target: { value: valor.value + c }, inputType: "insertText", data: c });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/valor",
+      { method: "PUT", body: JSON.stringify({ campo: "protocolado", valor: "50.000,00" }) }));
+  });
+
+  // gate Sol S2: com o painel aberto, trocar de campo nao pode levar o valor do outro
+  it("trocar de protocolado para atestado com o formulário aberto mostra o valor do atestado", async () => {
+    api.mockResolvedValue({});
+    const agir = vi.fn(async (fn: () => Promise<unknown>) => { await fn(); return true; });
+    const m = { ...base, valor_protocolado_origem: null, valor_atestado_centavos: 12345 };
+    const { rerender } = render(<FormValor m={m} campo="protocolado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    expect((screen.getByLabelText("Valor (R$)") as HTMLInputElement).value).toBe("9.384.834,18");
+    rerender(<FormValor m={m} campo="atestado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    expect((screen.getByLabelText("Valor (R$)") as HTMLInputElement).value).toBe("123,45");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/valor",
+      { method: "PUT", body: JSON.stringify({ campo: "atestado", valor: "123,45" }) }));
+  });
+
+  it("o valor gravado abre formatado e apagar tira o último dígito", () => {
+    render(<FormValor m={base} campo="protocolado" salvando={false} agir={vi.fn()} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("9.384.834,18");
+    fireEvent.input(valor, { target: { value: valor.value.slice(0, -1) }, inputType: "deleteContentBackward" });
+    expect(valor.value).toBe("938.483,41");
+  });
+
+  // rodada 2 da PR #193 (C3): o aviso de colar invalido segura o envio; nada de gravar o valor antigo calado
+  it("colar em formato inválido e clicar em Salvar valor não chama o servidor", () => {
+    const agir = vi.fn(async () => true);
+    render(<FormValor m={{ ...base, valor_atestado_centavos: 890000000 }} campo="atestado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("8.900.000,00");   // valor ja' gravado: o required nao segura
+    fireEvent.paste(valor, { clipboardData: { getData: () => "8900000.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    expect(agir).not.toHaveBeenCalled();
+    expect(api).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("formato inválido");
   });
 });
