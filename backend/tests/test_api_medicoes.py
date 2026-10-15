@@ -504,4 +504,19 @@ def test_recebimento_manual_audita_o_motivo(client_admin):
     finally:
         conn.close()
     assert ultimo["usuario_id"] is not None
-    assert json.loads(ultimo["depois"]) == {"estado": "recebida", "motivo": MOTIVO_RM, "recebida_em": "2026-09-30"}
+    # #203: a rota grava tambem a origem "manual", que o servidor controla (o motivo nao decide)
+    assert json.loads(ultimo["depois"]) == {"estado": "recebida", "motivo": MOTIVO_RM, "recebida_em": "2026-09-30",
+                                            "origem": "manual"}
+
+
+def test_recebimento_pela_rota_e_manual_mesmo_com_motivo_que_imita_o_corte(client_admin):
+    """Issue #203 (gate Sol S2): a rota grava a origem "manual" na auditoria; o motivo digitado nao decide."""
+    from app import conciliacao, db
+    mid = _protocolada(client_admin)
+    assert client_admin.post(f"/api/medicoes/{mid}/estado",
+        json={"estado": "recebida", "motivo": "corte de 22/09/2026: baixa conferida no extrato"}).status_code == 200
+    conn = db.get_conn()
+    try:
+        assert mid in conciliacao.recebidas_a_mao(conn)
+    finally:
+        conn.close()

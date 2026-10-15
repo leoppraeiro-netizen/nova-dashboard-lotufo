@@ -91,3 +91,12 @@ def test_corte_fecha_o_legado_protocolado_ate_a_data(conn, cid, tmp_path):
     a = medicoes.detalhe(conn, antiga)
     assert a["estado"] == "recebida" and a["recebida_em"] is None and "corte de 22/09/2026" in a["motivo_represamento"]
     assert medicoes.detalhe(conn, depois)["estado"] == "protocolada"
+
+
+def test_corte_grava_a_origem_e_nao_conta_como_recebimento_a_mao(conn, cid, tmp_path, monkeypatch):
+    """Issue #203 (gate Sol S2): o corte se reconhece pela origem que o servidor grava, nao pelo texto do motivo."""
+    monkeypatch.setattr(conciliacao, "MOTIVO_CORTE", "fechada no corte de {data}")
+    antiga = _medicao(conn, cid, 1, 500_00, comp="2025-03")
+    conciliacao.cortar(conn, 1, "2026-09-22", ensaio=False)
+    assert medicoes.detalhe(conn, antiga)["estado"] == "recebida"
+    assert conciliacao.recebidas_a_mao(conn) == set()

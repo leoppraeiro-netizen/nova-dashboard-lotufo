@@ -192,7 +192,8 @@ def estado(medicao_id: ID, dados: EstadoIn,
                                      "caracteres): fica registrado na auditoria")
     try:
         medicoes.mudar_estado(conn, usuario["id"], medicao_id, dados.estado, motivo,
-                              dados.data.isoformat() if dados.data else None)
+                              dados.data.isoformat() if dados.data else None,
+                              origem="manual" if dados.estado == "recebida" else None)
     except ValueError as e:
         raise _erro_do_cliente(conn, e)
     return {"ok": True}

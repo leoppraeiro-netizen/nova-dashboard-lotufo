@@ -234,6 +234,36 @@ def test_recebimento_manual_tira_a_nota_do_a_receber_e_o_corte_nao(cenario):
     assert diretoria.da_obra(c, ids["propria"])["a_receber_centavos"] == 300_001
 
 
+def test_nota_partida_com_medicao_do_corte_fica_inteira_e_baixa_parcial_a_mao_sai(cenario):
+    """Gate Sol S1 da PR #206: a nota so' sai do a receber quando TODAS as medicoes ligadas foram recebidas a mao.
+    Ligada tambem a medicao fechada pelo corte, fica inteira (como antes). Com baixa parcial e so' a medicao a mao,
+    sai inteira: o registro manual vale."""
+    c, ids = cenario
+    uid = c.execute("SELECT id FROM usuarios").fetchone()[0]
+
+    def mid(n):
+        return c.execute("SELECT id FROM medicoes WHERE contrato_id=? AND numero=?", (ids["propria"], n)).fetchone()[0]
+
+    def nota(idmov, devido, baixado, numeros):
+        nid = c.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, emissao, valor_centavos, situacao) "
+                        "VALUES (1, ?, ?, '2026-06-01', ?, 'ativa')", (idmov, f"{idmov:09d}", devido)).lastrowid
+        c.execute("INSERT INTO baixas (coligada, idlan, nota_id, idmov, valor_original_centavos, valor_baixado_centavos, "
+                  "status_lan) VALUES (1, ?, ?, ?, ?, ?, ?)", (idmov, nid, idmov, devido, baixado, 1 if baixado else 0))
+        for n in numeros:
+            c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
+                      "VALUES (?, ?, ?, 'detectado', 't')", (mid(n), nid, devido // len(numeros)))
+    nota(920, 1_000_001, 0, (14, 15))          # partida: 14 a mao, 15 pelo corte
+    nota(921, 500_001, 100_000, (14,))         # so' a 14 (a mao), baixa parcial no RM
+    c.commit()
+    medicoes.mudar_estado(c, uid, mid(14), "recebida", "a baixa nao entrou no RM; conferida no extrato", "2026-09-20",
+                          origem="manual")
+    medicoes.mudar_estado(c, uid, mid(15), "recebida", "corte de 22/09/2026: faturado conta como pago", None,
+                          origem="corte")
+    ids["liberar"]()
+    d = diretoria.painel(c, HOJE)["dinheiro"]["protocolado"]
+    assert (d["valor_centavos"], d["notas_rm"]) == (1_000_001, 1)
+
+
 def test_reajustes_esperando_apostilamento_por_obra(cenario, monkeypatch):
     c, ids = cenario                   # A13: um item por ciclo, o mais antigo primeiro
     def ciclo(situacao, base, dias):

@@ -95,8 +95,10 @@ def _notas_em_aberto(conn) -> list[dict]:
                                   WHERE a.nota_id=? AND a.desfeita_em IS NULL""", (n["id"],)).fetchall()
         if any(r["estado"] in em_aberto for r in ligadas):
             continue                                        # a medicao em aberto ja' conta
-        if any(r["id"] in a_mao for r in ligadas):
+        if ligadas and all(r["id"] in a_mao for r in ligadas):
             continue                                        # recebida a mao: o registro manual vale (#203)
+        # (`sincronizacao_rm.alocar` so' liga a nota a uma medicao; se um dia houver nota partida com medicao
+        # fechada de outro jeito, ela fica inteira no a receber, como antes do #203)
         if ligadas:
             cid = ligadas[0]["contrato_id"]
         else:
