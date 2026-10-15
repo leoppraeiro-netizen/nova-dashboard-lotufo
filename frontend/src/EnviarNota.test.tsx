@@ -7,6 +7,12 @@ import { EnvioDaMedicao } from "./Etapas";
 const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
 vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
+// o corpo do e-mail e' um editor (contentEditable, issue #191): escrever = trocar o conteudo e avisar como o navegador
+function escrever(corpo: HTMLElement, texto: string) {
+  corpo.textContent = texto;
+  fireEvent.input(corpo);
+}
+
 const det = {
   envio: { chave: "c20:m631-m632", contrato_id: 20, obra: "MT-401", orgao: "SINFRA", orgao_sub: "SUEF II", familia: "sinfra",
     grupo: "SINFRA", a_pedido: false, medicao_ids: [631, 632], descricao: "7ª medição + reajuste", notas: [],
@@ -135,14 +141,13 @@ describe("Enviar a nota", () => {
         return Promise.resolve({});
       });
       render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
-      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
-      fireEvent.change(corpo, { target: { value: "Bom dia. Segue com a observação do fiscal." } });
+      escrever(await screen.findByLabelText("Corpo da mensagem"), "Bom dia. Segue com a observação do fiscal.");
       expect(screen.queryByText(AVISO)).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
       expect(await screen.findByText(RECUSA)).toBeTruthy();
       await waitFor(() => expect(within(screen.getByRole("list", { name: "Anexos" })).queryByText("FRC 77.pdf")).toBeTruthy());
       // revisor na PR #141: o texto editado se perdeu na prévia nova; a tela diz isso antes do próximo Enviar
-      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia.");
+      expect(screen.getByLabelText("Corpo da mensagem").textContent).toBe("Bom dia.");
       expect(screen.getAllByRole("status").some(x => x.textContent?.endsWith(AVISO))).toBe(true);
     });
 
@@ -167,12 +172,11 @@ describe("Enviar a nota", () => {
         return Promise.resolve({});
       });
       render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
-      const corpo = await screen.findByLabelText("Corpo da mensagem") as HTMLTextAreaElement;
-      fireEvent.change(corpo, { target: { value: "Bom dia. Com a observação do fiscal." } });
+      escrever(await screen.findByLabelText("Corpo da mensagem"), "Bom dia. Com a observação do fiscal.");
       fireEvent.click(screen.getByRole("button", { name: "Enviar a nota" }));
       expect(await screen.findByText("Envio em andamento por Admin.")).toBeTruthy();
       expect(api.mock.calls.filter(c => c[0] === "/api/notas/envio/3")).toHaveLength(1);
-      expect((screen.getByLabelText("Corpo da mensagem") as HTMLTextAreaElement).value).toBe("Bom dia. Com a observação do fiscal.");
+      expect(screen.getByLabelText("Corpo da mensagem").textContent).toBe("Bom dia. Com a observação do fiscal.");
     });
 
     // gate Sol S3 (PR #141): a conferência do servidor não depende da ordem; a tela também não
@@ -250,7 +254,7 @@ describe("Enviar a nota", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Remover justificativa.pdf" }));
     expect(screen.queryByText(/será montado de novo/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    fireEvent.change(screen.getByLabelText("Corpo da mensagem"), { target: { value: "Bom dia, texto meu." } });
+    escrever(screen.getByLabelText("Corpo da mensagem"), "Bom dia, texto meu.");
     fireEvent.click(screen.getByRole("button", { name: "Remover justificativa.pdf" }));
     expect(screen.getByText("O texto do e-mail que você editou será montado de novo.")).toBeTruthy();
   });
