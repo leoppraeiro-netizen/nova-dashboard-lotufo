@@ -1,6 +1,7 @@
 import { useRascunho } from "./rascunho";
 import { useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
+import CampoValor from "./CampoValor";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import { api, apiForm, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
@@ -330,9 +331,9 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
             {regra.entradas.map(en => (
               <div className="campo" key={en.chave}>
                 <label className="campo__rotulo" htmlFor={`esp-${en.chave}`}>{en.rotulo}</label>
-                <input id={`esp-${en.chave}`} name={en.chave} autoComplete="off" spellCheck={false} className="entrada--media num" inputMode="decimal" placeholder="Ex.: 50.000,00…"
+                <CampoValor id={`esp-${en.chave}`} name={en.chave} className="entrada--media num"
                   value={form.entradas[en.chave] ?? ""}
-                  onChange={e => setForm({ ...form, entradas: { ...form.entradas, [en.chave]: e.target.value } })} />
+                  onChange={v => setForm({ ...form, entradas: { ...form.entradas, [en.chave]: v } })} />
               </div>
             ))}
           </div>

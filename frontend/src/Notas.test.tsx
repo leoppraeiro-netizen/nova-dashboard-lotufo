@@ -202,3 +202,28 @@ describe("Notas: só o botão da ação em curso troca o rótulo", () => {
     expect((screen.getByRole("button", { name: "Declarar completas" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+// issue #190: o valor da nota manual se digita como em caixa registradora e vai ao servidor no mesmo formato
+describe("Notas: valor da nota manual (CampoValor)", () => {
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
+
+  it("digitar 5000000 manda \"50.000,00\", como antes", async () => {
+    apiForm.mockResolvedValue({ documento_id: 9, repetido: false, nota_id: null, conferencia: [], faltam: 1,
+      estado: "espelho_enviado", leitura: { ok: false, motivo: "ilegível" } });
+    api.mockImplementation((_url: string, opts?: { method?: string }) =>
+      opts?.method === "POST" ? new Promise(() => {}) : Promise.resolve(DADOS));
+    render(<Notas medicao={medicao} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/Cuiabá/)).toBeTruthy());
+    const arquivo = new File(["x"], "nota.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar notas à medição/), { target: { files: [arquivo] } });
+    await screen.findByRole("button", { name: "Registrar nota" });
+    fireEvent.change(screen.getByLabelText("Número da nota"), { target: { value: "2290" } });
+    fireEvent.change(screen.getByLabelText("Emissão"), { target: { value: "2026-09-14" } });
+    const valor = screen.getByLabelText(/^Valor/) as HTMLInputElement;
+    for (const c of "5000000") fireEvent.change(valor, { target: { value: valor.value + c } });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Registrar nota" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/manual", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ documento_id: 9, numero: 2290, emissao: "2026-09-14", valor: "50.000,00" }) })));
+  });
+});

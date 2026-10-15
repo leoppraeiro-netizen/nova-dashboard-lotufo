@@ -86,6 +86,22 @@ describe("Espelho", () => {
     expect(JSON.parse(api.mock.lastCall![1].body)).toMatchObject({ periodo_inicio: "2026-02-05", periodo_fim: "2026-02-28" });
   });
 
+  // issue #190: valor como em caixa registradora; o que vai ao servidor e' o mesmo texto de antes
+  it("digitar 5000000 no valor mostra 50.000,00 e manda \"50.000,00\"; o campo vazio segue vazio (vale zero)", async () => {
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
+    api.mockResolvedValueOnce(PREVIA);
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gerar espelho/ }));
+    fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "2026-05" } });
+    const valor = screen.getByLabelText("Valor da medição") as HTMLInputElement;
+    for (const c of "5000000") fireEvent.change(valor, { target: { value: valor.value + c } });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Conferir" }));
+    await screen.findByRole("button", { name: "Gerar" });
+    expect(JSON.parse(api.mock.lastCall![1].body).entradas).toEqual({ medicao: "50.000,00", reajuste: "" });
+  });
+
   it("trocar a competência volta o período ao mês inteiro dela", async () => {
     api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);

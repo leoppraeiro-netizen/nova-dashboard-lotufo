@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FormProtocoloManual, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
+import { FormProtocoloManual, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
 import type { Medicao } from "./Medicoes";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -81,5 +81,32 @@ describe("FormProtocoloManual", () => {
     fireEvent.change(just, { target: { value: "órgão aceita a CND em 5 dias" } });
     fireEvent.click(botao);
     expect(agir).toHaveBeenCalledTimes(1);
+  });
+});
+
+// issue #190: o valor se digita como em caixa registradora e vai ao servidor no mesmo formato de antes
+describe("FormValor (CampoValor)", () => {
+  afterEach(() => { cleanup(); api.mockReset(); });
+
+  it("digitar 5000000 manda \"50.000,00\" ao servidor", async () => {
+    api.mockResolvedValue({});
+    const agir = vi.fn(async (fn: () => Promise<unknown>) => { await fn(); return true; });
+    const m = { ...base, valor_protocolado_origem: null, valor_protocolado_centavos: null };
+    render(<FormValor m={m} campo="protocolado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("");
+    for (const c of "5000000") fireEvent.change(valor, { target: { value: valor.value + c } });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/valor",
+      { method: "PUT", body: JSON.stringify({ campo: "protocolado", valor: "50.000,00" }) }));
+  });
+
+  it("o valor gravado abre formatado e apagar tira o último dígito", () => {
+    render(<FormValor m={base} campo="protocolado" salvando={false} agir={vi.fn()} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("9.384.834,18");
+    fireEvent.change(valor, { target: { value: valor.value.slice(0, -1) } });
+    expect(valor.value).toBe("938.483,41");
   });
 });

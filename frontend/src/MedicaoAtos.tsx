@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
+import CampoValor from "./CampoValor";
 import ErroCampo from "./ErroCampo";
 import { api } from "./api";
 import { IconeAlerta } from "./icones";
@@ -70,8 +71,7 @@ export function FormValor({ m, campo, salvando, agir, aoFechar, erro }: Base & {
       <div className="form-inline">
         <div className="campo">
           <label className="campo__rotulo" htmlFor="campo-valor">Valor (R$)</label>
-          <input id="campo-valor" name="valor" autoComplete="off" spellCheck={false} className="entrada--media entrada--num num" required autoFocus
-            inputMode="decimal" placeholder="Ex.: 50.000,00…" value={valor} onChange={ev => setValor(ev.target.value)} />
+          <CampoValor id="campo-valor" name="valor" required autoFocus value={valor} onChange={setValor} />
         </div>
         {campo === "atestado" && (
           <div className="campo">
