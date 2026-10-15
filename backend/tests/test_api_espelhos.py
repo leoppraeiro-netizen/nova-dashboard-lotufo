@@ -290,3 +290,26 @@ def test_medicao_recebida_nao_gera_espelho_e_diz_o_tipo_por_extenso(client_admin
     r = client_admin.post(f"/api/contratos/{cid}/espelho/previa", json=corpo)
     assert r.status_code == 422
     assert r.json()["detail"] == "Medição 5 de execução já está recebida: não pode gerar espelho de novo"
+
+
+def test_corpo_formatado_sai_sanitizado_e_com_a_assinatura_no_fim(client_admin, ambiente_api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada; a assinatura continua no fim."""
+    from tests.test_correio import PNG
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    eid, corpo = _pronto(client_admin, ambiente_api)
+    c = db.get_conn()
+    correio.gravar_assinatura(c, c.execute("SELECT id FROM usuarios WHERE email='admin@lotufo.com'").fetchone()[0], PNG)
+    c.close()
+    r = client_admin.post(f"/api/espelhos/{eid}/enviar", json={**corpo, "corpo": PERIGOSO})
+    assert r.status_code == 200, r.text
+    enviado = corpo_enviado(tmp_path / "sim")
+    assert enviado.startswith(LIMPO) and f"cid:{correio.ASSINATURA_CID}" in enviado.removeprefix(LIMPO)
+    assert "script" not in enviado and "onclick" not in enviado and "position" not in enviado
+
+
+def test_corpo_em_texto_puro_continua_como_antes(client_admin, ambiente_api, tmp_path):
+    from tests.test_html_email import corpo_enviado
+    eid, corpo = _pronto(client_admin, ambiente_api)
+    r = client_admin.post(f"/api/espelhos/{eid}/enviar", json={**corpo, "corpo": "Bom dia,\n\nSegue a <nota>."})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == "<p>Bom dia,</p><p>&nbsp;</p><p>Segue a &lt;nota&gt;.</p>"

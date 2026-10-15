@@ -17,6 +17,7 @@ from html import escape
 
 from app import (arquivos, assinatura, auditoria, carta, cadastro_arquivos, certidoes, checklist, correio, db,
                  documentos, envio_reserva, espelhos, frc, leitura_pdf, medicoes, oficios, pdfs, tempo)
+from app import html_email
 
 TIPOS_PECA = cadastro_arquivos.TIPOS_PECA
 ROTULO_NATUREZA = {"execucao": "Medição", "projeto": "Projeto", "reajuste": "Reajuste"}
@@ -814,6 +815,8 @@ _URL = re.compile(r"https://[^\s<>\"]+")
 
 
 def _html(corpo: str) -> str:
+    if html_email.eh_html(corpo):           # corpo formatado no editor (issue #191): so' a lista fechada passa
+        return html_email.sanitizar(corpo, links=True)
     # link (OneDrive) clicavel: o texto ja' escapado so' tem &amp; no lugar de &, que o href aceita
     def par(texto: str) -> str:
         t = escape(texto)

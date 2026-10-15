@@ -176,9 +176,9 @@
   background: var(--superficie); }
 .notas-v3 .ol-janela .ol-assunto input:focus { border: 1px solid var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 .notas-v3 .ol-janela .ol-anexo { border-color: var(--linha); border-radius: var(--raio); }
-.notas-v3 .ol-janela .ol-corpo textarea { padding: 8px; border: 1px solid var(--nota-campo); border-radius: var(--raio);
+.notas-v3 .ol-janela .ol-corpo .ol-editor { padding: 8px; border: 1px solid var(--nota-campo); border-radius: var(--raio);
   background: var(--superficie); font-family: inherit; font-size: 14px; line-height: 1.5; color: var(--texto); }
-.notas-v3 .ol-janela .ol-corpo textarea:focus { border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
+.notas-v3 .ol-janela .ol-corpo .ol-editor:focus { outline: 0; border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 .notas-v3 .ol-janela + .campo__nota { margin: 0 0 0 76px; font-size: 13px; }
 @media (max-width: 640px) {
   .notas-v3 .ol-janela .ol-linha { grid-template-columns: minmax(0, 1fr); gap: 4px; }

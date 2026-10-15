@@ -11,6 +11,7 @@ import json
 import re
 
 from app import arquivos, auditoria, contratos, correio, db, envio_reserva, espelho, espelho_docx, medicoes, tempo
+from app import html_email
 
 
 def regra_do_contrato(conn, contrato_id: int) -> dict | None:
@@ -269,6 +270,8 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
 
 
 def _html(texto: str) -> str:
+    if html_email.eh_html(texto):           # corpo formatado no editor (issue #191): so' a lista fechada passa
+        return html_email.sanitizar(texto)
     return "".join(f"<p>{html.escape(linha) or '&nbsp;'}</p>" for linha in texto.strip().splitlines())
 
 
