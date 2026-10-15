@@ -257,6 +257,25 @@ def test_titulo_aberto_nao_recebe(conn, cid, tmp_path):
     assert _tem_nf(conn, mid)
 
 
+def test_reconciliacao_lista_recebida_a_mao_com_titulo_aberto_no_rm(conn, cid, tmp_path):
+    """Issue #203: o recebimento a mao vale, e a Saude avisa enquanto o RM nao tiver a baixa do titulo. A medicao
+    fechada pelo corte nao entra (o titulo aberto dela segue no a receber); com o titulo quitado, o aviso sai."""
+    from app import conciliacao
+    a_mao = _medicao(conn, cid, 12, 1000_01)
+    cortada = _medicao(conn, cid, 13, 500_00)
+    nfs = [_nf(100, 1000.01, campo="IC 082/2025 - 12"), _nf(101, 500.0, campo="IC 082/2025 - 13")]
+    abertas = [_baixa(1, 100, 924.01, 0.0, 0), _baixa(2, 101, 462.0, 0.0, 0)]
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, abertas))
+    medicoes.mudar_estado(conn, 1, a_mao, "recebida", "a baixa nao entrou no RM; conferida no extrato", "2026-09-20")
+    medicoes.mudar_estado(conn, 1, cortada, "recebida", conciliacao.MOTIVO_CORTE.format(data="22/09/2026"), None)
+    r = sincronizacao_rm.reconciliacao(conn)["recebidas_sem_baixa"]
+    assert [(x["medicao_id"], x["numero"], x["numero_nf"], x["falta_centavos"], x["recebida_em"]) for x in r] == [
+        (a_mao, 12, "0000000100", 924_01, "2026-09-20")]
+    pagas = [_baixa(1, 100, 924.01, 924.01, 1, "2026-09-25T00:00:00-04:00"), _baixa(2, 101, 462.0, 0.0, 0)]
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, pagas))
+    assert sincronizacao_rm.reconciliacao(conn)["recebidas_sem_baixa"] == []
+
+
 def test_nf_cancelada_desfaz_alocacao(conn, cid, tmp_path):
     mid = _medicao(conn, cid, 12, 1000_00)
     cli = _simulador(tmp_path, [_nf(100, 1000.0, campo="IC 082/2025 - 12")], [])
@@ -492,7 +511,8 @@ def test_rotas_rm(client_admin, tmp_path, monkeypatch):
     assert r.status_code == 200 and r.json()["estado"] == "success", r.text
     assert client_admin.get("/api/rm/status").json()["rodadas"][0]["estado"] == "success"
     assert set(client_admin.get("/api/rm/reconciliacao").json()) == {
-        "nfs_sem_medicao", "medicoes_sem_nf", "divergencias", "alocacoes_desfeitas", "totais", "ha_mais"}
+        "nfs_sem_medicao", "medicoes_sem_nf", "divergencias", "alocacoes_desfeitas", "recebidas_sem_baixa", "totais",
+        "ha_mais"}
     # #22: a pagina seguinte pela URL, depois do id da ultima linha; id invalido ou desfeita que nao existe e' 422
     # em portugues
     r = client_admin.get("/api/rm/reconciliacao?nfs_apos=10")

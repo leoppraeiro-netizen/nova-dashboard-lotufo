@@ -620,6 +620,30 @@ def reconciliacao(conn, nfs_apos: int | None = None, desfeitas_apos: int | None 
         conn.rollback()   # so' leitura: nada a gravar
 
 
+def _recebidas_sem_baixa(conn) -> list[dict]:
+    """Issue #203: medicao recebida a mao (`conciliacao.recebidas_a_mao`) com nota ligada cujo titulo o RM ainda
+    mostra em aberto. O registro manual vale (a nota sai do a receber); esta lista e' o aviso de que o RM nao tem a
+    baixa. Uma linha por nota, so' as da coligada da entidade do contrato (as que decidem o recebimento) e com
+    mais que a tolerancia em aberto, a mesma regra do a receber; o valor e' o que falta do titulo, cheio."""
+    from app import conciliacao, diretoria   # import local: os dois importam este modulo
+    a_mao = conciliacao.recebidas_a_mao(conn)
+    if not a_mao:
+        return []
+    out = []
+    for r in conn.execute(f"""
+            SELECT m.id AS medicao_id, m.contrato_id, c.numero_instrumento, m.numero, m.tipo, m.competencia,
+                   m.recebida_em, n.id AS nota_id, n.numero AS numero_nf, n.serie
+            FROM medicoes m JOIN contratos c ON c.id=m.contrato_id JOIN entidades e ON e.id=COALESCE(c.entidade_id, 1)
+            JOIN nf_alocacoes a ON a.medicao_id=m.id AND a.desfeita_em IS NULL
+            JOIN notas_fiscais n ON n.id=a.nota_id AND n.situacao='ativa' AND n.coligada=e.coligada_rm
+            WHERE m.id IN ({','.join('?' * len(a_mao))})
+            ORDER BY c.numero_instrumento, m.numero, n.id""", sorted(a_mao)):
+        recebido, devido, _ = _recebido_da_nota(conn, r["nota_id"])
+        if devido - recebido > diretoria.TOLERANCIA_CENTAVOS:
+            out.append({**dict(r), "falta_centavos": devido - recebido})
+    return out
+
+
 def _reconciliacao(conn, nfs_apos: int | None, desfeitas_apos: int | None) -> dict:
     de_nfs = """
         FROM notas_fiscais n
@@ -665,6 +689,7 @@ def _reconciliacao(conn, nfs_apos: int | None, desfeitas_apos: int | None) -> di
     total_desfeitas = conn.execute(f"SELECT COUNT(*) {de_desfeitas}").fetchone()[0]
     return {"nfs_sem_medicao": nfs_sem_medicao, "medicoes_sem_nf": medicoes_sem_nf,
             "divergencias": divergencias, "alocacoes_desfeitas": desfeitas,
+            "recebidas_sem_baixa": _recebidas_sem_baixa(conn),
             "totais": {"nfs_sem_medicao": total_nfs, "alocacoes_desfeitas": total_desfeitas},
             "ha_mais": {"nfs_sem_medicao": mais_nfs, "alocacoes_desfeitas": mais_desfeitas}}
 
