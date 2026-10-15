@@ -227,6 +227,17 @@ describe("ComporEmail: formatação do corpo", () => {
     expect(comandos()).toEqual([["insertHTML",
       '<p><b><span style="color: rgb(192, 0, 0)">Atenção</span></b><span style="background-color: yellow"> prazo</span>link</p>']]);
   });
+
+  // revisor na PR #195: arrastar de outra janela e soltar no corpo passa pela mesma limpeza do colar
+  it("arrastar e soltar de fora mantém só a formatação da lista fechada", () => {
+    const corpo = abrir();
+    const html = '<p style="font-size:30pt"><b>Prazo</b> <a href="https://x.exemplo.com.br">aqui</a><img src="https://x.exemplo.com.br/a.png"></p>';
+    fireEvent.drop(corpo, { dataTransfer: { getData: (t: string) => (t === "text/html" ? html : "") } });
+    expect(comandos()).toEqual([["insertHTML", "<p><b>Prazo</b> aqui</p>"]]);
+    exec.mockClear();
+    fireEvent.drop(corpo, { dataTransfer: { getData: (t: string) => (t === "text/plain" ? "só texto" : "") } });
+    expect(comandos()).toEqual([["insertText", "só texto"]]);
+  });
 });
 
 describe("limparHtml", () => {
@@ -234,6 +245,13 @@ describe("limparHtml", () => {
     expect(limparHtml('<b onclick="x()">a</b><strike>b</strike><font color="#0070c0">c</font>'
       + '<span style="position:fixed;color:red">d</span><span style="color:url(javascript:x)">e</span><div>f</div>'))
       .toBe('<b>a</b><s>b</s><span style="color: #0070c0">c</span><span style="color: red">d</span>e<div>f</div>');
+  });
+
+  // gate Sol S3 (PR #195): os mesmos blocos que o servidor transforma em linha
+  it("blocos consecutivos (citação, seção, pre) viram linhas, como no servidor", () => {
+    expect(limparHtml("<blockquote>Primeiro</blockquote><blockquote>Segundo</blockquote><section>Terceiro</section>"
+      + "<pre>Quarto</pre><dl><dt>Quinto</dt><dd>Sexto</dd></dl><noembed>fora</noembed>"))
+      .toBe("<div>Primeiro</div><div>Segundo</div><div>Terceiro</div><div>Quarto</div><div>Quinto</div><div>Sexto</div>");
   });
 
   it("tabela e título colados viram linhas, e não texto grudado", () => {

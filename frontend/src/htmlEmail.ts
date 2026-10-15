@@ -11,11 +11,15 @@ export function textoParaHtml(texto: string): string {
 const TAGS: Record<string, string> = {
   b: "b", strong: "strong", i: "i", em: "em", u: "u", s: "s", strike: "s", del: "s", p: "p", ul: "ul", ol: "ol",
   li: "li", br: "br", div: "div", span: "span", font: "span",
-  // tabela e titulo nao entram (como no servidor), mas cada linha/celula/titulo vira uma linha, e nao texto colado
-  table: "div", tr: "div", td: "div", th: "div", h1: "div", h2: "div", h3: "div", h4: "div", h5: "div", h6: "div",
 };
+// tabela, titulo, citacao etc. nao entram, mas cada um vira uma linha (e nao texto grudado): a mesma lista `_LINHAS`
+// do servidor (gate Sol S3, PR #195)
+for (const t of ["h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "address", "center", "section", "article",
+  "header", "footer", "tr", "td", "th", "dt", "dd", "table"]) TAGS[t] = "div";
+// somem com o conteudo: a lista `_SEM_CONTEUDO` do servidor, mais as vazias que nao entram (meta, link, img)
 const SEM_CONTEUDO = new Set(["script", "style", "head", "title", "iframe", "object", "embed", "noscript", "template",
-  "svg", "math", "xml", "textarea", "select", "button", "meta", "link", "img"]);
+  "svg", "math", "xml", "textarea", "select", "button", "frameset", "noembed", "noframes", "applet",
+  "meta", "link", "img"]);
 const COR = /^(#[0-9a-f]{3}|#[0-9a-f]{6}|rgba?\(\s*\d{1,3}%?\s*(,\s*\d{1,3}%?\s*){2}(,\s*(0|1|0?\.\d+)\s*)?\)|[a-z]{3,20})$/i;
 
 function estilo(el: HTMLElement): string {

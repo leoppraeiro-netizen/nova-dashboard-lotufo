@@ -23,6 +23,19 @@ def test_lista_fechada_mantem_a_formatacao_do_editor():
         '<ul><li>um</li></ul><ol><li>dois</li></ol><p>par</p>')
 
 
+def test_descarte_nao_vaza_com_auto_fechamento_nem_com_fechamento_trocado():
+    # gate Sol S2 (PR #195): "<script/>" abre o script como no navegador; um fechamento proibido diferente nao
+    # encerra o descarte da tag aberta
+    assert html_email.sanitizar("<script/>alert(1)</script><div>Mensagem</div>") == "Mensagem"
+    assert html_email.sanitizar("<iframe>a</noscript>b</iframe>c") == "c"
+    assert html_email.sanitizar("<noscript><iframe>a</iframe>b</noscript>c") == "c"
+
+
+def test_blocos_consecutivos_viram_linhas():
+    assert html_email.sanitizar("<blockquote>Primeiro</blockquote><blockquote>Segundo</blockquote>") == \
+        "Primeiro<br>Segundo"
+
+
 def test_html_perigoso_sai_limpo():
     entrada = ('<p onclick="roubar()">oi<script>alert(1)</script></p><img src=x onerror="alert(2)">'
                '<span style="position:fixed;top:0;color:red">x</span>'

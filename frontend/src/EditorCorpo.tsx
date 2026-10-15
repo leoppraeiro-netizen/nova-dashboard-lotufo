@@ -153,14 +153,37 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
     comando(cmd);
   }
 
-  function colar(e: React.ClipboardEvent<HTMLDivElement>) {
-    const dados = e.clipboardData;
-    if (!dados || typeof document.execCommand !== "function") return;
-    e.preventDefault();
+  // colar e soltar o que veio de fora passam pela mesma limpeza: o editor mostra o que vai sair
+  function inserir(dados: Pick<DataTransfer, "getData">) {
     const h = dados.getData("text/html");
     if (h) document.execCommand("insertHTML", false, limparHtml(h));
     else document.execCommand("insertText", false, dados.getData("text/plain"));
     avisar();
+  }
+
+  function colar(e: React.ClipboardEvent<HTMLDivElement>) {
+    if (!e.clipboardData || typeof document.execCommand !== "function") return;
+    e.preventDefault();
+    inserir(e.clipboardData);
+  }
+
+  // revisor na PR #195: arrastar de outra janela e soltar no corpo nao pode trazer link, imagem ou fonte que o
+  // servidor tira depois. Arrastar um trecho de dentro do proprio corpo (mover) fica com o navegador.
+  const deDentro = useRef(false);
+  function soltar(e: React.DragEvent<HTMLDivElement>) {
+    if (deDentro.current || !e.dataTransfer || typeof document.execCommand !== "function") return;
+    e.preventDefault();
+    const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+    let ponto: Range | null = null;
+    if (typeof document.caretRangeFromPoint === "function") ponto = document.caretRangeFromPoint(e.clientX, e.clientY);
+    else if (typeof d.caretPositionFromPoint === "function") {
+      const p = d.caretPositionFromPoint(e.clientX, e.clientY);
+      if (p) { ponto = document.createRange(); ponto.setStart(p.offsetNode, p.offset); }
+    }
+    const s = document.getSelection();
+    if (ponto && s && dentro(ponto.startContainer)) { s.removeAllRanges(); s.addRange(ponto); }
+    else editor.current?.focus();
+    inserir(e.dataTransfer);
   }
 
   return (
@@ -172,7 +195,8 @@ export default function EditorCorpo({ inicial, aoMudar }: { inicial: string; aoM
       )}
       <div ref={editor} className="ol-editor" contentEditable suppressContentEditableWarning role="textbox"
         aria-multiline="true" aria-label="Corpo da mensagem" dangerouslySetInnerHTML={html} spellCheck
-        onInput={avisar} onKeyDown={teclas} onPaste={colar}
+        onInput={avisar} onKeyDown={teclas} onPaste={colar} onDrop={soltar}
+        onDragStart={() => { deDentro.current = true; }} onDragEnd={() => { deDentro.current = false; }}
         onMouseUp={atualizar} onKeyUp={atualizar} />
     </div>
   );

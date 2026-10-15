@@ -14,6 +14,7 @@ _PERMITIDAS = {"b": "b", "strong": "strong", "i": "i", "em": "em", "u": "u", "s"
                "p": "p", "ul": "ul", "ol": "ol", "li": "li", "span": "span", "font": "span"}
 _BLOCOS = {"p", "ul", "ol", "li"}
 # tags que viram uma linha (o editor do navegador poe cada linha num <div>)
+# (a mesma lista em frontend/src/htmlEmail.ts, que limpa o que se cola e se arrasta no editor)
 _LINHAS = {"div", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "address", "center", "section",
            "article", "header", "footer", "tr", "td", "th", "dt", "dd", "table"}
 # somem com tudo o que tem dentro
@@ -48,7 +49,9 @@ def _estilo(style: str | None) -> str | None:
 class _Limpador(HTMLParser):
     def __init__(self, links: bool):
         super().__init__(convert_charrefs=True)
-        self.links, self.saida, self.pilha, self.pular = links, [], [], 0
+        # `pular`: pilha das tags descartadas com o conteudo; so' o fechamento da tag do topo a tira (gate Sol S2,
+        # PR #195: com contador, um fechamento proibido diferente encerrava o descarte antes da hora)
+        self.links, self.saida, self.pilha, self.pular = links, [], [], []
         self.ultimo = "nada"              # "texto": ha' conteudo na linha aberta; "quebra"/"bloco": linha fechada
 
     def _emitir(self, s: str, ultimo: str) -> None:
@@ -56,12 +59,9 @@ class _Limpador(HTMLParser):
         self.ultimo = ultimo
 
     def handle_starttag(self, tag, attrs):
-        if self.pular:
+        if self.pular or tag in _SEM_CONTEUDO:
             if tag in _SEM_CONTEUDO:
-                self.pular += 1
-            return
-        if tag in _SEM_CONTEUDO:
-            self.pular = 1
+                self.pular.append(tag)
             return
         if tag == "br":
             self._emitir("<br>", "quebra")
@@ -95,7 +95,10 @@ class _Limpador(HTMLParser):
             self.saida.append(f"<{destino}>")
 
     def handle_startendtag(self, tag, attrs):
-        if tag == "br" or tag in _VAZIAS or tag in _SEM_CONTEUDO:
+        if tag in _SEM_CONTEUDO:
+            self.handle_starttag(tag, attrs)      # "<script/>" abre o script, como no navegador: o "/" nao fecha
+            return
+        if tag == "br" or tag in _VAZIAS:
             if tag == "br" and not self.pular:
                 self._emitir("<br>", "quebra")
             return
@@ -104,8 +107,8 @@ class _Limpador(HTMLParser):
 
     def handle_endtag(self, tag):
         if self.pular:
-            if tag in _SEM_CONTEUDO:
-                self.pular -= 1
+            if tag == self.pular[-1]:
+                self.pular.pop()
             return
         for i in range(len(self.pilha) - 1, -1, -1):
             if self.pilha[i][0] == tag:
