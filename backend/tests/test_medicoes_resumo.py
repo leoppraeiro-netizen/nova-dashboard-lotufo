@@ -144,3 +144,23 @@ def test_rota_do_resumo(client_admin):
 
 def test_rota_do_resumo_exige_login(client):
     assert client.get("/api/medicoes/resumo").status_code == 401
+
+
+def test_resumo_obras_trazem_a_medicao_aberta_a_prevista_e_a_ultima(conn, cenario):
+    """#151 (15/10/2026): a janela Iniciar processo precisa do id e do numero da aberta, do numero e da competencia
+    da prevista, da ultima medicao de cada serie (a sugestao) e de saber se a obra tem serie de Projeto."""
+    ids = cenario
+    obras = {o["obra"]: o for o in medicoes.resumo(conn, HOJE)["obras"]}
+    # A: 24 (execucao + reajuste) aberta; o reajuste nao conta como serie; Projeto 1 aberto
+    a = obras["Obra A"]
+    assert a["aberta_id"] == ids["a24"] and a["aberta_numero"] == 24 and a["aberta_passo"] == "protocolar"
+    assert a["ultima"] == {"numero": 24, "competencia": "2026-09"}
+    assert a["projeto"] == {"aberta_id": ids["a1p"], "aberta_numero": 1, "aberta_passo": "protocolar",
+                            "ultima": {"numero": 1, "competencia": "2026-09"}}
+    # D: so' prevista (a mais antiga, 1); a prevista nao e' "ultima"; sem Projeto
+    d = obras["Obra D"]
+    assert d["prevista_numero"] == 1 and d["prevista_competencia"] == "2026-08"
+    assert d["aberta_id"] is None and d["aberta_numero"] is None and d["ultima"] is None and d["projeto"] is None
+    # C: so' o espelho gerado; sem prevista
+    c = obras["Obra C"]
+    assert c["prevista_numero"] is None and c["prevista_competencia"] is None and c["aberta_numero"] == 3

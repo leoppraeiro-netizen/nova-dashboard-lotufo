@@ -66,20 +66,23 @@ type Passo = { tipo: "lista" } | { tipo: "form" } | { tipo: "previa"; previa: Pr
 // medicao que nasceu dele (na obra do fluxo antigo, mostra `semRegra`, o formulario a mao); com `medicao`,
 // a secao Espelho da pagina da medicao, com os espelhos dela e o envio ao faturamento. O espelho que atende
 // execucao e reajuste mora na medicao de execucao; a de reajuste mostra um resumo com o link.
-export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra, medicao, semRegra, aoGerar, abrirForm: abrirLogo }: {
+export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra, medicao, semRegra, aoGerar, abrirForm: abrirLogo, inicial }: {
   contratoId: number; podeEditar: boolean; aoMudar: () => void; aoSaberRegra?: (ativa: boolean) => void;
   medicao?: { id: number; tipo: string }; semRegra?: React.ReactNode;
   /** Nova medicao (2026-10-09): recebe a medicao que nasceu do espelho, para abrir a pagina dela. */
   aoGerar?: (medicaoId: number) => void;
   /** Abre ja' no formulario (a pagina Nova medicao nao tem outra coisa a mostrar). */
   abrirForm?: boolean;
+  /** Numero e competencia (AAAA-MM) ja' escolhidos na janela "Iniciar processo" (#151): o formulario abre com eles. */
+  inicial?: { numero: string; competencia: string };
 }) {
   const [regra, setRegra] = useState<Regra | null | undefined>(undefined);
   const [espelhos, setEspelhos] = useState<EspelhoDetalhe[]>([]);
   const [passo, setPasso] = useState<Passo>({ tipo: "lista" });
   const [form, setForm] = useState<{ numero: string; competencia: string; entradas: Record<string, string>; motivo: string;
     periodoInicio: string; periodoFim: string }>(
-    { numero: "", competencia: "", entradas: {}, motivo: "", periodoInicio: "", periodoFim: "" });
+    { numero: inicial?.numero ?? "", competencia: inicial?.competencia ?? "", entradas: {}, motivo: "",
+      periodoInicio: mesCivil(inicial?.competencia ?? "")[0], periodoFim: mesCivil(inicial?.competencia ?? "")[1] });
   const [erro, setErro] = useState("");
   const [reservado, setReservado] = useState<{ id: number; reserva: Reserva } | null>(null);   // envio preso (409)
   // Versao ja' enviada: so' manda de novo com a confirmacao marcada (S8, 10/10/2026). `jaEnviado`: o 409
