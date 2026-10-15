@@ -49,7 +49,7 @@ export default function CampoCompetencia({ id, value, onChange, className, name,
   return (
     <>
       <input ref={ref} id={id} name={name} type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
-        placeholder="MM/AAAA" maxLength={7} className={className} required={required} value={texto}
+        placeholder="MM/AAAA…" maxLength={7} className={className} required={required} value={texto}
         aria-invalid={mostrar || undefined} aria-describedby={mostrar ? `${id}-erro` : undefined}
         onChange={e => {
           const t = mascaraCompetencia(e.target.value);

@@ -53,7 +53,7 @@ describe("CampoCompetencia", () => {
   it("teclado numérico e placeholder", () => {
     render(<Caixa />);
     expect(campo().getAttribute("inputmode")).toBe("numeric");
-    expect(campo().placeholder).toBe("MM/AAAA");
+    expect(campo().placeholder).toBe("MM/AAAA…");
   });
 
   it("valor da API aparece como MM/AAAA", () => {
