@@ -306,7 +306,9 @@ COLUNA_DATA = {"nota_emitida": "nota_emitida_em", "nf_emitida": "nf_emitida_em",
 
 
 def mudar_estado(conn, usuario_id: int, medicao_id: int, novo: str, motivo: str | None,
-                 data: str | None = None) -> None:
+                 data: str | None = None, origem: str | None = None) -> None:
+    """`origem` (issue #203): quem o servidor sabe que fez a transicao ("manual" pela rota de estado, "corte" pelo
+    comando do corte), gravada na auditoria; quem digita o motivo nao a controla."""
     if data is not None and novo not in COLUNA_DATA:
         raise ValueError(f"O estado {novo} não tem data de marco (só nota emitida, lançada no RM e recebida)")
     with db.mutacao(conn):
@@ -350,6 +352,8 @@ def mudar_estado(conn, usuario_id: int, medicao_id: int, novo: str, motivo: str 
         depois = {"estado": novo, "motivo": motivo_final}
         if col_data:
             depois[col_data] = data
+        if origem is not None:
+            depois["origem"] = origem
         auditoria.registrar(conn, usuario_id, "medicao.estado", "medicao", medicao_id,
                             {"estado": atual, "motivo": motivo_antes}, depois)
 

@@ -27,6 +27,7 @@ da janela de 24 meses da DASH10). Mesmas regras; so' a nota que liga e as baixas
 """
 import datetime
 import json
+import re
 from collections import Counter, defaultdict
 from itertools import combinations
 
@@ -198,6 +199,28 @@ def conciliar(conn, usuario_id: int, ensaio: bool, antigas: tuple[list, list] | 
 
 MOTIVO_CORTE = ("corte de {data}: faturado até o QDOP conta como pago; o que o RM mostra em aberto segue a "
                 "receber pelas notas")
+# So' o comeco do motivo ("corte de DD/MM/AAAA:"): o resto do texto pode ter mudado desde o corte em producao.
+_MOTIVO_CORTE_RE = re.compile(r"corte de \d{2}/\d{2}/\d{4}:")
+
+
+def recebidas_a_mao(conn) -> set[int]:
+    """Issue #203 (decisao do Leo de 15/10/2026, opcao A): as medicoes que uma pessoa marcou como recebidas
+    (o "Registrar recebimento" da medicao), nem pelo RM nem pelo corte. O registro manual vale: a nota ligada a
+    elas sai do "a receber" (`diretoria._notas_em_aberto`) e a Saude avisa enquanto o RM nao tiver a baixa
+    (`sincronizacao_rm.reconciliacao`).
+
+    Quem marcou sai da auditoria, pela `origem` que o servidor grava (`medicoes.mudar_estado`): "manual" pela rota
+    de estado, "corte" pelo comando do corte; o RM marca sem usuario (`sincronizacao_rm._recebimentos`). O que foi
+    gravado antes da `origem` existir (sem a chave) e' manual quando teve usuario e o motivo nao e' o do corte
+    (o corte em producao rodou uma vez, em 25/09/2026, sempre com o `MOTIVO_CORTE`)."""
+    # parte das medicoes recebidas e acha a auditoria pelo indice (entidade, entidade_id, acao)
+    linhas = conn.execute("""
+        SELECT m.id, json_extract(a.depois, '$.motivo') AS motivo, json_extract(a.depois, '$.origem') AS origem
+        FROM medicoes m JOIN audit_log a ON a.entidade='medicao' AND a.entidade_id=CAST(m.id AS TEXT)
+                                         AND a.acao='medicao.estado'
+        WHERE m.estado='recebida' AND a.usuario_id IS NOT NULL AND json_extract(a.depois, '$.estado')='recebida'""")
+    return {r["id"] for r in linhas
+            if r["origem"] == "manual" or (r["origem"] is None and not _MOTIVO_CORTE_RE.match(r["motivo"] or ""))}
 
 
 def cortar(conn, usuario_id: int, data_corte: str, ensaio: bool) -> dict:
@@ -217,7 +240,7 @@ def cortar(conn, usuario_id: int, data_corte: str, ensaio: bool) -> dict:
                 (sincronizacao_rm.COMPETENCIA_CORTE_RM, data_corte)).fetchall()
             por_obra = Counter()
             for r in linhas:
-                medicoes.mudar_estado(conn, usuario_id, r["id"], "recebida", motivo, None)
+                medicoes.mudar_estado(conn, usuario_id, r["id"], "recebida", motivo, None, origem="corte")
                 rel["fechadas"] += 1
                 rel["com_nota"] += 1 if r["com_nota"] else 0
                 rel["valor_centavos"] += r["v"] or 0
