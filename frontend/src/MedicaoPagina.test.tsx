@@ -263,3 +263,21 @@ describe("Página da medição: notas da medição e do reajuste", () => {
     expect(screen.queryByRole("region", { name: "Execução · 23ª Medição" })).toBeNull();
   });
 });
+
+// issue #53 (decisao do dono, 15/10/2026): o recebimento a mao e' so' do admin; a engenharia espera o RM
+describe("Página da medição: recebimento à mão", () => {
+  afterEach(() => { cleanup(); api.mockReset(); });
+
+  it("o admin vê “Registrar recebimento” na medição protocolada", async () => {
+    responder();
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect(await screen.findByRole("button", { name: "Registrar recebimento" })).toBeTruthy();
+  });
+
+  it("a engenharia não vê o botão: o RM marca a baixa", async () => {
+    responder();
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={{ ...usuario, perfil: "engenharia" }} origem={null} />);
+    expect(await screen.findByText(/O RM marca a baixa sozinho/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Registrar recebimento" })).toBeNull();
+  });
+});
