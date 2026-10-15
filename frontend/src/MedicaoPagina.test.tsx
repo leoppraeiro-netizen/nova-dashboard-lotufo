@@ -264,7 +264,7 @@ describe("Página da medição: notas da medição e do reajuste", () => {
   });
 });
 
-// issue #53 (decisao do Leo, 15/10/2026): o recebimento a mao e' so' do admin; a engenharia espera o RM
+// issue #53 (decisao do dono, 15/10/2026): o recebimento a mao e' so' do admin; a engenharia espera o RM
 describe("Página da medição: recebimento à mão", () => {
   afterEach(() => { cleanup(); api.mockReset(); });
 

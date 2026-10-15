@@ -238,14 +238,17 @@ export function FormProtocoloManual({ contratoId, m, salvando, agir, aoFechar, e
   );
 }
 
-// Issue #53 (decisao do Leo, 15/10/2026): o recebimento vem do RM; a mao, so' o admin, quando o RM falhar, e com
+// Issue #53 (decisao do dono, 15/10/2026): o recebimento vem do RM; a mao, so' o admin, quando o RM falhar, e com
 // motivo obrigatorio, que vai para a auditoria. O servidor recusa sem o motivo (422) e para outro perfil (403).
+const MIN_MOTIVO_RECEBIMENTO = 10;   // o servidor recusa menos que isso (api_medicoes.MOTIVO_RECEBIMENTO_MINIMO)
+
 export function FormRecebimento({ m, salvando, agir, aoFechar, erro }: Base) {
   const [data, setData] = useState("");
   const [motivo, setMotivo] = useState("");
   const [tentou, setTentou] = useState(false);
-  const falta = motivo.trim().length < MIN_JUSTIFICATIVA
-    ? `Escreva o motivo, com pelo menos ${MIN_JUSTIFICATIVA} caracteres.` : undefined;
+  // Conta por caractere (code point), como o len() do servidor, e nao por unidade UTF-16.
+  const falta = [...motivo.trim()].length < MIN_MOTIVO_RECEBIMENTO
+    ? `Escreva o motivo, com pelo menos ${MIN_MOTIVO_RECEBIMENTO} caracteres.` : undefined;
   const erroMotivo = tentou ? falta : undefined;
   async function salvar(ev: React.FormEvent) {
     ev.preventDefault();

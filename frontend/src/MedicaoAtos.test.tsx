@@ -153,6 +153,10 @@ describe("FormRecebimento", () => {
     expect(motivo.getAttribute("aria-invalid")).toBe("true");
     expect(document.getElementById(motivo.getAttribute("aria-describedby") ?? "")?.textContent)
       .toContain("pelo menos 10 caracteres");
+    // conta caractere como o servidor: 5 emojis sao 10 unidades UTF-16, mas 5 caracteres
+    fireEvent.change(motivo, { target: { value: "😀😀😀😀😀" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+    expect(agir).not.toHaveBeenCalled();
   });
 
   it("com o motivo manda o motivo e a data ao servidor", async () => {
