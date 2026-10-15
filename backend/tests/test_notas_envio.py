@@ -920,3 +920,16 @@ def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
     p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_corpo_formatado_da_nota_sai_sanitizado(api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada antes de ir ao orgao."""
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"], ids["sinfra_reaj"]]}
+                  ).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={**_corpo(d), "corpo": PERIGOSO})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == LIMPO

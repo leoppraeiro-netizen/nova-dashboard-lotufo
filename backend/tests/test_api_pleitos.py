@@ -261,3 +261,13 @@ def test_pleito_descartado_durante_o_envio_nao_sai(api, monkeypatch):
     assert r.status_code == 422 and "descartado" in r.json()["detail"], r.text
     assert falso.enviados == []
     assert _estado(pid) == ({"situacao": "descartado", "envio_id": None, "envio_reservado_em": None}, 0)
+
+
+def test_corpo_formatado_do_pleito_sai_sanitizado(api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada antes de ir ao orgao."""
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    cl, cid, _ = api
+    pid, corpo = _pronto(cl, cid)
+    r = cl.post(f"/api/pleitos/{pid}/enviar", json={**corpo, "corpo": PERIGOSO})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == LIMPO

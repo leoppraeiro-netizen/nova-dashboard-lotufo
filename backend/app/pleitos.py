@@ -13,6 +13,7 @@ from html import escape
 
 from app import (arquivos, assinatura, auditoria, carta, correio, db, envio_reserva, espelhos, medicoes, oficios, pdfs,
                  prazos, reajuste, tempo)
+from app import html_email
 
 TIPOS = ("reajuste", "prazo", "conclusao")
 TIPOS_ANEXO = ("planilha_calculo", "cronograma", "outro")
@@ -357,6 +358,8 @@ def previa_envio(conn, pleito_id: int, remetente: str | None = None, hoje: datet
 
 
 def _html(corpo: str) -> str:
+    if html_email.eh_html(corpo):           # corpo formatado no editor (issue #191): so' a lista fechada passa
+        return html_email.sanitizar(corpo)
     return "".join(f"<p>{escape(par).replace(chr(10), '<br>')}</p>" for par in corpo.strip().split("\n\n"))
 
 
