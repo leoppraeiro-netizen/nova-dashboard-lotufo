@@ -1,6 +1,7 @@
 import { useRascunho } from "./rascunho";
 import { useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
+import CampoCompetencia from "./CampoCompetencia";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import { api, apiForm, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
@@ -309,12 +310,12 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
             </div>
             <div className="campo">
               <label className="campo__rotulo" htmlFor="esp-competencia">Competência</label>
-              <input id="esp-competencia" name="competencia" autoComplete="off" type="month" className="entrada--media" required value={form.competencia}
-                onChange={e => {
+              <CampoCompetencia id="esp-competencia" name="competencia" className="entrada--media" value={form.competencia}
+                onChange={v => {
                   // trocar a competencia volta o periodo ao mes inteiro dela: um periodo proprio da
                   // competencia anterior nao pode seguir calado para a nova
-                  const [ni, nf] = mesCivil(e.target.value);
-                  setForm({ ...form, competencia: e.target.value, periodoInicio: ni, periodoFim: nf });
+                  const [ni, nf] = mesCivil(v);
+                  setForm({ ...form, competencia: v, periodoInicio: ni, periodoFim: nf });
                 }} />
             </div>
             <div className="campo">
