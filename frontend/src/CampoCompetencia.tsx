@@ -9,10 +9,10 @@ export function competenciaParaTela(v: string): string {
   return m ? `${m[2]}/${m[1]}` : "";
 }
 
-/** "09/2026" -> "2026-09"; texto incompleto ou inválido -> "". */
+/** "09/2026" (ou "9/2026") -> "2026-09"; texto incompleto ou inválido -> "". */
 export function competenciaDaTela(t: string): string {
-  const m = /^(0[1-9]|1[0-2])\/(\d{4})$/.exec(t);
-  return m ? `${m[2]}-${m[1]}` : "";
+  const m = /^([1-9]|0[1-9]|1[0-2])\/(\d{4})$/.exec(t);
+  return m ? `${m[2]}-${m[1].padStart(2, "0")}` : "";
 }
 
 /** A máscara: só números entram, a barra vem sozinha; aceita "9/2026" e o colado "2026-09". */
@@ -21,7 +21,8 @@ export function mascaraCompetencia(bruto: string): string {
   const iso = /^(\d{4})-(\d{2})$/.exec(t);
   if (iso) return `${iso[2]}/${iso[1]}`;
   const barra = /^(\d{1,2})\/(\d*)$/.exec(t);
-  if (barra) return `${barra[1].padStart(2, "0")}/${barra[2].slice(0, 4)}`;
+  // o zero do mês só se completa ao sair do campo: completar enquanto edita trava a correção de um campo cheio
+  if (barra) return `${barra[1]}/${barra[2].slice(0, 4)}`;
   const d = t.replace(/\D/g, "").slice(0, 6);
   return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
 }
@@ -55,7 +56,10 @@ export default function CampoCompetencia({ id, value, onChange, className, name,
           setTexto(t);
           onChange(competenciaDaTela(t));
         }}
-        onBlur={() => setTocado(true)} onInvalid={() => setTocado(true)} />
+        onBlur={() => {
+          setTocado(true);
+          if (/^[1-9]\/\d{4}$/.test(texto)) setTexto(`0${texto}`);
+        }} onInvalid={() => setTocado(true)} />
       <ErroCampo id={`${id}-erro`} erro={mostrar ? MSG : ""} />
     </>
   );

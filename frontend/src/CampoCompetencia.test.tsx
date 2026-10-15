@@ -31,11 +31,23 @@ describe("CampoCompetencia", () => {
   it("aceita 9/2026 e cola 09/2026 e 2026-09", () => {
     render(<Caixa />);
     digitar("9/2026");
+    fireEvent.blur(campo());                 // o zero completa ao sair do campo
     expect(campo().value).toBe("09/2026");
     digitar("2026-09");
     expect(campo().value).toBe("09/2026");
     digitar("09/2026");
     expect(campo().value).toBe("09/2026");
+  });
+
+  it("corrigir um campo cheio: 07/2026, apagar o 7 e digitar 6 dá 06/2026", () => {
+    const aoMudar = vi.fn();
+    render(<Caixa inicial="2026-07" aoMudar={aoMudar} />);
+    digitar("0/2026");
+    expect(campo().value).toBe("0/2026");
+    expect(aoMudar).toHaveBeenLastCalledWith("");
+    digitar("06/2026");
+    expect(campo().value).toBe("06/2026");
+    expect(aoMudar).toHaveBeenLastCalledWith("2026-06");
   });
 
   it("teclado numérico e placeholder", () => {
@@ -75,6 +87,8 @@ describe("CampoCompetencia", () => {
     expect(competenciaParaTela("2026-09")).toBe("09/2026");
     expect(competenciaDaTela("09/2026")).toBe("2026-09");
     expect(competenciaDaTela("00/2026")).toBe("");
+    expect(competenciaDaTela("0/2026")).toBe("");
+    expect(competenciaDaTela("9/2026")).toBe("2026-09");
     expect(mascaraCompetencia("0")).toBe("0");
   });
 });
