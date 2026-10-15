@@ -40,7 +40,11 @@ def garantia(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict 
     corrigidos = {e["dados"].get("corrige") for e in todos}       # correcao e' instrumento novo: o corrigido sai
     for e in todos:                                               # o ultimo por data substitui a vigencia
         if e["chave"] not in corrigidos and _d(e["dados"].get("vigencia_fim")):
-            fim, origem, chave = str(e["dados"]["vigencia_fim"])[:10], "endosso", e["chave"]
+            nova = str(e["dados"]["vigencia_fim"])[:10]
+            # apolice nova no contrato com data maior que a do endosso vale (o endosso aplicado nao se apaga)
+            if _d(fim) and origem == "contrato" and _d(fim) > _d(nova):
+                continue
+            fim, origem, chave = nova, "endosso", e["chave"]
     if not _d(fim):
         return None
     baixada = any(m["dados"].get("marco") == "baixa_garantia"

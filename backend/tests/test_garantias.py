@@ -71,7 +71,7 @@ def test_endosso_com_vigencia_maior_substitui_e_o_aviso_some(cenario):
 
 def test_vale_o_endosso_mais_recente_por_data(cenario):
     c, ids = cenario
-    ids["garantia"]("2026-12-01")
+    ids["garantia"]("2026-10-01")
     ids["instrumento"]("endosso_garantia", "2026-03-01", {"vigencia_fim": "2026-11-01"}, "end-1")
     ids["instrumento"]("endosso_garantia", "2026-09-01", {"vigencia_fim": "2026-10-20"}, "end-2")
     assert garantias.garantia(c, ids["contrato"], HOJE)["endosso"] == "end-2"
@@ -124,9 +124,20 @@ def test_painel_de_documentos_traz_garantia_e_art_por_contrato(cenario):
 
 def test_correcao_de_endosso_vale_mesmo_com_data_anterior(cenario):
     c, ids = cenario
-    ids["garantia"]("2026-12-01")
+    ids["garantia"]("2026-10-01")
     ids["instrumento"]("endosso_garantia", "2026-09-01", {"vigencia_fim": "2027-09-30"}, "end-errado")
     ids["instrumento"]("endosso_garantia", "2026-08-15", {"vigencia_fim": "2026-10-25", "corrige": "end-errado"},
                        "end-certo")
     g = garantias.garantia(c, ids["contrato"], HOJE)
     assert (g["endosso"], g["vigencia_fim"]) == ("end-certo", "2026-10-25")
+
+
+def test_apolice_nova_no_contrato_com_data_maior_que_o_endosso_some_com_o_aviso(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-12-01")
+    ids["instrumento"]("endosso_garantia", "2026-09-01", {"vigencia_fim": "2027-03-01"}, "end-1")
+    assert garantias.garantia(c, ids["contrato"], D(2027, 3, 10)) is not None
+    ids["garantia"]("2028-03-01", apolice="AP-2")                 # apolice nova entra no cadastro
+    g = garantias.garantia(c, ids["contrato"], D(2027, 3, 10))
+    assert (g["vigencia_fim"], g["origem"], g["apolice"]) == ("2028-03-01", "contrato", "AP-2")
+    assert _g(c, D(2027, 3, 10)) == []

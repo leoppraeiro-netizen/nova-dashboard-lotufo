@@ -1,4 +1,4 @@
--- 038: garantia e ART como documentos do contrato (issue #65, decisao de 15/10/2026). So' acrescenta.
+-- 040: garantia e ART como documentos do contrato (issue #65, decisao de 15/10/2026). So' acrescenta.
 -- A garantia do contrato traz apolice, fim da vigencia e o PDF; cada `endosso_garantia` com `vigencia_fim`
 -- (em instrumentos.dados) substitui a vigencia (historico preservado, correcao e' instrumento novo).
 -- A ART ja' tinha o numero em `art`; ganha so' o PDF. ART nao tem validade: vale pela obra.
