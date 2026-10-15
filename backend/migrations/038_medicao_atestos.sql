@@ -31,7 +31,10 @@ SELECT CAST(a.entidade_id AS INTEGER),
        json_extract(a.depois, '$.valor_atestado_centavos'),
        CASE WHEN json_extract(a.depois, '$.valor_atestado_origem') IN ('detectado','aceito','manual')
             THEN json_extract(a.depois, '$.valor_atestado_origem') END,
-       CASE WHEN json_type(a.depois, '$.atestado_em') = 'text' THEN json_extract(a.depois, '$.atestado_em') END,
+       -- auditoria antiga sem o dia no `depois`: vale o dia que ja' estava (`antes`)
+       CASE WHEN json_type(a.depois, '$.atestado_em') = 'text' THEN json_extract(a.depois, '$.atestado_em')
+            WHEN json_valid(a.antes) AND json_type(a.antes, '$.atestado_em') = 'text'
+            THEN json_extract(a.antes, '$.atestado_em') END,
        -- usuario que nao existe mais (ou nenhum) vira "pelo sistema"; a chave estrangeira nao deixa gravar outro
        CASE WHEN EXISTS (SELECT 1 FROM usuarios u WHERE u.id = a.usuario_id) THEN a.usuario_id END,
        a.criado_em
@@ -47,8 +50,10 @@ ORDER BY a.id;
 
 -- Rede de seguranca: se o vigente gravado na medicao nao e' o do ultimo evento (ou a medicao nao tem evento),
 -- o vigente entra como evento "pelo sistema". Assim vale sempre: vigente = ultimo evento.
-INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id)
-SELECT m.id, m.valor_atestado_centavos, m.valor_atestado_origem, m.atestado_em, NULL
+-- A hora do evento e' o dia do atesto quando ha' (nao o dia da migracao), para nao parecer feito depois de tudo.
+INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id, criado_em)
+SELECT m.id, m.valor_atestado_centavos, m.valor_atestado_origem, m.atestado_em, NULL,
+       COALESCE(m.atestado_em || ' 00:00:00', datetime('now'))
 FROM medicoes m
 WHERE m.valor_atestado_centavos IS NOT NULL
   AND NOT EXISTS (

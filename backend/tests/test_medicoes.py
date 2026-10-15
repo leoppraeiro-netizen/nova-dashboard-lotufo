@@ -358,8 +358,12 @@ def test_edicoes_valor_filtra_no_sql_pelo_indice_e_em_lotes(conn, contrato_id, m
     # a consulta usa o indice (migracao 036), sem varrer audit_log
     plano = " ".join(r[3] for r in conn.execute(
         "EXPLAIN QUERY PLAN SELECT id FROM audit_log WHERE entidade='medicao' AND entidade_id IN ('1','2') "
-        "AND acao IN ('medicao.valor_protocolado','medicao.valor_atestado')"))
+        "AND acao = 'medicao.valor_protocolado'"))
     assert "ix_audit_log_entidade" in plano
+    # o atestado vem dos eventos de atesto (issue #61), tambem por indice
+    plano = " ".join(r[3] for r in conn.execute(
+        "EXPLAIN QUERY PLAN SELECT id FROM medicao_atestos WHERE medicao_id IN (1, 2)"))
+    assert "ix_medicao_atestos_medicao" in plano
     # mais de 500 ids: em lotes, sem estourar o limite de parametros do SQLite
     monkeypatch.setattr(medicoes, "LOTE_AUDITORIA", 1)
     r = medicoes.edicoes_valor(conn, [a, b, *range(10_000, 10_600)])
@@ -419,6 +423,17 @@ def test_atesto_mudar_so_o_dia_e_evento_e_regravar_igual_nao(conn, contrato_id):
     assert _atestos(conn, mid) == [(90_01, "manual", "2026-08-20", 1), (90_01, "manual", "2026-08-25", 1)]
     assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
         "Atestado definido em R$ 90,01 por U",
+        "Data do atesto alterada de 20/08/2026 para 25/08/2026 por U"]
+
+
+def test_atesto_mudar_valor_e_dia_juntos_da_duas_linhas(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "atestado", 1_000_00, "manual", "2026-08-20")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 900_01, "manual", "2026-08-25")
+    assert len(_atestos(conn, mid)) == 2
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Atestado definido em R$ 1.000,00 por U",
+        "Atestado alterado de R$ 1.000,00 para R$ 900,01 por U",
         "Data do atesto alterada de 20/08/2026 para 25/08/2026 por U"]
 
 

@@ -136,7 +136,8 @@ def _data_br(iso: str) -> str:
 
 def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, list[dict]]) -> None:
     """Issue #61: a linha do tempo do atesto vem dos eventos (medicao_atestos, append-only), um por mudanca de
-    valor ou de dia. Evento que nao muda nenhum dos dois (carga da auditoria antiga) nao vira linha."""
+    valor ou de dia (as duas no mesmo evento dao duas linhas). Evento que nao muda nenhum dos dois (carga da
+    auditoria antiga) nao vira linha."""
     from app.dinheiro import format_brl
     linhas = []
     for i in range(0, len(ids), LOTE_AUDITORIA):
@@ -149,17 +150,19 @@ def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, lis
     for r in sorted(linhas, key=lambda r: r["id"]):
         mid = r["medicao_id"]
         valor_ant, dia_ant = anterior.get(mid, (None, None))
-        anterior[mid] = (r["valor_centavos"], r["atestado_em"])
+        # Evento sem dia (carga da auditoria antiga) nao apaga o dia que ja' valia
+        dia = r["atestado_em"] if r["atestado_em"] is not None else dia_ant
+        anterior[mid] = (r["valor_centavos"], dia)
+        textos = []
         if valor_ant != r["valor_centavos"]:
-            texto = (f"Atestado definido em {format_brl(r['valor_centavos'])}" if valor_ant is None
-                     else f"Atestado alterado de {format_brl(valor_ant)} para {format_brl(r['valor_centavos'])}")
-        elif r["atestado_em"] is not None and dia_ant != r["atestado_em"]:
-            texto = (f"Data do atesto definida em {_data_br(r['atestado_em'])}" if dia_ant is None
-                     else f"Data do atesto alterada de {_data_br(dia_ant)} para {_data_br(r['atestado_em'])}")
-        else:
-            continue
-        out[mid].append({"data": r["criado_em"],
-                         "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})
+            textos.append(f"Atestado definido em {format_brl(r['valor_centavos'])}" if valor_ant is None
+                          else f"Atestado alterado de {format_brl(valor_ant)} para {format_brl(r['valor_centavos'])}")
+        # O primeiro dia ja' aparece como "Atestada pelo órgão" (linha do tempo da tela); aqui so' a troca de dia
+        if dia_ant is not None and dia != dia_ant:
+            textos.append(f"Data do atesto alterada de {_data_br(dia_ant)} para {_data_br(dia)}")
+        for texto in textos:
+            out[mid].append({"data": r["criado_em"],
+                             "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})
 
 
 def edicoes_valor(conn: sqlite3.Connection, medicao_ids: list[int]) -> dict[int, list[dict]]:
@@ -251,7 +254,7 @@ def definir_valor(conn, usuario_id: int, medicao_id: int, campo: str, centavos: 
             depois["atestado_em"] = data if data is not None else m["atestado_em"]
             # Issue #61 (decisao do Leo, 15/10/2026): cada mudanca de atesto e' um evento append-only, com autor e
             # data; a coluna acima e' o vigente (o ultimo evento). Regravar o mesmo atesto nao vira evento.
-            if (centavos, origem, depois["atestado_em"]) != (m[col_v], m[col_o], m["atestado_em"]):
+            if (centavos, depois["atestado_em"]) != (m[col_v], m["atestado_em"]):
                 conn.execute("INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id) "
                              "VALUES (?,?,?,?,?)", (medicao_id, centavos, origem, depois["atestado_em"], usuario_id))
         auditoria.registrar(conn, usuario_id, f"medicao.valor_{campo}", "medicao", medicao_id,
