@@ -821,6 +821,41 @@ def test_falha_depois_da_gravacao_nao_apaga_eml_que_ja_existia(svc, monkeypatch)
     assert _evidencias() == antes and arquivos.caminho_seguro(rel).read_bytes() == EML
 
 
+class _ConexaoQuePerdeOLockNoRollback:
+    """Gate Sol S1 (PR #199): logo depois do ROLLBACK, outro escritor pega o lock e o segura alem do busy_timeout."""
+
+    def __init__(self, conn, outro):
+        self._conn, self._outro = conn, outro
+
+    def rollback(self):
+        self._conn.rollback()
+        if not self._outro.in_transaction:
+            self._outro.execute("BEGIN IMMEDIATE")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def test_falha_no_registro_limpa_o_eml_ainda_sob_o_lock(svc, monkeypatch):
+    """Gate Sol S1 (PR #199): a limpeza nao depende de pegar o lock de novo; outro escritor segurando o banco depois
+    do ROLLBACK nao deixa o .eml orfao."""
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    outro = db.get_conn()
+    c.execute("PRAGMA busy_timeout=50")
+    try:
+        with pytest.raises(OSError):
+            notas_envio.envio_externo(_ConexaoQuePerdeOLockNoRollback(c, outro), ids["uid"], _par_sinfra(ids),
+                                      "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+        assert outro.in_transaction                     # o lock ficou mesmo com o outro escritor
+    finally:
+        outro.rollback(); outro.close()
+        c.execute("PRAGMA busy_timeout=5000")
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
 def test_limpeza_do_eml_nao_apaga_arquivo_que_outro_registro_cita(svc):
     """Outro registro com o mesmo .eml entrou entre o ROLLBACK e a limpeza: a linha dele cita o arquivo, que fica.
     Chamada dentro de um envelope de fora, a limpeza nao fecha a transacao dele."""
