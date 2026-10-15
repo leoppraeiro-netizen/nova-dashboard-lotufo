@@ -670,3 +670,93 @@ def test_nota_lotufo_em_obra_de_consorcio_casa_pela_saida_e_nao_segura_recebimen
     assert regras == {"saida_espelho", "valor_exato"}
     m = medicoes.detalhe(conn, mid)
     assert m["estado"] == "recebida"          # a nota da Lotufo (sem titulo quitado) nao segurou
+
+
+# --- desalocacao manual (issue #71) ---
+
+def _alocada(conn, cid, tmp_path):
+    """Medicao protocolada com a NF casada pelo valor exato; devolve (medicao, alocacao, cliente)."""
+    mid = _medicao(conn, cid, 3, 1234_57)                       # centavo impar
+    cli = _simulador(tmp_path, [_nf(950, 1234.57)], [])
+    assert sincronizacao_rm.sincronizar(conn, cli)["alocacoes"] == 1
+    aid = conn.execute("SELECT id FROM nf_alocacoes WHERE medicao_id=? AND desfeita_em IS NULL", (mid,)).fetchone()[0]
+    return mid, aid, cli
+
+
+def test_desalocar_a_mao_audita_e_o_casador_nao_refaz(conn, cid, tmp_path):
+    mid, aid, cli = _alocada(conn, cid, tmp_path)
+    usuario = conn.execute("SELECT id FROM usuarios LIMIT 1").fetchone()[0]
+    sincronizacao_rm.desalocar(conn, usuario, mid, aid, "  NF de outra obra  ")
+    m = medicoes.detalhe(conn, mid)
+    assert m["estado"] == "protocolada" and m["notas"] == []      # o estado nao volta sozinho
+    a = conn.execute("SELECT desfeita_em, motivo_desfazer FROM nf_alocacoes WHERE id=?", (aid,)).fetchone()
+    assert a["desfeita_em"] is not None and a["motivo_desfazer"] == "Desfeita à mão: NF de outra obra"
+    aud = conn.execute("SELECT usuario_id, antes, depois FROM audit_log WHERE acao='nf.desalocar'").fetchone()
+    assert aud["usuario_id"] == usuario
+    assert json.loads(aud["antes"])["valor_centavos"] == 1234_57
+    assert json.loads(aud["depois"])["motivo"] == "Desfeita à mão: NF de outra obra"
+    # a reconciliacao mostra a desfeita e a medicao que ficou sem nota
+    rec = sincronizacao_rm.reconciliacao(conn)
+    assert rec["alocacoes_desfeitas"][0]["motivo_desfazer"].startswith("Desfeita à mão")
+    assert [x["medicao_id"] for x in rec["medicoes_sem_nf"]] == [mid]
+    # a rodada seguinte nao casa de novo a mesma NF (o valor exato continua unico)
+    r = sincronizacao_rm.sincronizar(conn, cli)
+    assert r["alocacoes"] == 0, r
+    assert not _tem_nf(conn, mid)
+    assert auditoria.verificar_cadeia(conn)
+
+
+def test_nf_desfeita_a_mao_nao_entra_como_irma_da_soma_do_dia(conn, cid, tmp_path):
+    """A NF desvinculada a' mao tambem nao volta pela porta do par: nao completa a soma de outra NF do dia."""
+    conn.execute("UPDATE contratos SET centro_custo_rm='4.003.016' WHERE id=?", (cid,)); conn.commit()
+    m1 = _medicao(conn, cid, 1, 500_00)
+    cli = _simulador(tmp_path, [_nf(960, 100.00, centro_custo="4.003.016")], [])
+    sincronizacao_rm.sincronizar(conn, cli)                     # 100 nao casa com 500: fica solta
+    nota_a = conn.execute("SELECT id FROM notas_fiscais WHERE idmov=960").fetchone()[0]
+    aid = sincronizacao_rm.alocar(conn, 1, nota_a, m1, "manual", None, "pdf")
+    sincronizacao_rm.desalocar(conn, 1, m1, aid, "nota de outra medição")
+    m2 = _medicao(conn, cid, 2, 300_00, comp="2026-08")
+    cli = _simulador(tmp_path, [_nf(960, 100.00, centro_custo="4.003.016"),
+                                _nf(961, 200.00, centro_custo="4.003.016")], [])   # 100 + 200 = medicao 2
+    r = sincronizacao_rm.sincronizar(conn, cli)
+    assert r["alocacoes"] == 0, r
+    assert not _tem_nf(conn, m2) and not _tem_nf(conn, m1)
+
+
+def test_desalocar_recusa_sem_motivo_de_outra_medicao_e_repetida(conn, cid, tmp_path):
+    mid, aid, _ = _alocada(conn, cid, tmp_path)
+    outra = _medicao(conn, cid, 4, 999_99)
+    with pytest.raises(ValueError, match="motivo"):
+        sincronizacao_rm.desalocar(conn, 1, mid, aid, "   ")
+    with pytest.raises(ValueError, match="não encontrado"):
+        sincronizacao_rm.desalocar(conn, 1, outra, aid, "errada")
+    sincronizacao_rm.desalocar(conn, 1, mid, aid, "errada")
+    with pytest.raises(ValueError, match="já foi desfeito"):
+        sincronizacao_rm.desalocar(conn, 1, mid, aid, "de novo")
+    assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE acao='nf.desalocar'").fetchone()[0] == 1
+
+
+def test_rota_desalocar_so_admin(client_admin, tmp_path, monkeypatch):
+    from app import auth
+    monkeypatch.setattr(documentos, "exigidos",
+                        lambda conn, cid, natureza: {"entidades": [], "tipos": [], "regularidade": None})
+    c = db.get_conn()
+    c.execute("UPDATE certidao_tipos SET aplicavel_por_padrao=0"); c.commit()
+    auth.criar_usuario(c, "Eng", "eng@lotufo.com", "senha-forte-123", "engenharia")
+    cid = contratos.criar(c, 1, {"orgao": "SINFRA", "numero_instrumento": "IC 082/2025",
+                                 "objeto": "Obra", "valor_original_centavos": 10_000_000_00})
+    mid, aid, _ = _alocada(c, cid, tmp_path)
+    c.close()
+    url = f"/api/medicoes/{mid}/notas/alocacoes/{aid}/desfazer"
+    assert client_admin.post(url, json={"motivo": ""}).status_code == 422
+    r = client_admin.post(url, json={"motivo": "NF de outra obra"})
+    assert r.status_code == 200, r.text
+    assert client_admin.get(f"/api/medicoes/{mid}/notas").json()["notas"] == []
+    r = client_admin.post(url, json={"motivo": "de novo"})
+    assert r.status_code == 422 and "já foi desfeito" in r.json()["detail"]
+    # engenharia nao desfaz vinculo
+    client_admin.cookies.clear()
+    r = client_admin.post("/api/auth/login", json={"email": "eng@lotufo.com", "senha": "senha-forte-123"})
+    client_admin.cookies.set("sessao", r.cookies.get("sessao") or client_admin.cookies.get("sessao"))
+    client_admin.headers["X-CSRF-Token"] = r.json()["csrf"]
+    assert client_admin.post(url, json={"motivo": "x"}).status_code == 403

@@ -10,6 +10,7 @@ Uma rodada (`sincronizar`) faz, nesta ordem:
    nao volta de estado sozinha -- aparece na reconciliacao para um humano decidir.
    Bloco 3: NF que ja' entrou pelo PDF (mesma coligada e numero, emissao ou valor iguais)
    nao vira linha nova -- a linha do PDF e' preenchida e CONFIRMADA (ou marcada divergente).
+   Issue #71: o admin desfaz a' mao um vinculo errado (`desalocar`, com motivo); essa NF nao casa mais sozinha.
 4. Casamento NF -> medicao (spec §4 e §7.1), do mais forte para o mais fraco, so' entre
    medicoes em andamento que ainda faltam nota e NAO sao legado (nascidas do espelho ou de
    competencia >= COMPETENCIA_CORTE_RM):
@@ -224,6 +225,35 @@ def _desfazer_alocacoes_de_nf_cancelada(conn, nota_id: int, numero: str) -> int:
     return n
 
 
+# Prefixo do motivo de quem desfez o vinculo a' mao: o casador nao volta a casar sozinho essa NF.
+MOTIVO_A_MAO = "Desfeita à mão: "
+
+
+def desalocar(conn, usuario_id, medicao_id: int, alocacao_id: int, motivo: str) -> None:
+    """Issue #71: o admin desfaz um vinculo NF <-> medicao errado, com motivo. Marca (nunca apaga), audita com
+    quem fez, e a medicao nao volta de estado sozinha (como na NF cancelada: a reconciliacao a mostra). A NF
+    desvinculada a' mao sai do casamento automatico; volta a uma medicao so' pelo PDF anexado nela."""
+    motivo = (motivo or "").strip()
+    if not motivo:
+        raise ValueError("Informe o motivo para desfazer o vínculo da nota")
+    with db.mutacao(conn):
+        a = conn.execute("""SELECT a.*, n.numero, n.serie, n.coligada, m.estado FROM nf_alocacoes a
+                            JOIN notas_fiscais n ON n.id=a.nota_id JOIN medicoes m ON m.id=a.medicao_id
+                            WHERE a.id=? AND a.medicao_id=?""", (alocacao_id, medicao_id)).fetchone()
+        if a is None:
+            raise ValueError("Vínculo da nota com esta medição não encontrado")
+        if a["desfeita_em"] is not None:
+            raise ValueError(f"O vínculo da nota {a['numero']} já foi desfeito")
+        texto = MOTIVO_A_MAO + motivo
+        conn.execute("UPDATE nf_alocacoes SET desfeita_em=datetime('now'), motivo_desfazer=? WHERE id=?",
+                     (texto, alocacao_id))
+        auditoria.registrar(conn, usuario_id, "nf.desalocar", "medicao", medicao_id,
+                            {"alocacao_id": alocacao_id, "nota_id": a["nota_id"], "nf": f"{a['numero']}/{a['serie'] or ''}",
+                             "coligada": a["coligada"], "valor_centavos": a["valor_alocado_centavos"],
+                             "origem": a["origem"], "regra": a["regra"], "estado_medicao": a["estado"]},
+                            {"motivo": texto})
+
+
 def notas_da_medicao(conn, medicao_id: int) -> list[dict]:
     """NFs alocadas (vigentes) com o recebido de cada uma -- para o detalhe da medicao."""
     out = []
@@ -393,8 +423,10 @@ def _casar_soma_dia(conn, nf, candidatas) -> tuple[int, int] | None:
         SELECT id, valor_centavos, campo_livre1 FROM notas_fiscais
         WHERE coligada=? AND centro_custo IS NOT NULL AND TRIM(centro_custo)=TRIM(?)
           AND emissao=? AND situacao='ativa'
-          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=notas_fiscais.id AND a.desfeita_em IS NULL)""",
-        (nf["coligada"], nf["centro_custo"] or "", nf["emissao"])).fetchall()
+          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=notas_fiscais.id AND a.desfeita_em IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes d WHERE d.nota_id=notas_fiscais.id AND d.desfeita_em IS NOT NULL
+                          AND d.motivo_desfazer LIKE ?)""",
+        (nf["coligada"], nf["centro_custo"] or "", nf["emissao"], MOTIVO_A_MAO + "%")).fetchall()
     # valor -> medicoes candidatas com aquele valor (a obra ja' esta' estreitada em cands)
     med_por_valor: dict = {}
     for m in candidatas:
@@ -427,6 +459,10 @@ def _casar(conn, nota_id: int, coligadas_com_centro: set, cache: dict | None = N
     if nf["situacao"] != "ativa":
         return None
     if conn.execute("SELECT 1 FROM nf_alocacoes WHERE nota_id=? AND desfeita_em IS NULL", (nota_id,)).fetchone():
+        return None
+    # Issue #71: vinculo desfeito a' mao e' decisao humana -- o casador nao a desfaz na rodada seguinte.
+    if conn.execute("SELECT 1 FROM nf_alocacoes WHERE nota_id=? AND desfeita_em IS NOT NULL AND motivo_desfazer LIKE ?",
+                    (nota_id, MOTIVO_A_MAO + "%")).fetchone():
         return None
 
     def _aloca(mid, confianca, regra, irma=None):
