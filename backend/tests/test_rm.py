@@ -736,6 +736,49 @@ def test_desalocar_recusa_sem_motivo_de_outra_medicao_e_repetida(conn, cid, tmp_
     assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE acao='nf.desalocar'").fetchone()[0] == 1
 
 
+def test_parte_desfeita_a_mao_nao_deixa_a_medicao_recebida_pela_outra_nota(conn, cid, tmp_path):
+    """Gate Sol S1 (PR #202): medicao de R$ 300 faturada em duas notas (soma do dia); desfeita a de R$ 100, a de
+    R$ 200 quitada nao fecha o recebimento sozinha -- falta parte do faturamento."""
+    conn.execute("UPDATE contratos SET centro_custo_rm='4.003.016' WHERE id=?", (cid,)); conn.commit()
+    mid = _medicao(conn, cid, 1, 300_00)
+    nfs = [_nf(970, 100.00, centro_custo="4.003.016"), _nf(971, 200.00, centro_custo="4.003.016")]
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, []))
+    assert len(medicoes.detalhe(conn, mid)["notas"]) == 2               # o par fecha a medicao
+    aid = conn.execute("""SELECT a.id FROM nf_alocacoes a JOIN notas_fiscais n ON n.id=a.nota_id
+                          WHERE n.idmov=970""").fetchone()[0]
+    sincronizacao_rm.desalocar(conn, 1, mid, aid, "nota de outra medição")
+    baixas = [_baixa(1, 970, 92.00, 92.00, 1, "2026-09-01T00:00:00-04:00"),
+              _baixa(2, 971, 184.00, 184.00, 1, "2026-09-02T00:00:00-04:00")]
+    r = sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, baixas))
+    assert r["recebimentos"] == 0, r
+    assert medicoes.detalhe(conn, mid)["estado"] == "protocolada"
+
+
+def test_nota_a_mais_desfeita_a_mao_nao_segura_o_recebimento(conn, cid, tmp_path):
+    """A outra ponta: a nota desfeita sobrava (a restante cobre a medicao inteira) -> recebida normalmente."""
+    mid = _medicao(conn, cid, 1, 200_01)                        # centavo impar
+    nfs = [_nf(980, 200.01), _nf(981, 100.00, emissao="2026-08-11T00:00:00-04:00")]
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, []))
+    extra = conn.execute("SELECT id FROM notas_fiscais WHERE idmov=981").fetchone()[0]
+    aid = sincronizacao_rm.alocar(conn, 1, extra, mid, "manual", None, "pdf")
+    sincronizacao_rm.desalocar(conn, 1, mid, aid, "nota de outra medição")
+    baixas = [_baixa(1, 980, 184.01, 184.01, 1, "2026-09-01T00:00:00-04:00")]
+    r = sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, baixas))
+    assert r["recebimentos"] == 1, r
+    assert medicoes.detalhe(conn, mid)["estado"] == "recebida"
+
+
+def test_desalocar_recusa_tirar_a_nota_que_falta_de_medicao_com_nota_emitida(conn, cid, tmp_path):
+    """Revisor R1 (PR #202): em nota_emitida, desfazer a unica nota deixaria a medicao protocolar sem nota e sem a
+    ressalva "nota nao emitida" (A-09). Recusa; o vinculo continua."""
+    mid, aid, _ = _alocada(conn, cid, tmp_path)
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (mid,)); conn.commit()
+    with pytest.raises(ValueError, match="nota emitida"):
+        sincronizacao_rm.desalocar(conn, 1, mid, aid, "errada")
+    assert conn.execute("SELECT desfeita_em FROM nf_alocacoes WHERE id=?", (aid,)).fetchone()[0] is None
+    assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE acao='nf.desalocar'").fetchone()[0] == 0
+
+
 def test_desalocar_recusa_medicao_encerrada_e_nota_do_pdf_anexado(conn, cid, tmp_path):
     """Medicao recebida nao recebe NF de volta; a nota que veio do PDF anexado seguiria no envio ao orgao."""
     mid, aid, _ = _alocada(conn, cid, tmp_path)

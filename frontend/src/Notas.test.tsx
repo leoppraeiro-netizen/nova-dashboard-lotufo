@@ -263,6 +263,13 @@ describe("Notas: valor da nota manual (CampoValor)", () => {
     expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
   });
 
+  it("nota que veio do PDF anexado na medição não oferece desfazer o vínculo (o servidor recusa)", async () => {
+    api.mockResolvedValueOnce({ ...COM_NOTA, notas: [{ ...COM_NOTA.notas[0], documento_id: 3, origem_nota: "pdf" }] });
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar podeDesfazer aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
+  });
+
   it("o admin desfaz o vínculo informando o motivo", async () => {
     api.mockResolvedValueOnce(COM_NOTA);
     const aoMudar = vi.fn();

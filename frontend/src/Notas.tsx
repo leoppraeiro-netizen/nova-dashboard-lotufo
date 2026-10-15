@@ -184,7 +184,8 @@ export function Notas({ medicao, podeEditar, podeDesfazer = false, aoMudar, aoFe
     });
   };
 
-  const botaoDesfazer = (n: NotaVinculada) => podeDesfazer && desfazer?.alocacao_id !== n.alocacao_id && (
+  // o PDF anexado na medicao seguiria no envio ao orgao: o servidor recusa, entao o botao nem aparece
+  const botaoDesfazer = (n: NotaVinculada) => podeDesfazer && n.documento_id === null && desfazer?.alocacao_id !== n.alocacao_id && (
     <>{" "}<button type="button" className="btn btn--pequeno" disabled={ocupado}
       aria-label={`Desfazer vínculo da nota ${Number(n.numero) || n.numero}`}
       onClick={() => setDesfazer({ alocacao_id: n.alocacao_id, numero: n.numero, motivo: "" })}>Desfazer vínculo</button></>

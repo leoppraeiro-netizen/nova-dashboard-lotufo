@@ -260,6 +260,13 @@ def desalocar(conn, usuario_id, medicao_id: int, alocacao_id: int, motivo: str) 
         if conn.execute("UPDATE nf_alocacoes SET desfeita_em=datetime('now'), motivo_desfazer=? "
                         "WHERE id=? AND desfeita_em IS NULL", (texto, alocacao_id)).rowcount != 1:
             raise ValueError(f"O vínculo da nota {a['numero']} já foi desfeito")
+        # Revisor R1 (PR #202): em `nota_emitida` a medicao ja' passou da espera da nota; sem a nota que fechava o
+        # conjunto ela protocolaria sem a ressalva "nota nao emitida" (A-09). A nota certa entra antes.
+        if a["estado"] == "nota_emitida":
+            from app import notas    # import local: notas importa este modulo
+            if notas.faltam(conn, medicao_id) > 0:
+                raise ValueError(f"Medição com nota emitida ficaria faltando nota: anexe antes a nota certa e depois "
+                                 f"desfaça o vínculo da nota {a['numero']}")
         auditoria.registrar(conn, usuario_id, "nf.desalocar", "medicao", medicao_id,
                             {"alocacao_id": alocacao_id, "nota_id": a["nota_id"], "nf": f"{a['numero']}/{a['serie'] or ''}",
                              "coligada": a["coligada"], "valor_centavos": a["valor_alocado_centavos"],
@@ -535,7 +542,9 @@ def _casar(conn, nota_id: int, coligadas_com_centro: set, cache: dict | None = N
 
 def _recebimentos(conn) -> int:
     n = 0
-    for m in conn.execute("""SELECT m.id, e.coligada_rm FROM medicoes m JOIN contratos c ON c.id=m.contrato_id
+    for m in conn.execute("""SELECT m.id, e.coligada_rm,
+                                    COALESCE(m.valor_atestado_centavos, m.valor_protocolado_centavos) AS valor
+                             FROM medicoes m JOIN contratos c ON c.id=m.contrato_id
                              JOIN entidades e ON e.id=COALESCE(c.entidade_id, 1)
                              WHERE m.estado IN ('protocolada','nf_emitida')"""):
         # Bloco 3 (decisao 13 do plano): so' as notas da COLIGADA DA ENTIDADE DO CONTRATO decidem o
@@ -544,6 +553,12 @@ def _recebimentos(conn) -> int:
         notas = [x for x in notas_da_medicao(conn, m["id"]) if x["coligada"] == m["coligada_rm"]]
         if not notas:
             continue
+        # Gate Sol S1 (PR #202): vinculo desfeito a' mao pode ter levado parte do faturamento (medicao em duas
+        # notas). Ai' so' fecha sozinha se as notas que ficaram cobrem o valor da medicao.
+        if m["valor"] is None or sum(x["valor_alocado_centavos"] for x in notas) < m["valor"]:
+            if conn.execute("SELECT 1 FROM nf_alocacoes WHERE medicao_id=? AND desfeita_em IS NOT NULL "
+                            "AND motivo_desfazer LIKE ?", (m["id"], MOTIVO_A_MAO + "%")).fetchone():
+                continue
         # Recebida quando o TITULO de CADA NF alocada esta quitado (recebido >= devido, o
         # valor liquido do titulo). Comparar com o bruto da NF nunca fechava por causa das
         # retencoes. NF sem titulo (devido=0: titulo ainda nao existe ou foi cancelado) segura
