@@ -102,6 +102,20 @@ describe("FormValor (CampoValor)", () => {
       { method: "PUT", body: JSON.stringify({ campo: "protocolado", valor: "50.000,00" }) }));
   });
 
+  // gate Sol S2: com o painel aberto, trocar de campo nao pode levar o valor do outro
+  it("trocar de protocolado para atestado com o formulário aberto mostra o valor do atestado", async () => {
+    api.mockResolvedValue({});
+    const agir = vi.fn(async (fn: () => Promise<unknown>) => { await fn(); return true; });
+    const m = { ...base, valor_protocolado_origem: null, valor_atestado_centavos: 12345 };
+    const { rerender } = render(<FormValor m={m} campo="protocolado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    expect((screen.getByLabelText("Valor (R$)") as HTMLInputElement).value).toBe("9.384.834,18");
+    rerender(<FormValor m={m} campo="atestado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    expect((screen.getByLabelText("Valor (R$)") as HTMLInputElement).value).toBe("123,45");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/valor",
+      { method: "PUT", body: JSON.stringify({ campo: "atestado", valor: "123,45" }) }));
+  });
+
   it("o valor gravado abre formatado e apagar tira o último dígito", () => {
     render(<FormValor m={base} campo="protocolado" salvando={false} agir={vi.fn()} aoFechar={() => {}} />);
     const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;

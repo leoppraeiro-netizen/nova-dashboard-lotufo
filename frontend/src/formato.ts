@@ -53,10 +53,13 @@ export function baseDosValores(percentualBp: number): string {
 /** Teto do parse_brl do servidor (R$ 99.999.999.999,99): 13 digitos de centavos. */
 export const MAX_DIGITOS_VALOR = 13;
 
-/** Digitos dos centavos -> texto do campo: "1" -> "0,01", "5000000" -> "50.000,00"; sem digitos -> "". */
+/** Digitos dos centavos -> texto do campo: "1" -> "0,01", "5000000" -> "50.000,00"; so' zeros -> "0,00";
+ *  sem digitos -> "". */
 export function digitosParaBrl(digitos: string): string {
-  const d = digitos.replace(/\D/g, "").replace(/^0+/, "");
-  if (!d) return "";
+  const todos = digitos.replace(/\D/g, "");
+  if (!todos) return "";
+  const d = todos.replace(/^0+/, "");
+  if (!d) return "0,00";
   const cheio = d.padStart(3, "0");
   const inteiro = cheio.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return `${inteiro},${cheio.slice(-2)}`;

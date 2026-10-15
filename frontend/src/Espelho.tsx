@@ -332,13 +332,14 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
               <div className="campo" key={en.chave}>
                 <label className="campo__rotulo" htmlFor={`esp-${en.chave}`}>{en.rotulo}</label>
                 <CampoValor id={`esp-${en.chave}`} name={en.chave} className="entrada--media num"
-                  value={form.entradas[en.chave] ?? ""}
+                  value={form.entradas[en.chave] ?? ""} ajudaId="esp-ajuda-valor"
                   onChange={v => setForm({ ...form, entradas: { ...form.entradas, [en.chave]: v } })} />
               </div>
             ))}
           </div>
-          <p className="campo__nota">Campo vazio vale zero; nota com valor zero não é emitida. Valores em reais, com vírgula.
-            O período vem com o mês da competência; mude só quando o espelho cobrir outro intervalo (ex.: 05/02 a 28/02).</p>
+          <p className="campo__nota" id="esp-ajuda-valor">Digite só os números: os centavos e os pontos entram sozinhos.
+            Campo vazio vale zero; nota com valor zero não é emitida.</p>
+          <p className="campo__nota">O período vem com o mês da competência; mude só quando o espelho cobrir outro intervalo (ex.: 05/02 a 28/02).</p>
           <div className="painel__rodape form-inline">
             <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Conferindo…" : "Conferir"}</button>
             <button type="button" className="btn" onClick={() => setPasso({ tipo: "lista" })}>Voltar</button>

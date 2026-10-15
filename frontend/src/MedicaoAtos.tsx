@@ -47,7 +47,15 @@ function Erro({ erro }: { erro?: string }) {
   return erro ? <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erro}</p> : null;
 }
 
-export function FormValor({ m, campo, salvando, agir, aoFechar, erro }: Base & { campo: "protocolado" | "atestado" }) {
+type PropsValor = Base & { campo: "protocolado" | "atestado" };
+
+// Trocar de "Editar o valor" para "Editar o atestado" com o painel aberto reaproveitaria o formulario, e o
+// useState guardaria o valor do outro campo (gate Sol S2, #190): a chave faz um formulario novo por campo.
+export function FormValor(props: PropsValor) {
+  return <FormValorDoCampo key={`${props.m.id}-${props.campo}`} {...props} />;
+}
+
+function FormValorDoCampo({ m, campo, salvando, agir, aoFechar, erro }: PropsValor) {
   const [valor, setValor] = useState(brlCampo(campo === "protocolado" ? m.valor_protocolado_centavos : m.valor_atestado_centavos));
   const [data, setData] = useState(m.atestado_em ?? "");
   async function salvar(ev: React.FormEvent) {

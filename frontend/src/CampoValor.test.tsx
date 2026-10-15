@@ -69,6 +69,74 @@ describe("CampoValor", () => {
   });
 });
 
+// rodada 1 de correcao da PR #193
+describe("CampoValor: cursor, zero, colar inválido e ajuda", () => {
+  afterEach(cleanup);
+
+  it("S1: com o cursor no início, o dígito entra no fim e o cursor volta ao fim", () => {
+    render(<Campo inicial="12,34" />);
+    campo().focus();
+    campo().setSelectionRange(0, 0);
+    fireEvent.change(campo(), { target: { value: "512,34" } });    // o 5 digitado antes do 1
+    expect(campo().value).toBe("123,45");
+    expect(campo().selectionStart).toBe(6);
+    fireEvent.change(campo(), { target: { value: "12,45" } });     // apagou o 3 do meio: sai o ultimo digito
+    expect(campo().value).toBe("12,34");
+    fireEvent.change(campo(), { target: { value: "1234" } });      // apagou a virgula: sai o ultimo digito
+    expect(campo().value).toBe("1,23");
+  });
+
+  it("S1: tudo selecionado e um dígito digitado começa do zero", () => {
+    render(<Campo inicial="12,34" />);
+    fireEvent.change(campo(), { target: { value: "7" } });
+    expect(campo().value).toBe("0,07");
+  });
+
+  it("S3: digitar 0 ou 00 mostra 0,00 (glosa total); apagar 0,00 volta a vazio", () => {
+    render(<Campo />);
+    digitar("0"); expect(campo().value).toBe("0,00");
+    digitar("0"); expect(campo().value).toBe("0,00");
+    digitar("5"); expect(campo().value).toBe("0,05");
+    fireEvent.change(campo(), { target: { value: "" } });
+    digitar("00"); expect(campo().value).toBe("0,00");
+    apagar(); expect(campo().value).toBe("");
+  });
+
+  it("R1: colar fora do formato avisa no campo; o próximo valor certo tira o aviso", () => {
+    render(<Campo inicial="10,00" />);
+    colar("8900000.00");
+    expect(campo().value).toBe("10,00");
+    expect(campo().getAttribute("aria-invalid")).toBe("true");
+    const erro = screen.getByRole("alert");
+    expect(erro.textContent).toContain("Valor colado em formato inválido: use vírgula nos centavos, ex.: 1.234,56");
+    expect(campo().getAttribute("aria-describedby")).toContain(erro.id);
+    colar("89.000,00");
+    expect(campo().value).toBe("89.000,00");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(campo().getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("R3: vários caracteres de uma vez, sem evento de colar, são lidos em reais", () => {
+    render(<Campo />);
+    fireEvent.change(campo(), { target: { value: "50000" } });
+    expect(campo().value).toBe("50.000,00");
+    fireEvent.change(campo(), { target: { value: "8900000.00" } });
+    expect(campo().value).toBe("50.000,00");
+    expect(screen.getByRole("alert").textContent).toContain("formato inválido");
+  });
+
+  it("R2: a ajuda aparece e o campo aponta para ela; com ajudaId, usa a da tela", () => {
+    render(<Campo />);
+    const ajuda = document.getElementById(campo().getAttribute("aria-describedby") ?? "");
+    expect(ajuda?.textContent).toBe("Digite só os números: os centavos e os pontos entram sozinhos.");
+    cleanup();
+    render(<><p id="fora">ajuda da tela</p><label htmlFor="w">W</label>
+      <CampoValor id="w" name="w" value="" onChange={() => {}} ajudaId="fora" /></>);
+    expect(screen.getByLabelText("W").getAttribute("aria-describedby")).toBe("fora");
+    expect(screen.queryByText(/Digite só os números/)).toBeNull();
+  });
+});
+
 describe("digitosParaBrl e coladoParaBrl", () => {
   it("convertem em texto, sem float", () => {
     expect(digitosParaBrl("")).toBe("");
