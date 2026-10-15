@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, mensagemDeErro } from "./api";
 import { brl } from "./formato";
+import CampoCompetencia from "./CampoCompetencia";
 import { IconeAlerta, IconeBaixar, IconeCadeado, IconeMais } from "./icones";
 import { EXCECOES, notasDivergentes, passoDe, resumoNotas, separarMedicoes, tituloMedicao } from "./medicao";
 import { type Busca } from "./rota";
@@ -269,9 +270,9 @@ export function NovaMedicaoManual({ contratoId, aoCriar }: { contratoId: number;
         </div>
         <div className="campo">
           <label className="campo__rotulo" htmlFor="nova-competencia">Competência</label>
-          {/* type=month entrega exatamente "AAAA-MM", o formato que o CHECK da tabela exige */}
-          <input id="nova-competencia" type="month" className="entrada--media" required
-            value={novo.competencia} onChange={e => setNovo({ ...novo, competencia: e.target.value })} />
+          {/* digita-se MM/AAAA; o componente entrega "AAAA-MM", o formato que o CHECK da tabela exige */}
+          <CampoCompetencia id="nova-competencia" className="entrada--media"
+            value={novo.competencia} onChange={v => setNovo({ ...novo, competencia: v })} />
         </div>
         <button type="submit" className="btn btn--primario" disabled={salvando}>
           <IconeMais className="icone icone--p" />{salvando ? "Criando…" : "Nova medição"}

@@ -58,7 +58,7 @@ describe("Espelho", () => {
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: /Gerar espelho/ }));
     fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
-    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "2026-05" } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "052026" } });
     fireEvent.change(screen.getByLabelText("Valor da medição"), { target: { value: "634.529,58" } });
     fireEvent.change(screen.getByLabelText("Valor do reajuste"), { target: { value: "38.655,83" } });
     fireEvent.click(screen.getByRole("button", { name: "Conferir" }));
