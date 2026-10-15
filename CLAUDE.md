@@ -73,8 +73,8 @@ digita pouco e confere; regra, cadastro e instrumento são do Leo, em arquivo ve
   `npm run typecheck`, `npm run lint`. Esses são os comandos da CI; **localmente, só o arquivo de teste do
   módulo tocado** (`pytest -q tests/test_x.py`, `npm test -- <arquivo>`), porque a suíte inteira em dois
   worktrees derruba a CPU desta máquina, que é a produção. Num worktree, `.venv` e `node_modules` são junções para os do tree
-  principal, criadas no início da sessão pelo hook `preparar-worktree.ps1` (se faltarem, rodar o script à
-  mão); o código testado é o do worktree. Ao remover um worktree, o hook `desfazer-juncoes.ps1` tira as
+  principal, criadas no início da sessão pelo hook `preparar-worktree.ps1` (no Mac, `.sh` e links simbólicos;
+  ver "Rodar no Mac" no README; se faltarem, rodar o script à mão); o código testado é o do worktree. Ao remover um worktree, o hook `desfazer-juncoes.ps1` tira as
   junções antes (senão fica a casca da pasta); `npm ci` ou `pip install` dentro do worktree mexem no
   `node_modules`/`.venv` principal, então não os rode num worktree.
 - Hooks do projeto (`.claude/settings.json`): depois de cada edição, `ruff check --fix` (E9, F) no `.py`
