@@ -21,7 +21,11 @@ import Selo from "./Selo";
 
 type Linha = LinhaCertidao;
 type Regularidade = NonNullable<EmpresaDoc["regularidade"]>;
-type Painel = { hoje: string; empresas: EmpresaDoc[] };
+// Issue #65: garantia (tem validade) e ART (nao tem) por obra ativa, como o servidor respondeu.
+type Garantia = { apolice: string | null; vigencia_fim: string; dias: number; origem: "contrato" | "endosso";
+                  situacao: "ok" | "vencendo" | "vencida" | "baixada" };
+type ObraDoc = { contrato_id: number; obra: string; garantia: Garantia | null; art: { numero: string | null; anexada: boolean } };
+type Painel = { hoje: string; empresas: EmpresaDoc[]; contratos?: ObraDoc[] };
 type Lida = {
   tipo: string; tipo_nome: string; natureza: string; entidade_id: number; entidade: string;
   emissao: string; validade: string; numero: string | null; validade_calculada: boolean; ocr?: boolean;
@@ -96,6 +100,48 @@ function EmDia({ texto }: { texto: string }) {
     <span className="estado estado--ok">
       <span className="estado__ponto" aria-hidden="true" />{texto.charAt(0).toUpperCase() + texto.slice(1)}
     </span>
+  );
+}
+
+function CelulaGarantia({ g }: { g: Garantia | null }) {
+  if (!g) return <Selo classe="">sem vigência no cadastro</Selo>;
+  const ate = fmtDataPura(g.vigencia_fim);
+  const nota = <div className="campo__nota num">{g.situacao === "vencida" ? `venceu em ${ate}` : `até ${ate}`}
+    {g.origem === "endosso" && " (endosso)"}{g.apolice && ` · apólice ${g.apolice}`}</div>;
+  if (g.situacao === "baixada") return <><Selo classe="">baixada</Selo>{nota}</>;
+  if (g.situacao === "vencida") return <><Selo classe="selo--acao" forte>vencida</Selo>{nota}</>;
+  if (g.situacao === "vencendo") {
+    const texto = g.dias === 0 ? "vence hoje" : g.dias === 1 ? "vence amanhã" : `vence em ${g.dias} dias`;
+    return <><Selo classe={g.dias <= 15 ? "selo--acao" : "selo--atencao"}>{texto}</Selo>{nota}</>;
+  }
+  return <><EmDia texto="em dia" />{nota}</>;
+}
+
+function GarantiaEArt({ obras }: { obras: ObraDoc[] }) {
+  return (
+    <section className="cartao" aria-labelledby="titulo-garantia">
+      <div className="cartao__cabeca cartao__cabeca--quebra">
+        <h2 className="cartao__titulo" id="titulo-garantia">Garantia e ART por obra</h2>
+        <span className="cartao__dica">A garantia avisa 30 dias antes do fim (ação aos 15); a ART não vence, só precisa estar anexada.</span>
+      </div>
+      <Rolagem rotulo="Garantia e ART por obra">
+        <table className="tabela matriz">
+          <thead><tr><th scope="col">Obra</th><th scope="col">Garantia</th><th scope="col">ART</th></tr></thead>
+          <tbody>
+            {obras.map(o => (
+              <tr key={o.contrato_id}>
+                <th scope="row" className="matriz__empresa"><Link para={{ tela: "obra", id: o.contrato_id, aba: "documentos" }}>{o.obra}</Link></th>
+                <td><CelulaGarantia g={o.garantia} /></td>
+                <td>
+                  {o.art.anexada ? <EmDia texto="anexada" /> : <Selo classe="selo--atencao">não anexada</Selo>}
+                  {o.art.numero && <div className="campo__nota num">nº {o.art.numero}</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Rolagem>
+    </section>
   );
 }
 
@@ -494,6 +540,8 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
           </section>
         );
       })()}
+
+      {painel && (painel.contratos ?? []).length > 0 && <GarantiaEArt obras={painel.contratos!} />}
     </div>
   );
 }

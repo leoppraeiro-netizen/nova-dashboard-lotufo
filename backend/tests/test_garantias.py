@@ -1,0 +1,120 @@
+"""Garantia (com validade) e ART (sem validade) como documentos do contrato: issue #65, decisao de 15/10/2026."""
+import datetime
+import json
+
+import pytest
+
+from app import auth, avisos, db, documentos, garantias, tempo
+
+D = datetime.date
+HOJE = D(2026, 10, 15)
+
+
+@pytest.fixture
+def cenario(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(tempo, "hoje_local", lambda: HOJE)
+    c = db.get_conn(); db.migrate(c)
+    auth.criar_usuario(c, "U", "u@l.com", "senha-forte-123", "admin")
+    c.execute("INSERT INTO orgaos (chave, nome, familia, regras) VALUES ('sinfra-x', 'SINFRA X', 'sinfra', ?)",
+              (json.dumps({"vigencia_automatica": True, "documentos_medicao": [], "documentos_reajuste": []}),))
+    c.execute("INSERT INTO contratos (orgao, numero_instrumento, nome_curto, objeto, valor_original_centavos, "
+              "orgao_id, execucao_fim, vigencia_fim, art_arquivo) VALUES ('SINFRA', 'IC 1/2026', 'Obra A', 'obra', 100, "
+              "(SELECT id FROM orgaos WHERE chave='sinfra-x'), '2027-12-20', '2028-01-30', 'anexos/art.pdf')")
+    cid = c.execute("SELECT MAX(id) FROM contratos").fetchone()[0]
+    c.commit()
+
+    def garantia(fim, apolice="AP-1"):
+        c.execute("UPDATE contratos SET garantia_apolice=?, garantia_vigencia_fim=? WHERE id=?", (apolice, fim, cid))
+        c.commit()
+
+    def instrumento(tipo, data, dados, chave):
+        c.execute("INSERT INTO instrumentos (contrato_id, chave, tipo, data, dados) VALUES (?, ?, ?, ?, ?)",
+                  (cid, chave, tipo, data, json.dumps(dados)))
+        c.commit()
+
+    yield c, {"contrato": cid, "garantia": garantia, "instrumento": instrumento}
+    c.close()
+
+
+def _g(c, hoje=HOJE):
+    return [a for a in avisos.listar(c, hoje, publico="todos") if a["tipo"] == "garantia_vencendo"]
+
+
+def test_garantia_30_15_e_vencida_como_as_certidoes(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-12-31")
+    assert _g(c) == []                                                # 77 dias: nada
+    ids["garantia"]("2026-11-14")                                     # 30 dias
+    assert [(a["nivel"], a["dias"]) for a in _g(c)] == [("atencao", 30)]
+    ids["garantia"]("2026-10-30")                                     # 15 dias
+    assert [(a["nivel"], a["dias"]) for a in _g(c)] == [("acao", 15)]
+    ids["garantia"]("2026-10-14")                                     # vencida ontem
+    a = _g(c)[0]
+    assert (a["nivel"], a["dias"], a["sentido"], a["data"]) == ("critico", -1, "prazo", "2026-10-14")
+    assert "vencida" in a["mensagem"] and "14/10/2026" in a["mensagem"]
+    assert a["publico"] == ["operacao", "diretoria"] and a["destino"] == {"tela": "documentos"}
+    assert a["obra"] == "Obra A"
+
+
+def test_endosso_com_vigencia_maior_substitui_e_o_aviso_some(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-10-30")
+    assert len(_g(c)) == 1
+    ids["instrumento"]("endosso_garantia", "2026-10-10", {"vigencia_fim": "2027-04-30"}, "end-1")
+    assert _g(c) == []
+    g = garantias.garantia(c, ids["contrato"], HOJE)
+    assert (g["vigencia_fim"], g["origem"], g["endosso"], g["apolice"]) == ("2027-04-30", "endosso", "end-1", "AP-1")
+    # o historico fica: o endosso anterior continua gravado e o contrato mantem a vigencia original
+    assert c.execute("SELECT garantia_vigencia_fim FROM contratos").fetchone()[0] == "2026-10-30"
+
+
+def test_vale_o_endosso_mais_recente_por_data(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-12-01")
+    ids["instrumento"]("endosso_garantia", "2026-03-01", {"vigencia_fim": "2026-11-01"}, "end-1")
+    ids["instrumento"]("endosso_garantia", "2026-09-01", {"vigencia_fim": "2026-10-20"}, "end-2")
+    assert garantias.garantia(c, ids["contrato"], HOJE)["endosso"] == "end-2"
+    assert [a["dias"] for a in _g(c)] == [5]
+    # endosso sem vigencia (o de prazo antigo, so' com `referente`) nao mexe na garantia
+    ids["instrumento"]("endosso_garantia", "2026-10-01", {"referente": "ta-1"}, "end-3")
+    assert garantias.garantia(c, ids["contrato"], HOJE)["endosso"] == "end-2"
+
+
+def test_encerramento_avisa_ate_a_baixa_da_garantia_e_encerrado_nao_avisa(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-10-20")
+    c.execute("UPDATE contratos SET encerramento_iniciado_em='2026-09-01'"); c.commit()
+    assert len(_g(c)) == 1
+    ids["instrumento"]("marco_encerramento", "2026-10-01", {"marco": "baixa_garantia"}, "baixa")
+    assert _g(c) == []
+    c.execute("DELETE FROM instrumentos"); c.execute("UPDATE contratos SET estado='encerrado'"); c.commit()
+    assert _g(c) == []
+
+
+def test_sem_data_de_garantia_no_cadastro_nao_avisa(cenario):
+    c, ids = cenario
+    assert garantias.garantia(c, ids["contrato"], HOJE) is None and _g(c) == []
+
+
+def test_art_nao_anexada_e_so_aviso_de_ausencia_sem_validade(cenario):
+    c, ids = cenario
+    arts = lambda: [a for a in avisos.listar(c, HOJE) if a["tipo"] == "art_nao_anexada"]   # noqa: E731
+    assert arts() == []                                               # com PDF: nada, e nunca vence
+    assert arts() == [] and avisos.listar(c, D(2030, 1, 1)) is not None
+    c.execute("UPDATE contratos SET art_arquivo=NULL"); c.commit()
+    (a,) = arts()
+    assert (a["nivel"], a["dias"], a["data"], a["publico"], a["mensagem"]) == \
+        ("atencao", None, None, ["operacao"], "ART não anexada")
+    assert a["destino"] == {"tela": "documentos"}
+    c.execute("UPDATE contratos SET encerramento_iniciado_em='2026-09-01'"); c.commit()
+    assert arts() == []                                               # em encerramento a ART nao cobra mais
+
+
+def test_painel_de_documentos_traz_garantia_e_art_por_contrato(cenario):
+    c, ids = cenario
+    ids["garantia"]("2026-11-01")
+    (o,) = documentos.painel(c, HOJE)["contratos"]
+    assert o["contrato_id"] == ids["contrato"] and o["obra"] == "Obra A"
+    assert (o["garantia"]["situacao"], o["garantia"]["dias"], o["garantia"]["apolice"]) == ("vencendo", 17, "AP-1")
+    assert o["art"] == {"numero": None, "anexada": True}

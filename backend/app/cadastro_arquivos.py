@@ -189,6 +189,11 @@ def _dados_instrumentos(c: dict, falha) -> None:
             if d.get("ciclo") is not None and not _CICLO.match(str(d["ciclo"])):
                 falha(f"{onde}.ciclo", "use o ano do ciclo (ex.: 2026)")
         elif inst["tipo"] == "endosso_garantia":
+            if d.get("vigencia_fim") is not None:      # issue #65: o endosso traz a nova vigencia da garantia
+                try:
+                    d["vigencia_fim"] = _data(d["vigencia_fim"])
+                except ValueError as e:
+                    falha(f"{onde}.vigencia_fim", str(e))
             if d.get("referente") is not None and d["referente"] not in de_prazo:
                 falha(f"{onde}.referente", "use a chave de um instrumento de prazo deste contrato")
         elif inst["tipo"] == "marco_encerramento":
@@ -227,6 +232,41 @@ def _pleitos_anteriores(lista, c: dict, falha) -> list[dict]:
             item["dias"] = p["dias"]
         out.append(item)
     return out
+
+
+def _arquivo_do_cadastro(raiz: Path, rel, campo: str, falha) -> str | None:
+    if not rel:
+        return None
+    p = _dentro(raiz, rel)
+    if p is None:
+        falha(campo, f"arquivo não encontrado na pasta do cadastro: {rel}")
+        return None
+    return str(p)
+
+
+def _garantia_e_art(bruto: dict, raiz: Path, c: dict, falha) -> None:
+    """Issue #65. `art` segue valendo como texto (o numero) ou vira `{numero, arquivo}`; `garantia` e'
+    `{apolice, vigencia_fim, arquivo}`. ART nao tem validade; a garantia tem, e o endosso a substitui."""
+    art = bruto.get("art")
+    if isinstance(art, dict):
+        c["art"] = str(art["numero"]).strip() if art.get("numero") not in (None, "") else None
+        c["art_caminho"] = _arquivo_do_cadastro(raiz, art.get("arquivo"), "art.arquivo", falha)
+    else:
+        c["art"] = art
+    gar = bruto.get("garantia")
+    if gar is None:
+        return
+    if not isinstance(gar, dict):
+        falha("garantia", "use {apolice, vigencia_fim, arquivo}")
+        return
+    try:
+        c["garantia_vigencia_fim"] = _data(gar.get("vigencia_fim"))
+    except ValueError as e:
+        falha("garantia.vigencia_fim", str(e))
+    if not c["garantia_vigencia_fim"]:
+        falha("garantia.vigencia_fim", "obrigatória (data de fim da apólice)")
+    c["garantia_apolice"] = str(gar["apolice"]).strip() if gar.get("apolice") not in (None, "") else None
+    c["garantia_caminho"] = _arquivo_do_cadastro(raiz, gar.get("arquivo"), "garantia.arquivo", falha)
 
 
 def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
@@ -270,7 +310,7 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
          "orgao": bruto.get("orgao"), "entidade": bruto.get("entidade"),
          "objeto": bruto.get("objeto"), "municipio": bruto.get("municipio"),
          "lei": None if bruto.get("lei") is None else str(bruto["lei"]),
-         "cno": bruto.get("cno"), "art": bruto.get("art"),
+         "cno": bruto.get("cno"), "art": None,
          "numero_processo": bruto.get("numero_processo"),
          "centro_custo_rm": bruto.get("centro_custo_rm"), "status": bruto.get("status"),
          # 2026-09-25: centros que a obra usou antes do atual (notas antigas; so' a conciliacao do legado olha)
@@ -285,7 +325,9 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
          "objeto_completo": (str(bruto["objeto_completo"]).strip() or None) if bruto.get("objeto_completo") else None,
          # 2026-10-07: objeto como as cartas reais o escrevem (vazio = o do QDOP)
          "objeto_carta": (str(bruto["objeto_carta"]).strip() or None) if bruto.get("objeto_carta") else None,
-         "cno_caminho": None}
+         "cno_caminho": None, "art_caminho": None, "garantia_apolice": None, "garantia_vigencia_fim": None,
+         "garantia_caminho": None}
+    _garantia_e_art(bruto, raiz, c, falha)
     if bruto.get("cno_pdf"):
         cno = _dentro(raiz, bruto["cno_pdf"])
         if cno:
