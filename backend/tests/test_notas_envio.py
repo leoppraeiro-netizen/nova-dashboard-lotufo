@@ -751,6 +751,140 @@ def test_envio_por_fora_recusa_texto_com_from_e_date_escritos_a_mao(api):
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["mtpar_exec"],)).fetchone()[0] == "nota_emitida"
 
 
+# --- issue #180: falha depois de gravar o .eml nao deixa arquivo orfao em evidencias ---
+
+class _ConexaoQueFalhaNoCommit:
+    """Repassa tudo para a conexao de verdade, mas o COMMIT falha (disco cheio, fsync travado)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def commit(self):
+        raise OSError("disco cheio")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def _par_sinfra(ids):
+    return [ids["sinfra_exec"], ids["sinfra_reaj"]]
+
+
+def _falhar_no_segundo_protocolo(monkeypatch):
+    from app import medicoes
+    original, chamadas = medicoes.registrar_protocolo, []
+
+    def registrar(*a, **k):
+        chamadas.append(1)
+        if len(chamadas) == 2:
+            raise OSError("erro de disco no segundo protocolo")
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", registrar)
+
+
+def _nada_registrado(c, ids):
+    for mid in _par_sinfra(ids):
+        _sem_registro(c, mid)
+        assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_falha_no_segundo_protocolo_nao_deixa_eml_orfao(svc, monkeypatch):
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_no_commit_nao_deixa_eml_orfao(svc):
+    c, ids = svc
+    antes = _evidencias()
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(_ConexaoQueFalhaNoCommit(c), ids["uid"], _par_sinfra(ids), "2026-09-15",
+                                  "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_depois_da_gravacao_nao_apaga_eml_que_ja_existia(svc, monkeypatch):
+    """O mesmo .eml (mesmo hash) ja' estava guardado: a falha desfaz o banco e o arquivo continua no lugar."""
+    c, ids = svc
+    rel, _ = arquivos.gravar_bytes("evidencias", EML, "eml")
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes and arquivos.caminho_seguro(rel).read_bytes() == EML
+
+
+class _ConexaoQuePerdeOLockNoRollback:
+    """Gate Sol S1 (PR #199): logo depois do ROLLBACK, outro escritor pega o lock e o segura alem do busy_timeout."""
+
+    def __init__(self, conn, outro):
+        self._conn, self._outro = conn, outro
+
+    def rollback(self):
+        self._conn.rollback()
+        if not self._outro.in_transaction:
+            self._outro.execute("BEGIN IMMEDIATE")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def test_falha_no_registro_limpa_o_eml_ainda_sob_o_lock(svc, monkeypatch):
+    """Gate Sol S1 (PR #199): a limpeza nao depende de pegar o lock de novo; outro escritor segurando o banco depois
+    do ROLLBACK nao deixa o .eml orfao."""
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    outro = db.get_conn()
+    c.execute("PRAGMA busy_timeout=50")
+    try:
+        with pytest.raises(OSError):
+            notas_envio.envio_externo(_ConexaoQuePerdeOLockNoRollback(c, outro), ids["uid"], _par_sinfra(ids),
+                                      "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+        assert outro.in_transaction                     # o lock ficou mesmo com o outro escritor
+    finally:
+        outro.rollback(); outro.close()
+        c.execute("PRAGMA busy_timeout=5000")
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_limpeza_do_eml_nao_apaga_arquivo_que_outro_registro_cita(svc):
+    """Outro registro com o mesmo .eml entrou entre o ROLLBACK e a limpeza: a linha dele cita o arquivo, que fica.
+    Chamada dentro de um envelope de fora, a limpeza nao fecha a transacao dele."""
+    c, ids = svc
+    rel, sha = arquivos.gravar_bytes("evidencias", EML, "eml")
+    with db.mutacao(c):
+        c.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, arquivo, sha256, tamanho) "
+                  "VALUES (?,'operacao','evidencia_orgao','envio.eml',?,?,?,?)", (ids["vg_exec"], sha, rel, sha, len(EML)))
+        notas_envio._remover_eml_sem_registro(c, rel)
+        assert c.in_transaction
+    assert arquivos.caminho_seguro(rel).exists()
+    c.execute("DELETE FROM medicao_documentos WHERE arquivo=?", (rel,)); c.commit()
+    notas_envio._remover_eml_sem_registro(c, rel)
+    assert not arquivos.caminho_seguro(rel).exists()
+
+
+def test_gravar_bytes_que_falha_nao_deixa_temporario(svc, monkeypatch):
+    """Disco cheio no meio da gravacao: nem o .eml nem o temporario ficam em evidencias."""
+    import os
+
+    def falhar(*a):
+        raise OSError("disco cheio")
+    antes = _evidencias()
+    monkeypatch.setattr(os, "replace", falhar)
+    with pytest.raises(OSError):
+        arquivos.gravar_bytes("evidencias", EML, "eml")
+    assert _evidencias() == antes
+
+
 # --- testes de quebra 10/10/2026, A-15: numero do orgao vazio nao apaga o gravado ---
 
 def _numero(cl, mid):
