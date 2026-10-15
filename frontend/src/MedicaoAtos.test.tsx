@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FormProtocoloManual, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
+import { FormProtocoloManual, FormRecebimento, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
 import type { Medicao } from "./Medicoes";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -135,5 +135,34 @@ describe("FormValor (CampoValor)", () => {
     expect(agir).not.toHaveBeenCalled();
     expect(api).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("formato inválido");
+  });
+});
+
+// issue #53: o recebimento a mao exige o motivo (o servidor recusa com menos de 10 caracteres)
+describe("FormRecebimento", () => {
+  afterEach(() => { cleanup(); api.mockReset(); });
+  const protocolada: Medicao = { ...base, estado: "protocolada", congelada: 1 };
+
+  it("sem o motivo mostra o erro no campo e não grava", () => {
+    const agir = vi.fn(async () => true);
+    render(<FormRecebimento m={protocolada} salvando={false} agir={agir} aoFechar={() => {}} />);
+    const motivo = screen.getByLabelText("Motivo");
+    fireEvent.change(motivo, { target: { value: "  curto  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+    expect(agir).not.toHaveBeenCalled();
+    expect(motivo.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(motivo.getAttribute("aria-describedby") ?? "")?.textContent)
+      .toContain("pelo menos 10 caracteres");
+  });
+
+  it("com o motivo manda o motivo e a data ao servidor", async () => {
+    api.mockResolvedValue({ ok: true });
+    const agir = vi.fn(async (fn: () => Promise<unknown>) => { await fn(); return true; });
+    render(<FormRecebimento m={protocolada} salvando={false} agir={agir} aoFechar={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Data da baixa (opcional)"), { target: { value: "2026-09-30" } });
+    fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: " a baixa não entrou no RM " } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar recebimento" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/estado", {
+      method: "POST", body: JSON.stringify({ estado: "recebida", motivo: "a baixa não entrou no RM", data: "2026-09-30" }) }));
   });
 });

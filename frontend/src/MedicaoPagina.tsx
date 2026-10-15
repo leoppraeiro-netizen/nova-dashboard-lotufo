@@ -423,7 +423,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                     NF {Number(n.numero) || n.numero}: recebido {brl(n.recebido_centavos)}{n.recebido_em ? ` em ${fmtDataPura(n.recebido_em)}` : ""}
                   </p>
                 ))}
-                {podeEditar && (PROXIMOS[m.estado] ?? []).includes("recebida") && painel !== "recebimento" && (
+                {/* issue #53: o recebimento a mão é só do admin (o servidor recusa outro perfil) */}
+                {usuario.perfil === "admin" && (PROXIMOS[m.estado] ?? []).includes("recebida") && painel !== "recebimento" && (
                   <div>
                     <button type="button" id="ato-recebimento" className="btn btn--pequeno" disabled={salvando} onClick={() => abrir("recebimento", "ato-recebimento")}>
                       Registrar recebimento
