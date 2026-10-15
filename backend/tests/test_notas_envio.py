@@ -751,6 +751,76 @@ def test_envio_por_fora_recusa_texto_com_from_e_date_escritos_a_mao(api):
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["mtpar_exec"],)).fetchone()[0] == "nota_emitida"
 
 
+# --- issue #180: falha depois de gravar o .eml nao deixa arquivo orfao em evidencias ---
+
+class _ConexaoQueFalhaNoCommit:
+    """Repassa tudo para a conexao de verdade, mas o COMMIT falha (disco cheio, fsync travado)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def commit(self):
+        raise OSError("disco cheio")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def _par_sinfra(ids):
+    return [ids["sinfra_exec"], ids["sinfra_reaj"]]
+
+
+def _falhar_no_segundo_protocolo(monkeypatch):
+    from app import medicoes
+    original, chamadas = medicoes.registrar_protocolo, []
+
+    def registrar(*a, **k):
+        chamadas.append(1)
+        if len(chamadas) == 2:
+            raise OSError("erro de disco no segundo protocolo")
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", registrar)
+
+
+def _nada_registrado(c, ids):
+    for mid in _par_sinfra(ids):
+        _sem_registro(c, mid)
+        assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_falha_no_segundo_protocolo_nao_deixa_eml_orfao(svc, monkeypatch):
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_no_commit_nao_deixa_eml_orfao(svc):
+    c, ids = svc
+    antes = _evidencias()
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(_ConexaoQueFalhaNoCommit(c), ids["uid"], _par_sinfra(ids), "2026-09-15",
+                                  "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_depois_da_gravacao_nao_apaga_eml_que_ja_existia(svc, monkeypatch):
+    """O mesmo .eml (mesmo hash) ja' estava guardado: a falha desfaz o banco e o arquivo continua no lugar."""
+    c, ids = svc
+    rel, _ = arquivos.gravar_bytes("evidencias", EML, "eml")
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes and arquivos.caminho_seguro(rel).read_bytes() == EML
+
+
 # --- testes de quebra 10/10/2026, A-15: numero do orgao vazio nao apaga o gravado ---
 
 def _numero(cl, mid):
