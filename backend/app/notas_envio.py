@@ -10,7 +10,7 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
-from app import arquivos, auditoria, certidoes, db, documentos, frc, medicoes, oficios, protocolo, tempo
+from app import arquivos, auditoria, certidoes, db, documentos, frc, medicoes, notas, oficios, protocolo, tempo
 
 SUB_SINFRA = {"sinfra-sagpm": "SAGPM", "sinfra-suef1": "SUEF I", "sinfra-suef2": "SUEF II", "sinfra-supu": "SUPU",
               "sinfra-sacid": "SACID"}
@@ -22,6 +22,11 @@ BINARIOS = (b"%PDF-", b"\x89PNG", b"PK\x03\x04", b"\xff\xd8\xff")
 NAO_E_EML = ("O arquivo não é um e-mail salvo (.eml): na caixa de Enviados do Outlook, arraste o e-mail para uma "
              "pasta do computador e anexe o arquivo .eml gerado")
 _PIOR = {"ok": 0, "aviso": 1, "falta": 2, "vencida": 3}
+# Issue #188 (opcao A, decisao de 15/10/2026): execucao e reajuste do mesmo numero e competencia sao as duas metades
+# de um envio onde o orgao junta. A espera fica na tela e no envio; o estado de cada medicao nao muda.
+OUTRO = {"execucao": "reajuste", "reajuste": "execucao"}
+COMPLETAS = ("nota_emitida", "protocolada", "nf_emitida", "recebida")
+LIBERACAO = "notas.envio_sem_a_outra_metade"
 
 
 def _grupo(familia: str, o: dict) -> str:
@@ -48,6 +53,101 @@ def _descricao(ms: list[dict]) -> str:
     if len(ms) == 2 and {m["tipo"] for m in ms} == {"execucao", "reajuste"} and len({m["numero"] for m in ms}) == 1:
         return f"{ms[0]['numero']}ª medição + reajuste"
     return " + ".join(medicoes.titulo(m).replace("Medição", "medição") for m in ms)
+
+
+# --- medicao e reajuste: a outra metade (issue #188) -----------------------------------------------
+
+def _outras_metades(conn, m) -> list[dict]:
+    """Mesmo contrato, numero e competencia, o outro tipo do par execucao x reajuste (projeto e' outra serie)."""
+    if m["tipo"] not in OUTRO:
+        return []
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM medicoes WHERE contrato_id=? AND numero=? AND competencia=? AND tipo=? ORDER BY id",
+        (m["contrato_id"], m["numero"], m["competencia"], OUTRO[m["tipo"]]))]
+
+
+def _junta(conn, c: dict) -> tuple[bool, str | None]:
+    """(o orgao junta medicao e reajuste no mesmo e-mail, o nome curto do orgao)."""
+    if not c.get("orgao_id"):
+        return False, None
+    familia, regras, o = protocolo._orgao(conn, c)
+    return protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, _etapa(familia))), _grupo(familia, o)
+
+
+def liberacao(conn, medicao_id: int) -> dict | None:
+    """A saida de emergencia registrada na auditoria (quem, quando, por que), ou None."""
+    r = conn.execute("SELECT a.depois, a.criado_em, u.nome FROM audit_log a LEFT JOIN usuarios u ON u.id=a.usuario_id "
+                     "WHERE a.entidade='medicao' AND a.entidade_id=? AND a.acao=? ORDER BY a.id DESC LIMIT 1",
+                     (str(medicao_id), LIBERACAO)).fetchone()
+    if r is None:
+        return None
+    depois = json.loads(r["depois"] or "{}")
+    return {"justificativa": depois.get("justificativa"), "em": r["criado_em"], "por": r["nome"]}
+
+
+def espera(conn, m, c: dict | None = None) -> dict | None:
+    """Onde o orgao junta (SINFRA, Pref. VG): a outra metade ainda sem as notas segura o envio desta. Cancelada,
+    desistida ou ja' enviada nao segura; a saida de emergencia (`liberar_sem_a_outra`) solta."""
+    outras = [x for x in _outras_metades(conn, m) if x["estado"] in protocolo.SEM_NOTA]
+    if not outras:
+        return None
+    junta, _ = _junta(conn, c or protocolo._contrato(conn, m["contrato_id"]))
+    if not junta or liberacao(conn, m["id"]):
+        return None
+    x = outras[0]
+    return {"medicao_id": x["id"], "titulo": medicoes.titulo(x), "tipo": x["tipo"],
+            "texto": "esperando as notas do reajuste" if x["tipo"] == "reajuste" else "esperando as notas da medição"}
+
+
+def recusar_se_espera(conn, m, c: dict | None = None) -> None:
+    c = c or protocolo._contrato(conn, m["contrato_id"])
+    e = espera(conn, m, c)
+    if e:
+        sem = "Enviar a medição sem o reajuste…" if m["tipo"] == "execucao" else "Enviar o reajuste sem a medição…"
+        raise ValueError(f"{medicoes.titulo(m)} está {e['texto']}: na {_junta(conn, c)[1]} a medição e o reajuste vão "
+                         f"no mesmo e-mail. Anexe as notas do {e['titulo']} ou use “{sem}” na página da medição")
+
+
+def par(conn, medicao_id: int) -> dict:
+    """Pagina da medicao: as duas metades (execucao primeiro), com as notas esperadas, o que falta, a espera e a
+    liberacao de cada uma. Sem a outra metade (ou com uma das duas encerrada por excecao), `metades` vem vazia."""
+    m = conn.execute("SELECT * FROM medicoes WHERE id=?", (medicao_id,)).fetchone()
+    if m is None:
+        raise ValueError("Medição não encontrada")
+    m = dict(m)
+    c = protocolo._contrato(conn, m["contrato_id"])
+    junta, orgao = _junta(conn, c)
+    outras = [x for x in _outras_metades(conn, m) if x["estado"] not in ("cancelada", "desistida")]
+    if m["estado"] in ("cancelada", "desistida") or not outras:
+        return {"junta": junta, "orgao": orgao, "metades": []}
+    metades = []
+    for x in sorted([m, outras[0]], key=lambda y: y["tipo"] != "execucao"):
+        metades.append({"medicao_id": x["id"], "tipo": x["tipo"], "titulo": medicoes.titulo(x), "estado": x["estado"],
+                        "esperadas": notas.esperadas(conn, x["id"]), "faltam": notas.faltam(conn, x["id"]),
+                        "completa": x["estado"] in COMPLETAS,
+                        "espera": espera(conn, x, c) if x["estado"] == "nota_emitida" else None,
+                        "liberacao": liberacao(conn, x["id"])})
+    return {"junta": junta, "orgao": orgao, "metades": metades}
+
+
+def liberar_sem_a_outra(conn, usuario_id: int, medicao_id: int, justificativa: str) -> None:
+    """Saida de emergencia: a metade pronta segue sozinha e a outra vai depois, num envio proprio. Justificativa
+    obrigatoria, gravada na auditoria (e dali na linha do tempo)."""
+    j = (justificativa or "").strip()
+    if len(j) < protocolo.MIN_JUSTIFICATIVA:
+        raise ValueError(f"Informe a justificativa (ao menos {protocolo.MIN_JUSTIFICATIVA} caracteres)")
+    with db.mutacao(conn):           # confere e grava sob o lock: dois cliques nao registram duas liberacoes
+        m = conn.execute("SELECT * FROM medicoes WHERE id=?", (medicao_id,)).fetchone()
+        if m is None:
+            raise ValueError("Medição não encontrada")
+        if m["estado"] != "nota_emitida":
+            raise ValueError(f"{medicoes.titulo(m)} não está com a nota emitida (está "
+                             f"{medicoes.ROTULO_ESTADO.get(m['estado'], m['estado'])})")
+        e = espera(conn, m)
+        if e is None:
+            raise ValueError(f"{medicoes.titulo(m)} não está esperando a outra metade: o envio já está liberado")
+        auditoria.registrar(conn, usuario_id, LIBERACAO, "medicao", m["id"], None,
+                            {"justificativa": j, "outra_medicao_id": e["medicao_id"]})
 
 
 # --- itens do envio --------------------------------------------------------------------------------
@@ -174,17 +274,21 @@ def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.
 
 def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: int | None,
            hoje: datetime.date) -> dict:
-    itens, notas, curtos = _itens(conn, c, familia, ms, hoje)
+    itens, nfs, curtos = _itens(conn, c, familia, ms, hoje)
     estados = {i["estado"] for i in itens}
-    situacao = "bloqueado" if "vencida" in estados else "pendente" if "falta" in estados else \
-        "a_pedido" if o["chave"] == "pref-cuiaba" else "pronto"
+    esperas = [x for m in ms if (x := espera(conn, m, c))]
+    # issue #188: a espera vem antes do resto, porque e' ela que segura o envio
+    situacao = "esperando" if esperas else "bloqueado" if "vencida" in estados else \
+        "pendente" if "falta" in estados else "a_pedido" if o["chave"] == "pref-cuiaba" else "pronto"
+    if esperas:
+        curtos = [esperas[0]["texto"].capitalize(), *curtos]
     ids = sorted(m["id"] for m in ms)
     emitida = max((m["desde"] for m in ms if m.get("desde")), default=None)
     return {"chave": f"c{c['id']}:" + "-".join(f"m{i}" for i in ids), "contrato_id": c["id"],
             "obra": c.get("nome_curto") or c.get("numero_instrumento"), "orgao": _grupo(familia, o),
             "orgao_sub": SUB_SINFRA.get(o["chave"]) if familia == "sinfra" else None, "familia": familia,
             "grupo": _grupo(familia, o), "a_pedido": o["chave"] == "pref-cuiaba", "medicao_ids": ids,
-            "descricao": _descricao(ms), "notas": notas,
+            "descricao": _descricao(ms), "notas": nfs, "espera": esperas[0] if esperas else None,
             "valor_centavos": sum(m.get("valor_centavos") or 0 for m in ms), "emitida_em": emitida,
             "dias": (hoje - datetime.date.fromisoformat(emitida)).days if emitida else None,
             "situacao": situacao, "aviso": " · ".join(dict.fromkeys(curtos)) or None, "itens": itens,
@@ -242,6 +346,7 @@ def iniciar(conn, usuario_id: int, contrato_id: int, medicao_ids: list[int], num
             raise ValueError("Medição de outro contrato")
         if m["estado"] != "nota_emitida":
             raise ValueError(f"{medicoes.titulo(m)} não está com a nota emitida ({m['estado']})")
+        recusar_se_espera(conn, m, c)
     if len(ids) > 1 and not protocolo.junta_naturezas(regras, o, e):
         raise ValueError("Neste órgão cada nota vai no seu e-mail (um ofício por nota)")
     ativos = {p["id"]: p for mid in ids for p in _ativos(conn, etapa, mid)}
@@ -329,6 +434,7 @@ def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[
     p = protocolo._linha(conn, protocolo_id)
     if p["etapa"] not in ("nota", "unico"):
         raise ValueError("Este protocolo não é de envio de nota")
+    # issue #188: a espera pela outra metade e' conferida dentro de protocolo.enviar, sob o lock da reserva
     return protocolo.enviar(conn, usuario, [protocolo_id], para, copia, assunto, corpo, justificativa, cco=cco,
                             anexos_previa=anexos_previa)
 
@@ -366,6 +472,8 @@ def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
         if m["estado"] != "nota_emitida":
             raise ValueError(f"{medicoes.titulo(m)} não está com a nota emitida ({m['estado']})")
         ms.append(dict(m))
+    for m in ms:
+        recusar_se_espera(conn, m)                     # issue #188: o registro por fora tambem espera
     if len({m["contrato_id"] for m in ms}) > 1:       # issue #172: um e-mail e' de um contrato so'
         raise ValueError("Medição de outro contrato")
     for m in ms:

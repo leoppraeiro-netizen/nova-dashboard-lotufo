@@ -53,6 +53,23 @@ describe("Notas a enviar", () => {
     expect(within(painel).queryByText("Registrar envio feito por fora")).toBeNull();
   });
 
+  // issue #188: na SINFRA a medicao e o reajuste vao juntos; sem as notas do reajuste, o envio da medicao espera
+  it("envio esperando as notas do reajuste: aviso, sem iniciar nem registrar por fora", async () => {
+    api.mockResolvedValue({
+      envios: [envio("c12:m637", "MT-388", "SINFRA", { situacao: "esperando", aviso: "Esperando as notas do reajuste",
+        espera: { medicao_id: 638, titulo: "Reajuste da 14ª Medição", tipo: "reajuste", texto: "esperando as notas do reajuste" } })],
+      contadores: { Todas: 1, SINFRA: 1 },
+    });
+    render(<NotasAEnviar busca={{}} podeEditar />);
+    const painel = await screen.findByRole("complementary", { name: "Envio selecionado" });
+    expect(screen.getByRole("region", { name: "SINFRA" }).textContent).toContain("Esperando as notas do reajuste");
+    expect(within(painel).getByText(/SINFRA recebe a medição e o reajuste no mesmo e-mail: esperando as notas do reajuste/)).toBeTruthy();
+    expect(within(painel).getByRole("link", { name: "página da medição" }).getAttribute("href")).toContain("637");
+    expect(within(painel).queryByRole("button", { name: /Enviar a nota/ })).toBeNull();
+    expect(within(painel).queryByText("Registrar envio feito por fora")).toBeNull();
+    expect(api).toHaveBeenCalledTimes(1);          // nada de POST de iniciar
+  });
+
   describe("envio por fora com a irmã no mesmo e-mail (issue #172)", () => {
     const irmas = [{ medicao_id: 638, titulo: "Reajuste da 14ª Medição", tipo: "reajuste" }];
     const ROTULO = "Incluir também o Reajuste da 14ª Medição (saiu no mesmo e-mail)";

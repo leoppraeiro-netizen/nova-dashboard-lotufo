@@ -1,10 +1,10 @@
 # Python
 __pycache__/
 *.pyc
-.venv/
+.venv
 .pytest_cache/
 # Node
-node_modules/
+node_modules
 frontend/dist/
 # Dados locais (nunca commitar banco/segredos/backups)
 dados/

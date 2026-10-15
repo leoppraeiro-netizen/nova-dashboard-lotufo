@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SituacaoFrc } from "./Frc";
@@ -19,7 +19,8 @@ vi.mock("./Frc", () => ({
   },
 }));
 vi.mock("./Notas", () => ({
-  Notas: ({ aoMudar }: { aoMudar: () => void }) => <button type="button" onClick={aoMudar}>Anexar nota (teste)</button>,
+  Notas: ({ aoMudar, rotulo, medicao }: { aoMudar: () => void; rotulo?: string; medicao: { id: number } }) =>
+    <div data-medicao={medicao.id}>{rotulo}<button type="button" onClick={aoMudar}>Anexar nota (teste)</button></div>,
 }));
 vi.mock("./Protocolo", async () => {
   const real = await vi.importActual<typeof import("./Protocolo")>("./Protocolo");
@@ -158,5 +159,107 @@ describe("Página da medição: etapa 3 da obra de consórcio", () => {
   it("obra que não é de consórcio: a etapa 3 feita fica recolhida, como antes", async () => {
     const etapa = await etapa3({ disponivel: false, consorcio: null, motivo: null });
     expect(etapa.open).toBe(false);
+  });
+});
+
+// issue #188: a execucao e o reajuste da mesma competencia na mesma pagina; onde o orgao junta os dois no mesmo
+// e-mail, a metade pronta espera a outra (opcao A: a espera fica na tela e no envio, nao no estado)
+describe("Página da medição: notas da medição e do reajuste", () => {
+  afterEach(() => { cleanup(); api.mockReset(); });
+
+  const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste", estado: "espelho_enviado", valor_protocolado_centavos: 50000 };
+  const metade = (id: number, tipo: string, extra: Record<string, unknown> = {}) => ({
+    medicao_id: id, tipo, titulo: tipo === "execucao" ? "23ª Medição" : "Reajuste da 23ª Medição", estado: "nota_emitida",
+    faltam: 0, esperadas: [], completa: true, espera: null, liberacao: null, ...extra });
+  const ESPERA = { medicao_id: 6, titulo: "Reajuste da 23ª Medição", tipo: "reajuste", texto: "esperando as notas do reajuste" };
+
+  function comPar(par: unknown) {
+    responder();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => {
+      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }, REAJ];
+      if (url === "/api/medicoes/5/par") return par;
+      if (url === "/api/notas/a-enviar") return { envios: [], contadores: {} };
+      return base(url, opcoes);
+    });
+  }
+
+  const SINFRA = { junta: true, orgao: "SINFRA", metades: [metade(5, "execucao", { espera: ESPERA }),
+    metade(6, "reajuste", { estado: "espelho_enviado", completa: false, faltam: 2 })] };
+
+  it("órgão que junta: dois blocos, o que falta por bloco, o passo em espera e o aviso", async () => {
+    comPar(SINFRA);
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect(await screen.findByRole("region", { name: "Execução · 23ª Medição" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Reajuste da 23ª Medição" })).toBeTruthy();
+    expect(container.querySelector("[data-medicao='6']")).toBeTruthy();       // a nota do reajuste vai para o reajuste
+    const etapa3 = container.querySelector("#etapa-3") as HTMLElement;
+    expect(etapa3.querySelector(".etapa__cabeca")!.textContent).toBe("3Nota fiscalexecução completa · reajuste: faltam 2 notas");
+    const barra = screen.getByRole("navigation", { name: "Etapas da medição" });
+    expect(within(barra).getByRole("link", { name: /Nota fiscal · em espera/ })).toBeTruthy();
+    expect(barra.querySelector(".etapas-barra__item--espera")).toBeTruthy();
+    expect(etapa3.textContent).toContain("Na SINFRA a medição e o reajuste vão no mesmo e-mail. O envio ao órgão abre "
+      + "quando chegarem as notas do reajuste.");
+    // a etapa 4 (o envio) ainda nao abriu
+    expect(container.querySelector("#etapa-4")!.className).toContain("etapa--futura");
+  });
+
+  it("na página do reajuste que falta: os mesmos blocos e o aviso, mas a etapa é a da vez, não em espera", async () => {
+    comPar(SINFRA);
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, opcoes?: unknown) => url === "/api/medicoes/6/par" ? SINFRA : base(url, opcoes));
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={6} usuario={usuario} origem={null} />);
+    expect(await screen.findByRole("region", { name: "Execução · 23ª Medição" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Reajuste da 23ª Medição" })).toBeTruthy();
+    expect(container.querySelector(".etapas-barra__item--espera")).toBeNull();
+    expect(container.querySelector("#etapa-3")!.textContent).toContain("O envio ao órgão abre quando chegarem as notas do reajuste.");
+    // a saida de emergencia libera a execucao (a metade pronta), tambem a partir daqui
+    expect(screen.getByRole("button", { name: "Enviar a medição sem o reajuste…" })).toBeTruthy();
+  });
+
+  it("saída de emergência: justificativa obrigatória, libera só a medição pronta", async () => {
+    comPar(SINFRA);
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Enviar a medição sem o reajuste…" }));
+    const liberar = screen.getByRole("button", { name: "Liberar o envio só da medição" }) as HTMLButtonElement;
+    expect(liberar.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Justificativa (obrigatória)"), { target: { value: "notas do reajuste presas no faturamento" } });
+    fireEvent.click(liberar);
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/5/envio-sem-a-outra",
+      { method: "POST", body: JSON.stringify({ justificativa: "notas do reajuste presas no faturamento" }) }));
+  });
+
+  it("a justificativa da liberação aparece na linha do tempo", async () => {
+    comPar({ ...SINFRA, metades: [metade(5, "execucao", { liberacao: { justificativa: "notas presas no faturamento",
+      em: "2026-10-15 13:00:00", por: "Engenharia" } }), SINFRA.metades[1]] });
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect((await screen.findAllByText(/Envio liberado sem o reajuste por Engenharia\. Justificativa: “notas presas no faturamento”/)).length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Enviar a medição sem o reajuste…" })).toBeNull();
+  });
+
+  it("órgão que separa: duas trilhas, sem espera e sem saída de emergência", async () => {
+    comPar({ junta: false, orgao: "MTPAR", metades: [metade(5, "execucao"),
+      metade(6, "reajuste", { estado: "espelho_enviado", completa: false, faltam: 1 })] });
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    const exec = await screen.findByRole("navigation", { name: "Etapas: execução" });
+    const reaj = screen.getByRole("navigation", { name: "Etapas: reajuste" });
+    expect(exec.querySelector("[aria-current='step']")!.textContent).toContain("Envio ao órgão");
+    expect(reaj.querySelector("[aria-current='step']")!.textContent).toContain("Nota fiscal");
+    expect(screen.queryByRole("navigation", { name: "Etapas da medição" })).toBeNull();
+    // a trilha da outra metade leva aos cartoes da pagina dela; a desta pagina, aos cartoes daqui (gate Sol S3)
+    expect(within(reaj).getByRole("link", { name: "Nota fiscal" }).getAttribute("href")).toMatch(/6.*#etapa-3$/);
+    expect(within(exec).getByRole("link", { name: "Envio ao órgão" }).getAttribute("href")).toBe("#etapa-4");
+    expect(container.querySelector(".etapas-barra__item--espera")).toBeNull();
+    expect(screen.queryByRole("button", { name: /sem o reajuste/ })).toBeNull();
+    expect(container.querySelector("#etapa-4")!.className).toContain("etapa--atual");
+  });
+
+  it("medição sem reajuste: um bloco só e a barra de sempre", async () => {
+    comPar({ junta: true, orgao: "SINFRA", metades: [] });
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect(await screen.findByRole("navigation", { name: "Etapas da medição" })).toBeTruthy();
+    expect(container.querySelectorAll("[data-medicao]")).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Execução · 23ª Medição" })).toBeNull();
   });
 });

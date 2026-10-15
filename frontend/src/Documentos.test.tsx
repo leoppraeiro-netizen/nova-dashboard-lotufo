@@ -80,3 +80,20 @@ test("competência pelo nome do arquivo do DP", () => {
   expect(competenciaDoNome("042026 - LOTUFO ENGENHARIA.pdf")).toBe("2026-04");
   expect(competenciaDoNome("Documentos Lotufo.pdf")).toBe("");
 });
+
+test("regularidade: digitar 06/2026 envia a competência como AAAA-MM", async () => {
+  Element.prototype.scrollIntoView = vi.fn();   // o jsdom não tem; o foco devolvido ao botão rola a tela
+  vi.mocked(apiForm).mockResolvedValueOnce({});
+  render(<Documentos usuario={usuario} />);
+  await waitFor(() => screen.getByRole("rowheader", { name: /Lotufo/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Anexar regularidade de Lotufo/ }));
+  const campo = screen.getByLabelText("Competência") as HTMLInputElement;
+  expect(campo.value).toBe("07/2026");              // a esperada vem da API como 2026-07
+  fireEvent.change(screen.getByLabelText(/da regularidade de Lotufo/), { target: { files: [new File(["%PDF"], "x.pdf", { type: "application/pdf" })] } });
+  fireEvent.change(campo, { target: { value: "062026" } });
+  expect(campo.value).toBe("06/2026");
+  fireEvent.click(screen.getByRole("button", { name: /Gravar regularidade/ }));
+  await waitFor(() => expect(apiForm).toHaveBeenCalled());
+  const fd = vi.mocked(apiForm).mock.calls.at(-1)![1] as FormData;
+  expect(fd.get("competencia")).toBe("2026-06");
+});

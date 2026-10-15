@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { api, apiForm, mensagemDeErro } from "./api";
+import CampoCompetencia from "./CampoCompetencia";
 import { IconeAlerta, IconeBaixar } from "./icones";
 import type { Usuario } from "./Login";
 import { focarPorId } from "./foco";
@@ -474,8 +475,8 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
                                 </label>
                                 <div className="campo">
                                   <label className="campo__rotulo" htmlFor={`reg-comp-${e.entidade_id}`}>Competência</label>
-                                  <input id={`reg-comp-${e.entidade_id}`} type="month" required value={reg.competencia}
-                                    onChange={ev => setReg({ ...reg, competencia: ev.target.value })} />
+                                  <CampoCompetencia id={`reg-comp-${e.entidade_id}`} value={reg.competencia}
+                                    onChange={v => setReg({ ...reg, competencia: v })} />
                                 </div>
                                 <button type="submit" className="btn btn--primario btn--pequeno" disabled={ocupado || !reg.arquivo}>{gravandoReg ? "Gravando…" : "Gravar regularidade"}</button>
                                 <button type="button" className="btn btn--pequeno"

@@ -920,3 +920,163 @@ def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
     p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+# --- issue #188: medicao e reajuste da mesma competencia, a espera fica na tela e no envio (opcao A) ---------------
+
+def _sem_notas(c, mid, estado="espelho_enviado"):
+    c.execute("UPDATE medicoes SET estado=?, nota_emitida_em=NULL WHERE id=?", (estado, mid))
+    c.commit()
+
+
+def test_sinfra_execucao_espera_as_notas_do_reajuste_e_depois_sai_com_as_duas(svc):
+    c, ids = svc
+    _sem_notas(c, ids["sinfra_reaj"])
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["medicao_ids"] == [ids["sinfra_exec"]]
+    assert sinfra["situacao"] == "esperando" and sinfra["aviso"].startswith("Esperando as notas do reajuste")
+    assert sinfra["espera"] == {"medicao_id": ids["sinfra_reaj"], "titulo": "Reajuste da 23ª Medição",
+                                "tipo": "reajuste", "texto": "esperando as notas do reajuste"}
+    with pytest.raises(ValueError, match="23ª Medição está esperando as notas do reajuste: na SINFRA"):
+        notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
+    # o estado gravado nao muda (opcao A): a execucao segue em nota emitida, com a data das notas dela
+    assert tuple(c.execute("SELECT estado, nota_emitida_em FROM medicoes WHERE id=?", (ids["sinfra_exec"],)
+                           ).fetchone()) == ("nota_emitida", "2026-09-15")
+    # chegaram as notas do reajuste: um envio com as duas
+    c.execute("UPDATE medicoes SET estado='nota_emitida', nota_emitida_em='2026-09-16' WHERE id=?", (ids["sinfra_reaj"],))
+    c.commit()
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["medicao_ids"] == [ids["sinfra_exec"], ids["sinfra_reaj"]]
+    assert sinfra["situacao"] == "pronto" and sinfra["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["sinfra"], sinfra["medicao_ids"])
+
+
+def test_reajuste_pronto_espera_as_notas_da_medicao_na_vg(svc):
+    c, ids = svc
+    _sem_notas(c, ids["vg_exec"], "prevista")
+    vg, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["vg"])
+    assert vg["situacao"] == "esperando" and vg["espera"]["texto"] == "esperando as notas da medição"
+    with pytest.raises(ValueError, match="na Pref. VG"):
+        notas_envio.iniciar(c, ids["uid"], ids["vg"], [ids["vg_reaj"]], "254")
+
+
+def test_outra_metade_cancelada_ou_desistida_libera_sem_justificativa(svc):
+    c, ids = svc
+    for estado in ("cancelada", "desistida"):
+        _sem_notas(c, ids["sinfra_reaj"], estado)
+        sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+        assert sinfra["situacao"] == "pronto" and sinfra["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
+
+
+def test_orgao_que_separa_nao_espera(svc):
+    c, ids = svc
+    _sem_notas(c, ids["mtpar_reaj"])
+    mtpar, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["mtpar"])
+    assert mtpar["medicao_ids"] == [ids["mtpar_exec"]] and mtpar["situacao"] == "pronto" and mtpar["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["mtpar"], [ids["mtpar_exec"]], "361")
+    p = notas_envio.par(c, ids["mtpar_exec"])
+    assert p["junta"] is False and [x["tipo"] for x in p["metades"]] == ["execucao", "reajuste"]
+
+
+def test_saida_de_emergencia_pede_justificativa_e_libera_so_a_medicao_pronta(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    rota = f"/api/medicoes/{ids['sinfra_exec']}/envio-sem-a-outra"
+    r = cl.post(rota, json={"justificativa": "urgente"})
+    assert r.status_code == 422 and "ao menos 10 caracteres" in r.json()["detail"]
+    r = cl.post(f"/api/medicoes/{ids['sinfra_reaj']}/envio-sem-a-outra",
+                json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 422 and r.json()["detail"] == ("Reajuste da 23ª Medição não está com a nota emitida "
+                                                           "(está com espelho enviado)")
+    r = cl.post(rota, json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 200, r.text
+    assert cl.post(rota, json={"justificativa": "de novo, outra justificativa"}).status_code == 422   # ja' liberada
+    aud = c.execute("SELECT entidade, entidade_id, depois FROM audit_log WHERE acao='notas.envio_sem_a_outra_metade'"
+                    ).fetchall()
+    assert len(aud) == 1 and aud[0][0] == "medicao" and aud[0][1] == str(ids["sinfra_exec"])
+    assert json.loads(aud[0][2]) == {"justificativa": "notas do reajuste presas no faturamento",
+                                     "outra_medicao_id": ids["sinfra_reaj"]}
+    sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
+    assert sinfra["situacao"] == "pronto" and sinfra["medicao_ids"] == [ids["sinfra_exec"]]
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    assert cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d)).status_code == 200
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "protocolada"
+    # a outra metade segue depois, num envio proprio
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_reaj"],)).fetchone()[0] == "espelho_enviado"
+
+
+def test_saida_de_emergencia_so_para_quem_espera(api):
+    cl, c, ids = api
+    r = cl.post(f"/api/medicoes/{ids['mtpar_exec']}/envio-sem-a-outra",
+                json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 422 and "não está esperando" in r.json()["detail"]
+
+
+def test_registro_por_fora_tambem_espera(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "esperando as notas do reajuste" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+
+
+def test_protocolo_registrado_a_mao_tambem_espera(api):
+    """Revisor R2 / Sol S1 (rodada 1 da #188): POST /api/medicoes/{id}/protocolo nao contorna a espera."""
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    corpo = {"data": "2026-09-15", "numero_oficio": "LT 1/2026", "apesar_das_pendencias": True,
+             "justificativa": "protocolado no balcão do órgão"}
+    r = cl.post(f"/api/medicoes/{ids['sinfra_exec']}/protocolo", json=corpo)
+    assert r.status_code == 422 and "esperando as notas do reajuste" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM medicao_protocolos WHERE medicao_id=?", (ids["sinfra_exec"],)).fetchone()[0] == 0
+    # orgao que separa: o registro a mao segue como antes
+    _sem_notas(c, ids["mtpar_reaj"])
+    assert cl.post(f"/api/medicoes/{ids['mtpar_exec']}/protocolo", json=corpo).status_code == 201
+
+
+def test_rascunho_montado_antes_da_espera_nao_envia(svc):
+    """O protocolo criado antes (ou por outro caminho) tambem espera: o envio recusa antes de reservar."""
+    c, ids = svc
+    _sem_notas(c, ids["sinfra_reaj"])
+    pid = protocolo.criar(c, ids["uid"], ids["sinfra"], "nota", [ids["sinfra_exec"]], None)
+    pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
+    with pytest.raises(ValueError, match="esperando as notas do reajuste"):
+        notas_envio.enviar(c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                           "reajuste vai no próximo e-mail", anexos_previa=pv["anexos"])
+    # a rota generica de protocolos (POST /api/protocolos/envio) passa pelo mesmo protocolo.enviar
+    with pytest.raises(ValueError, match="esperando as notas do reajuste"):
+        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                         "reajuste vai no próximo e-mail")
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    p = c.execute("SELECT situacao, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None)                       # nada reservado: a recusa desfez a transacao
+
+
+def test_par_da_pagina_traz_a_outra_metade_e_a_liberacao(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    p = cl.get(f"/api/medicoes/{ids['sinfra_reaj']}/par").json()
+    assert (p["junta"], p["orgao"]) == (True, "SINFRA")
+    exe, rea = p["metades"]
+    assert (exe["medicao_id"], exe["tipo"], exe["titulo"], exe["completa"]) == (ids["sinfra_exec"], "execucao",
+                                                                                "23ª Medição", True)
+    assert (rea["medicao_id"], rea["completa"], rea["espera"], rea["liberacao"]) == (ids["sinfra_reaj"], False, None, None)
+    assert rea["esperadas"] == [] and rea["faltam"] == 1      # sem espelho nesta obra: uma nota, nenhuma lida
+    assert exe["espera"]["texto"] == "esperando as notas do reajuste" and exe["liberacao"] is None
+    cl.post(f"/api/medicoes/{ids['sinfra_exec']}/envio-sem-a-outra",
+            json={"justificativa": "notas do reajuste presas no faturamento"})
+    exe, _ = cl.get(f"/api/medicoes/{ids['sinfra_exec']}/par").json()["metades"]
+    assert exe["espera"] is None and exe["liberacao"]["justificativa"] == "notas do reajuste presas no faturamento"
+    assert exe["liberacao"]["por"] and exe["liberacao"]["em"]
+    # medicao sem reajuste (nem projeto): a pagina fica com um bloco so'
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) VALUES (?, 24, 'execucao', "
+              "'2026-10', 'prevista')", (ids["sinfra"],))
+    c.commit()
+    sozinha = c.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]
+    assert cl.get(f"/api/medicoes/{sozinha}/par").json()["metades"] == []
+    assert cl.get("/api/medicoes/999999/par").status_code == 404

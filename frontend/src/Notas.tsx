@@ -61,8 +61,9 @@ const NATUREZA: Record<string, string> = {
 };
 const naturezaNome = (n: string, rotulo?: string | null) => rotulo || NATUREZA[n] || emissorNome(n);
 
-export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
+export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
   medicao: Medicao; podeEditar: boolean; aoMudar: () => void; aoFechar?: () => void;
+  rotulo?: string;   // issue #188: o bloco da execucao ou do reajuste na pagina da medicao
 }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
@@ -215,7 +216,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
     <div className="notas" onKeyDown={ev => ev.key === "Escape" && aoFechar?.()}>
       <p className="painel__titulo">
         {/* o nome inteiro da medicao: "Reajuste da 23ª Medição" nao e' a 23ª de execucao */}
-        {tituloMedicao(medicao)}
+        {rotulo ?? tituloMedicao(medicao)}
         {dados && (dados.esperadas.length > 0
           ? (dados.faltam > 0 ? ` — falta${dados.faltam === 1 ? "" : "m"} ${dados.faltam} nota${dados.faltam === 1 ? "" : "s"}` : " — notas completas")
           : (dados.notas.length > 0 ? ` — ${dados.notas.length} nota${dados.notas.length === 1 ? "" : "s"} vinculada${dados.notas.length === 1 ? "" : "s"}` : " — nenhuma nota ainda"))}
@@ -226,7 +227,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
 
       {dados && dados.esperadas.length > 0 && (
         <Rolagem rotulo="Notas esperadas da medição">
-          <table className="tabela tabela--densa notas__tabela">
+          <table className="tabela tabela--densa notas__tabela" aria-label={rotulo ? `Notas esperadas: ${rotulo}` : undefined}>
             <thead>
               <tr>
                 <th scope="col">Saída</th><th scope="col" className="col-num num">Valor</th><th scope="col" className="col-num num">INSS</th>
@@ -287,8 +288,8 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
       {justificar && (
         <form className="form-inline" onSubmit={enviarJustificativa}>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-justificativa">Justificativa da divergência</label>
-            <input id="nota-justificativa" name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
+            <label className="campo__rotulo" htmlFor={`nota-justificativa-${medicao.id}`}>Justificativa da divergência</label>
+            <input id={`nota-justificativa-${medicao.id}`} name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
               value={justificar.texto} onChange={ev => setJustificar({ ...justificar, texto: ev.target.value })} />
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "justificar" ? "Gravando…" : "Gravar justificativa"}</button>
@@ -322,18 +323,18 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
         <form className="form-inline" onSubmit={enviarManual}>
           <span className="campo__nota">{manual.nome}: informe os dados da nota</span>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-numero">Número da nota</label>
-            <input id="nota-numero" name="numero" autoComplete="off" spellCheck={false} className="entrada--curta entrada--num num" required inputMode="numeric" pattern="[0-9]{1,9}"
+            <label className="campo__rotulo" htmlFor={`nota-numero-${medicao.id}`}>Número da nota</label>
+            <input id={`nota-numero-${medicao.id}`} name="numero" autoComplete="off" spellCheck={false} className="entrada--curta entrada--num num" required inputMode="numeric" pattern="[0-9]{1,9}"
               value={manual.numero} onChange={ev => setManual({ ...manual, numero: ev.target.value })} />
           </div>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-emissao">Emissão</label>
-            <input id="nota-emissao" name="emissao" autoComplete="off" type="date" className="entrada--media" required
+            <label className="campo__rotulo" htmlFor={`nota-emissao-${medicao.id}`}>Emissão</label>
+            <input id={`nota-emissao-${medicao.id}`} name="emissao" autoComplete="off" type="date" className="entrada--media" required
               value={manual.emissao} onChange={ev => setManual({ ...manual, emissao: ev.target.value })} />
           </div>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-valor">Valor bruto (R$)</label>
-            <CampoValor id="nota-valor" name="valor" required
+            <label className="campo__rotulo" htmlFor={`nota-valor-${medicao.id}`}>Valor bruto (R$)</label>
+            <CampoValor id={`nota-valor-${medicao.id}`} name="valor" required
               value={manual.valor} onChange={v => setManual({ ...manual, valor: v })} />
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "manual" ? "Registrando…" : "Registrar nota"}</button>
@@ -346,7 +347,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
           <label className="btn btn--pequeno espelho__anexar">
             Anexar notas (PDF)
             <input type="file" name="notas" accept="application/pdf" multiple className="espelho__arquivo" disabled={ocupado}
-              aria-label={`Anexar notas à medição ${medicao.numero}`} onChange={ev => anexar(ev.currentTarget)} />
+              aria-label={rotulo ? `Anexar notas: ${rotulo}` : `Anexar notas à medição ${medicao.numero}`} onChange={ev => anexar(ev.currentTarget)} />
           </label>
           <label className="marcar">
             <input type="checkbox" name="frc" checked={frc} onChange={ev => setFrc(ev.target.checked)} />
@@ -361,8 +362,8 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
       {podeEditar && dados && dados.pode_declarar && dados.faltam > 0 && dados.notas.length > 0 && (
         <form className="form-inline" onSubmit={enviarDeclaracao}>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-declarar">Declarar as notas completas — justificativa</label>
-            <input id="nota-declarar" name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
+            <label className="campo__rotulo" htmlFor={`nota-declarar-${medicao.id}`}>Declarar as notas completas — justificativa</label>
+            <input id={`nota-declarar-${medicao.id}`} name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
               value={declarar} onChange={ev => setDeclarar(ev.target.value)} />
           </div>
           <button type="submit" className="btn btn--pequeno" disabled={ocupado}>{acao === "declarar" ? "Gravando…" : "Declarar completas"}</button>

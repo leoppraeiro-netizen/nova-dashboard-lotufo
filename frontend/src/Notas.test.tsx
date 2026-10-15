@@ -201,6 +201,25 @@ describe("Notas: só o botão da ação em curso troca o rótulo", () => {
     expect(botao.disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Declarar completas" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  // issue #188: na pagina da medicao, a execucao e o reajuste em dois blocos; cada um anexa na sua medicao
+  it("dois blocos: o título e o anexo de cada um vão para a medição do bloco", async () => {
+    api.mockImplementation(async (url: string) => url === "/api/medicoes/1/notas" ? DADOS : { ...DADOS, faltam: 2,
+      esperadas: [DADOS.esperadas[0], { ...DADOS.esperadas[0], chave: "reajuste-2", municipio: "Várzea Grande" }] });
+    apiForm.mockResolvedValue({ documento_id: 9, repetido: false, nota_id: 4, conferencia: [], faltam: 1,
+      estado: "espelho_enviado", leitura: { ok: true, motivo: null, leiaute: "cuiaba", numero: 2301 } });
+    const reajuste = { ...medicao, id: 2, tipo: "reajuste" };
+    render(<>
+      <Notas medicao={medicao} rotulo="Execução · 27ª Medição" podeEditar aoMudar={() => {}} />
+      <Notas medicao={reajuste} rotulo="Reajuste da 27ª Medição" podeEditar aoMudar={() => {}} />
+    </>);
+    expect(await screen.findByText("Execução · 27ª Medição — falta 1 nota")).toBeTruthy();
+    expect(await screen.findByText("Reajuste da 27ª Medição — faltam 2 notas")).toBeTruthy();
+    const arquivo = new File(["x"], "nota.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Anexar notas: Reajuste da 27ª Medição"), { target: { files: [arquivo] } });
+    await waitFor(() => expect(apiForm).toHaveBeenCalledWith("/api/medicoes/2/notas", expect.any(FormData)));
+    expect(apiForm).toHaveBeenCalledTimes(1);
+  });
 });
 
 // issue #190: o valor da nota manual se digita como em caixa registradora e vai ao servidor no mesmo formato
