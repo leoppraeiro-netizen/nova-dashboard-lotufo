@@ -256,15 +256,19 @@ def desalocar(conn, usuario_id, medicao_id: int, alocacao_id: int, motivo: str) 
                 "SELECT 1 FROM medicao_documentos WHERE id=? AND medicao_id=?", (a["documento_id"], medicao_id)).fetchone():
             raise ValueError(f"A nota {a['numero']} veio do PDF anexado nesta medição; desfazer o vínculo "
                              "não tira o PDF do envio ao órgão")
+        from app import notas    # import local: notas importa este modulo
+        faltavam = notas.faltam(conn, medicao_id)
         texto = MOTIVO_A_MAO + motivo
         if conn.execute("UPDATE nf_alocacoes SET desfeita_em=datetime('now'), motivo_desfazer=? "
                         "WHERE id=? AND desfeita_em IS NULL", (texto, alocacao_id)).rowcount != 1:
             raise ValueError(f"O vínculo da nota {a['numero']} já foi desfeito")
-        # Revisor R1 (PR #202): em `nota_emitida` a medicao ja' passou da espera da nota; sem a nota que fechava o
-        # conjunto ela protocolaria sem a ressalva "nota nao emitida" (A-09). A nota certa entra antes.
+        # Revisor R1/R4 (PR #202): em `nota_emitida` a medicao ja' passou da espera da nota; tirar a nota que atendia
+        # uma saida (a falta aumenta) ou a ultima nota a faria protocolar sem a ressalva "nota nao emitida" (A-09).
+        # A nota a mais, que nao atende saida nenhuma (medicao declarada completa), sai normalmente.
         if a["estado"] == "nota_emitida":
-            from app import notas    # import local: notas importa este modulo
-            if notas.faltam(conn, medicao_id) > 0:
+            if (notas.faltam(conn, medicao_id) > faltavam
+                    or not conn.execute("SELECT 1 FROM nf_alocacoes WHERE medicao_id=? AND desfeita_em IS NULL",
+                                        (medicao_id,)).fetchone()):
                 raise ValueError(f"Medição com nota emitida ficaria faltando nota: anexe antes a nota certa e depois "
                                  f"desfaça o vínculo da nota {a['numero']}")
         auditoria.registrar(conn, usuario_id, "nf.desalocar", "medicao", medicao_id,

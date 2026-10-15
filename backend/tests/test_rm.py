@@ -779,6 +779,24 @@ def test_desalocar_recusa_tirar_a_nota_que_falta_de_medicao_com_nota_emitida(con
     assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE acao='nf.desalocar'").fetchone()[0] == 0
 
 
+def test_desalocar_nota_a_mais_de_medicao_declarada_completa(conn, tmp_path, espelho_mt402):
+    """Revisor R4 (PR #202): declarada completa (nota_emitida com saida sem nota), a NF errada que nao atende saida
+    nenhuma sai -- a falta nao aumenta. A ultima nota nao sai: a medicao ficaria em nota_emitida sem nota."""
+    from app import notas
+    _, mid = espelho_mt402
+    nfs = [_nf(990, 500.01, centro_custo="0.000.000"), _nf(991, 300.00, centro_custo="0.000.000")]   # centro sem obra
+    sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, []))
+    a, b = (conn.execute("SELECT id FROM notas_fiscais WHERE idmov=?", (i,)).fetchone()[0] for i in (990, 991))
+    al_a = sincronizacao_rm.alocar(conn, 1, a, mid, "manual", None, "pdf")
+    notas.declarar_completa(conn, {"id": 1}, mid, "Cuiabá não teve serviço neste mês")
+    al_b = sincronizacao_rm.alocar(conn, 1, b, mid, "detectado", 0.9, "centro_custo_valor")     # a errada
+    assert medicoes.detalhe(conn, mid)["estado"] == "nota_emitida" and notas.faltam(conn, mid) == 1
+    sincronizacao_rm.desalocar(conn, 1, mid, al_b, "nota de outra obra")
+    assert [n["nota_id"] for n in medicoes.detalhe(conn, mid)["notas"]] == [a]
+    with pytest.raises(ValueError, match="nota emitida"):
+        sincronizacao_rm.desalocar(conn, 1, mid, al_a, "errada")
+
+
 def test_desalocar_recusa_medicao_encerrada_e_nota_do_pdf_anexado(conn, cid, tmp_path):
     """Medicao recebida nao recebe NF de volta; a nota que veio do PDF anexado seguiria no envio ao orgao."""
     mid, aid, _ = _alocada(conn, cid, tmp_path)
