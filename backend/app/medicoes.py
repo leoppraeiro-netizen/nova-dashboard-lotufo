@@ -143,16 +143,16 @@ def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, lis
     for i in range(0, len(ids), LOTE_AUDITORIA):
         lote = ids[i:i + LOTE_AUDITORIA]
         linhas += conn.execute(
-            "SELECT e.id, e.medicao_id, e.valor_centavos, e.atestado_em, e.criado_em, u.nome FROM medicao_atestos e "
+            "SELECT e.id, e.medicao_id, e.valor_centavos, e.origem, e.atestado_em, e.criado_em, u.nome FROM medicao_atestos e "
             "LEFT JOIN usuarios u ON u.id=e.usuario_id "
             f"WHERE e.medicao_id IN ({','.join('?' * len(lote))})", lote).fetchall()
     anterior: dict[int, tuple] = {}
     for r in sorted(linhas, key=lambda r: r["id"]):
         mid = r["medicao_id"]
-        valor_ant, dia_ant = anterior.get(mid, (None, None))
+        valor_ant, dia_ant, origem_ant = anterior.get(mid, (None, None, None))
         # Evento sem dia (carga da auditoria antiga) nao apaga o dia que ja' valia
         dia = r["atestado_em"] if r["atestado_em"] is not None else dia_ant
-        anterior[mid] = (r["valor_centavos"], dia)
+        anterior[mid] = (r["valor_centavos"], dia, r["origem"])
         textos = []
         if valor_ant != r["valor_centavos"]:
             textos.append(f"Atestado definido em {format_brl(r['valor_centavos'])}" if valor_ant is None
@@ -163,6 +163,10 @@ def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, lis
             textos.append(f"Data do atesto alterada de {_data_br(dia_ant)} para {_data_br(dia)}")
         elif dia_ant is None and dia is not None and valor_ant is not None:
             textos.append(f"Data do atesto definida em {_data_br(dia)}")
+        # So' a origem mudou (ex.: o detectado salvo pela pessoa): e' a confirmacao, com autor (revisor R4).
+        # Origem desconhecida (carga da auditoria antiga) nao conta como mudanca.
+        if not textos and origem_ant is not None and r["origem"] is not None and r["origem"] != origem_ant:
+            textos.append(f"Atestado confirmado em {format_brl(r['valor_centavos'])}")
         for texto in textos:
             out[mid].append({"data": r["criado_em"],
                              "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})

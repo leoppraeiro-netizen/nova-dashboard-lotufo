@@ -443,6 +443,12 @@ def test_atesto_confirmar_o_detectado_vira_evento_com_autor(conn, contrato_id):
     medicoes.definir_valor(conn, 1, mid, "atestado", 60_01, "aceito")
     assert _atestos(conn, mid) == [(60_01, "detectado", "2026-08-20", None), (60_01, "aceito", "2026-08-20", 1)]
     assert medicoes.detalhe(conn, mid)["valor_atestado_origem"] == "aceito"
+    # revisor R4: a confirmacao aparece na linha do tempo, com autor
+    medicoes.definir_valor(conn, 1, mid, "atestado", 60_01, "manual")
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Atestado definido em R$ 60,01 pelo sistema",
+        "Atestado confirmado em R$ 60,01 por U",
+        "Atestado confirmado em R$ 60,01 por U"]
 
 
 def test_atesto_mudar_valor_e_dia_juntos_da_duas_linhas(conn, contrato_id):
