@@ -157,9 +157,12 @@ def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, lis
         if valor_ant != r["valor_centavos"]:
             textos.append(f"Atestado definido em {format_brl(r['valor_centavos'])}" if valor_ant is None
                           else f"Atestado alterado de {format_brl(valor_ant)} para {format_brl(r['valor_centavos'])}")
-        # O primeiro dia ja' aparece como "Atestada pelo órgão" (linha do tempo da tela); aqui so' a troca de dia
+        # O dia que chega junto com o primeiro valor ja' aparece como "Atestada pelo órgão" (linha do tempo da
+        # tela); dia posto depois, num atesto que nao tinha, ganha linha propria com autor (gate Sol S1)
         if dia_ant is not None and dia != dia_ant:
             textos.append(f"Data do atesto alterada de {_data_br(dia_ant)} para {_data_br(dia)}")
+        elif dia_ant is None and dia is not None and valor_ant is not None:
+            textos.append(f"Data do atesto definida em {_data_br(dia)}")
         for texto in textos:
             out[mid].append({"data": r["criado_em"],
                              "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})
@@ -254,7 +257,8 @@ def definir_valor(conn, usuario_id: int, medicao_id: int, campo: str, centavos: 
             depois["atestado_em"] = data if data is not None else m["atestado_em"]
             # Issue #61 (decisao do Leo, 15/10/2026): cada mudanca de atesto e' um evento append-only, com autor e
             # data; a coluna acima e' o vigente (o ultimo evento). Regravar o mesmo atesto nao vira evento.
-            if (centavos, depois["atestado_em"]) != (m[col_v], m["atestado_em"]):
+            # A origem entra (revisor R3): confirmar um atesto detectado, sem mudar valor nem dia, e' ato com autor
+            if (centavos, origem, depois["atestado_em"]) != (m[col_v], m[col_o], m["atestado_em"]):
                 conn.execute("INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id) "
                              "VALUES (?,?,?,?,?)", (medicao_id, centavos, origem, depois["atestado_em"], usuario_id))
         auditoria.registrar(conn, usuario_id, f"medicao.valor_{campo}", "medicao", medicao_id,

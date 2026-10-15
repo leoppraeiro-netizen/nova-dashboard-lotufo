@@ -1,4 +1,4 @@
--- 038: atesto como evento append-only (issue #61, decisao do Leo de 15/10/2026). Antes, o valor atestado era so'
+-- 039: atesto como evento append-only (issue #61, decisao do Leo de 15/10/2026). Antes, o valor atestado era so'
 -- a coluna da medicao, sobrescrita a cada glosa; o historico vivia apenas na auditoria. Agora cada mudanca de
 -- atesto (valor ou dia) e' uma linha nova aqui, com autor e data, que nunca se altera nem se apaga. A coluna
 -- `medicoes.valor_atestado_centavos` continua sendo o VIGENTE (o ultimo evento), gravada na mesma transacao,
@@ -50,10 +50,10 @@ ORDER BY a.id;
 
 -- Rede de seguranca: se o vigente gravado na medicao nao e' o do ultimo evento (ou a medicao nao tem evento),
 -- o vigente entra como evento "pelo sistema". Assim vale sempre: vigente = ultimo evento.
--- A hora do evento e' o dia do atesto quando ha' (nao o dia da migracao), para nao parecer feito depois de tudo.
-INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id, criado_em)
-SELECT m.id, m.valor_atestado_centavos, m.valor_atestado_origem, m.atestado_em, NULL,
-       COALESCE(m.atestado_em || ' 00:00:00', datetime('now'))
+-- A hora do evento e' a da migracao (UTC, como todo criado_em): e' quando o sistema o registrou, e assim ele
+-- fica depois dos eventos anteriores tambem na ordem da linha do tempo. O dia do atesto vai em atestado_em.
+INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id)
+SELECT m.id, m.valor_atestado_centavos, m.valor_atestado_origem, m.atestado_em, NULL
 FROM medicoes m
 WHERE m.valor_atestado_centavos IS NOT NULL
   AND NOT EXISTS (

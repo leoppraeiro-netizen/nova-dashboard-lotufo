@@ -426,6 +426,25 @@ def test_atesto_mudar_so_o_dia_e_evento_e_regravar_igual_nao(conn, contrato_id):
         "Data do atesto alterada de 20/08/2026 para 25/08/2026 por U"]
 
 
+def test_atesto_dia_posto_depois_aparece_com_autor(conn, contrato_id):
+    """Gate Sol S1: valor sem dia e, depois, so' o dia: o evento existia mas nao aparecia na linha do tempo."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "atestado", 70_01, "manual")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 70_01, "manual", "2026-08-20")
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Atestado definido em R$ 70,01 por U",
+        "Data do atesto definida em 20/08/2026 por U"]
+
+
+def test_atesto_confirmar_o_detectado_vira_evento_com_autor(conn, contrato_id):
+    """Revisor R3: detectado -> aceito, mesmo valor e dia, e' quem confirmou; fica no historico."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, None, mid, "atestado", 60_01, "detectado", "2026-08-20")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 60_01, "aceito")
+    assert _atestos(conn, mid) == [(60_01, "detectado", "2026-08-20", None), (60_01, "aceito", "2026-08-20", 1)]
+    assert medicoes.detalhe(conn, mid)["valor_atestado_origem"] == "aceito"
+
+
 def test_atesto_mudar_valor_e_dia_juntos_da_duas_linhas(conn, contrato_id):
     mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
     medicoes.definir_valor(conn, 1, mid, "atestado", 1_000_00, "manual", "2026-08-20")
