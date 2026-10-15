@@ -326,7 +326,7 @@ Levantamento das cartas reais: `docs/levantamento-protocolo-2026-09-24.md`.
 
 **Garantia e ART do contrato** (issue #65, decisão de 15/10/2026). No YAML do contrato: `garantia: {apolice, vigencia_fim, arquivo}` e
 `art: {numero, arquivo}` (`art: 123456` em texto continua valendo; `arquivo` é o PDF, dentro da pasta do
-cadastro, copiado por `aplicar`). Cada instrumento `endosso_garantia` com `vigencia_fim` substitui a vigência
+cadastro, copiado por `aplicar`). Cada instrumento `endosso_garantia` com `vigencia_fim` e `apolice` (a do contrato; sem `apolice` o `cadastro validar` recusa) substitui a vigência
 da garantia (vale o de data mais recente; instrumento aplicado não muda, correção é instrumento novo). A garantia
 avisa aos 30 dias (ação aos 15, crítico vencida) para operação e diretoria, na tela Documentos e em Avisos, até
 o marco `baixa_garantia`; contrato sem `garantia` no cadastro não avisa. A ART não vence: o aviso é só "ART não

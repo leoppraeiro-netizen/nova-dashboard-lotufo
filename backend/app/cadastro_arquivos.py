@@ -194,6 +194,10 @@ def _dados_instrumentos(c: dict, falha) -> None:
                     d["vigencia_fim"] = _data(d["vigencia_fim"])
                 except ValueError as e:
                     falha(f"{onde}.vigencia_fim", str(e))
+                if not str(d.get("apolice") or "").strip():
+                    falha(f"{onde}.apolice", "endosso com vigencia_fim precisa dizer de qual apólice é (campo apolice)")
+                else:
+                    d["apolice"] = str(d["apolice"]).strip()
             if d.get("referente") is not None and d["referente"] not in de_prazo:
                 falha(f"{onde}.referente", "use a chave de um instrumento de prazo deste contrato")
         elif inst["tipo"] == "marco_encerramento":

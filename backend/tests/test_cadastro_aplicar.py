@@ -474,7 +474,7 @@ def test_garantia_e_art_gravadas_e_ensaio_nao_copia(conn, tmp_path):
 def test_endosso_com_vigencia_aplicado_e_imutavel(conn):
     inst = {"chave": "end-1", "tipo": "endosso_garantia", "numero": None, "objeto": None, "corrige": None,
             "pdf": None, "data": "2026-09-01", "delta_valor_centavos": 0, "nova_execucao_fim": None,
-            "nova_vigencia_fim": None, "dados": {"vigencia_fim": "2027-09-30"}}
+            "nova_vigencia_fim": None, "dados": {"vigencia_fim": "2027-09-30", "apolice": "AP-1"}}
     cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(instrumentos=[inst])]))
     dados = json.loads(conn.execute("SELECT dados FROM instrumentos").fetchone()[0])
     assert dados["vigencia_fim"] == "2027-09-30"

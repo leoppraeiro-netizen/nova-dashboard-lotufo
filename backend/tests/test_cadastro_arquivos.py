@@ -383,7 +383,7 @@ def test_garantia_e_art_do_contrato_normalizadas(tmp_path):
     c = {**CONTRATO, "art": {"numero": " 1234567 ", "arquivo": "anexos/art.pdf"},
          "garantia": {"apolice": "AP-9", "vigencia_fim": "2027-03-31", "arquivo": "anexos/gar.pdf"},
          "instrumentos": [*CONTRATO["instrumentos"], {"chave": "end-1", "tipo": "endosso_garantia",
-                                                      "data": "2026-09-01", "vigencia_fim": "2027-09-30"}]}
+                                                      "data": "2026-09-01", "vigencia_fim": "2027-09-30", "apolice": "AP-9"}]}
     got = ca.preparar(_escrever(raiz, contratos=[c]))["contratos"][0]
     assert got["art"] == "1234567" and got["art_caminho"].endswith("art.pdf")
     assert (got["garantia_apolice"], got["garantia_vigencia_fim"]) == ("AP-9", "2027-03-31")
@@ -404,3 +404,10 @@ def test_garantia_sem_data_arquivo_inexistente_e_endosso_com_data_ruim_sao_erro(
     assert any("garantia.vigencia_fim" in e for e in erros)
     assert any("garantia.arquivo" in e for e in erros)
     assert any("end-1" in e and "vigencia_fim" in e for e in erros)
+
+
+def test_endosso_com_vigencia_sem_apolice_e_recusado(tmp_path):
+    c = {**CONTRATO, "instrumentos": [{"chave": "end-1", "tipo": "endosso_garantia", "data": "2026-09-01",
+                                       "vigencia_fim": "2027-09-30"}]}
+    erros = _erros(_escrever(tmp_path, contratos=[c]))
+    assert any("end-1" in e and "apolice" in e and "apólice" in e for e in erros)

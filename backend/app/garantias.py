@@ -1,7 +1,7 @@
 """Garantia contratual e ART como documentos do contrato (issue #65, decisao de 15/10/2026).
 
 GARANTIA tem validade: o cadastro traz `garantia: {apolice, vigencia_fim, arquivo}` e cada instrumento
-`endosso_garantia` com `vigencia_fim` substitui a vigencia anterior (o mais recente por data vale; o historico
+`endosso_garantia` com `vigencia_fim` e `apolice` (so' vale o da apolice do contrato) substitui a vigencia anterior (o mais recente por data vale; o historico
 fica nos instrumentos). ART NAO tem validade (vale pela obra): o unico aviso e' "ART nao anexada".
 
 Aviso de garantia, como o das certidoes: atencao a 30 dias do fim, acao a 15, critico vencida; operacao e
@@ -38,13 +38,11 @@ def garantia(conn, contrato_id: int, hoje: datetime.date | None = None) -> dict 
     fim, origem, chave = c["garantia_vigencia_fim"], "contrato", None
     todos = _instrumentos(conn, contrato_id, "endosso_garantia")
     corrigidos = {e["dados"].get("corrige") for e in todos}       # correcao e' instrumento novo: o corrigido sai
-    for e in todos:                                               # o ultimo por data substitui a vigencia
-        if e["chave"] not in corrigidos and _d(e["dados"].get("vigencia_fim")):
-            nova = str(e["dados"]["vigencia_fim"])[:10]
-            # apolice nova no contrato com data maior que a do endosso vale (o endosso aplicado nao se apaga)
-            if _d(fim) and origem == "contrato" and _d(fim) > _d(nova):
-                continue
-            fim, origem, chave = nova, "endosso", e["chave"]
+    apolice = (c["garantia_apolice"] or "").strip()
+    for e in todos:       # so' vale endosso DA apolice do contrato; entre eles, o mais recente por data do instrumento
+        if (apolice and str(e["dados"].get("apolice") or "").strip() == apolice
+                and e["chave"] not in corrigidos and _d(e["dados"].get("vigencia_fim"))):
+            fim, origem, chave = str(e["dados"]["vigencia_fim"])[:10], "endosso", e["chave"]
     if not _d(fim):
         return None
     baixada = any(m["dados"].get("marco") == "baixa_garantia"
