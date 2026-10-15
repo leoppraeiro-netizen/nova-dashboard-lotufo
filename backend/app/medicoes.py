@@ -123,16 +123,51 @@ def _linhas_edicoes(conn: sqlite3.Connection, medicao_ids: list[int]) -> list:
             "SELECT a.id, a.acao, a.entidade_id, a.antes, a.depois, a.criado_em, u.nome FROM audit_log a "
             "LEFT JOIN usuarios u ON u.id=a.usuario_id WHERE a.entidade='medicao' "
             f"AND a.entidade_id IN ({','.join('?' * len(lote))}) "
-            "AND a.acao IN ('medicao.valor_protocolado','medicao.valor_atestado')", lote).fetchall()
+            "AND a.acao = 'medicao.valor_protocolado'", lote).fetchall()
     return sorted(linhas, key=lambda r: r["id"])
+
+
+def _data_br(iso: str) -> str:
+    try:
+        return datetime.date.fromisoformat(iso).strftime("%d/%m/%Y")
+    except (TypeError, ValueError):
+        return str(iso)
+
+
+def _eventos_atesto(conn: sqlite3.Connection, ids: list[int], out: dict[int, list[dict]]) -> None:
+    """Issue #61: a linha do tempo do atesto vem dos eventos (medicao_atestos, append-only), um por mudanca de
+    valor ou de dia. Evento que nao muda nenhum dos dois (carga da auditoria antiga) nao vira linha."""
+    from app.dinheiro import format_brl
+    linhas = []
+    for i in range(0, len(ids), LOTE_AUDITORIA):
+        lote = ids[i:i + LOTE_AUDITORIA]
+        linhas += conn.execute(
+            "SELECT e.id, e.medicao_id, e.valor_centavos, e.atestado_em, e.criado_em, u.nome FROM medicao_atestos e "
+            "LEFT JOIN usuarios u ON u.id=e.usuario_id "
+            f"WHERE e.medicao_id IN ({','.join('?' * len(lote))})", lote).fetchall()
+    anterior: dict[int, tuple] = {}
+    for r in sorted(linhas, key=lambda r: r["id"]):
+        mid = r["medicao_id"]
+        valor_ant, dia_ant = anterior.get(mid, (None, None))
+        anterior[mid] = (r["valor_centavos"], r["atestado_em"])
+        if valor_ant != r["valor_centavos"]:
+            texto = (f"Atestado definido em {format_brl(r['valor_centavos'])}" if valor_ant is None
+                     else f"Atestado alterado de {format_brl(valor_ant)} para {format_brl(r['valor_centavos'])}")
+        elif r["atestado_em"] is not None and dia_ant != r["atestado_em"]:
+            texto = (f"Data do atesto definida em {_data_br(r['atestado_em'])}" if dia_ant is None
+                     else f"Data do atesto alterada de {_data_br(dia_ant)} para {_data_br(r['atestado_em'])}")
+        else:
+            continue
+        out[mid].append({"data": r["criado_em"],
+                         "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})
 
 
 def edicoes_valor(conn: sqlite3.Connection, medicao_ids: list[int]) -> dict[int, list[dict]]:
     """B-02 (10/10/2026): as edicoes de valor da auditoria, por medicao, para a linha do tempo (a tela so' mostrava
-    espelho, nota, protocolo e atesto). Gravar o mesmo valor nao vira evento."""
+    espelho, nota, protocolo e atesto). Gravar o mesmo valor nao vira evento. O atestado vem dos eventos de
+    atesto (issue #61), nao da auditoria."""
     from app.dinheiro import format_brl
-    rotulo = {"medicao.valor_protocolado": ("valor_protocolado_centavos", "Valor protocolado"),
-              "medicao.valor_atestado": ("valor_atestado_centavos", "Atestado")}
+    rotulo = {"medicao.valor_protocolado": ("valor_protocolado_centavos", "Valor protocolado")}
     out: dict[int, list[dict]] = {i: [] for i in medicao_ids}
     for r in _linhas_edicoes(conn, list(out)):
         if not (r["entidade_id"] or "").isdigit() or int(r["entidade_id"]) not in out:
@@ -150,6 +185,9 @@ def edicoes_valor(conn: sqlite3.Connection, medicao_ids: list[int]) -> dict[int,
         out[int(r["entidade_id"])].append({"data": r["criado_em"],
                                            # gate Sol S5 (10/10/2026): sem usuario, a autoria e' do sistema
                                            "texto": f"{texto} por {r['nome']}" if r["nome"] else f"{texto} pelo sistema"})
+    _eventos_atesto(conn, list(out), out)
+    for eventos in out.values():
+        eventos.sort(key=lambda e: e["data"] or "")      # estavel: no mesmo segundo, o protocolado vem antes
     return out
 
 
@@ -211,6 +249,11 @@ def definir_valor(conn, usuario_id: int, medicao_id: int, campo: str, centavos: 
         if campo == "atestado":
             # O que FICOU gravado (COALESCE), como no motivo de mudar_estado.
             depois["atestado_em"] = data if data is not None else m["atestado_em"]
+            # Issue #61 (decisao do Leo, 15/10/2026): cada mudanca de atesto e' um evento append-only, com autor e
+            # data; a coluna acima e' o vigente (o ultimo evento). Regravar o mesmo atesto nao vira evento.
+            if (centavos, origem, depois["atestado_em"]) != (m[col_v], m[col_o], m["atestado_em"]):
+                conn.execute("INSERT INTO medicao_atestos (medicao_id, valor_centavos, origem, atestado_em, usuario_id) "
+                             "VALUES (?,?,?,?,?)", (medicao_id, centavos, origem, depois["atestado_em"], usuario_id))
         auditoria.registrar(conn, usuario_id, f"medicao.valor_{campo}", "medicao", medicao_id,
                             antes, depois)
 

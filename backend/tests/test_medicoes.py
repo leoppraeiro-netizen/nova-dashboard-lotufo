@@ -389,3 +389,59 @@ def test_mensagens_do_servidor_usam_o_rotulo_da_tela_para_nf_emitida(conn, contr
         medicoes.mudar_estado(conn, 1, mid, "protocolada", None, "2026-09-14")
     assert "NF emitida" not in str(e.value)
     assert "lançada no RM" in str(e.value)
+
+
+def _atestos(conn, mid):
+    return [tuple(r) for r in conn.execute(
+        "SELECT valor_centavos, origem, atestado_em, usuario_id FROM medicao_atestos WHERE medicao_id=? ORDER BY id",
+        (mid,))]
+
+
+def test_duas_edicoes_de_atesto_geram_dois_eventos_e_o_vigente_e_o_ultimo(conn, contrato_id):
+    """Issue #61 (decisao do Leo, 15/10/2026): atesto e' evento append-only, com autor e data; vale o ultimo."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "atestado", 1_234_57, "manual", "2026-08-20")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 1_234_56, "manual")      # glosa de um centavo, sem data nova
+    assert _atestos(conn, mid) == [(1_234_57, "manual", "2026-08-20", 1), (1_234_56, "manual", "2026-08-20", 1)]
+    assert all(r[0] for r in conn.execute("SELECT criado_em FROM medicao_atestos WHERE medicao_id=?", (mid,)))
+    d = medicoes.detalhe(conn, mid)
+    assert (d["valor_atestado_centavos"], d["atestado_em"]) == (1_234_56, "2026-08-20")
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Atestado definido em R$ 1.234,57 por U",
+        "Atestado alterado de R$ 1.234,57 para R$ 1.234,56 por U"]
+
+
+def test_atesto_mudar_so_o_dia_e_evento_e_regravar_igual_nao(conn, contrato_id):
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "atestado", 90_01, "manual", "2026-08-20")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 90_01, "manual", "2026-08-25")
+    medicoes.definir_valor(conn, 1, mid, "atestado", 90_01, "manual")           # nada muda: nao vira evento
+    assert _atestos(conn, mid) == [(90_01, "manual", "2026-08-20", 1), (90_01, "manual", "2026-08-25", 1)]
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]] == [
+        "Atestado definido em R$ 90,01 por U",
+        "Data do atesto alterada de 20/08/2026 para 25/08/2026 por U"]
+
+
+def test_atesto_depois_do_recebimento_tambem_e_evento(conn, contrato_id):
+    """O Sol pediu os atestos como eventos inclusive apos NF/recebimento: la' o atestado segue editavel (glosa)."""
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "protocolado", 50_000_00, "manual")
+    medicoes.registrar_protocolo(conn, 1, mid, "2026-07-10", "CT-1", None, "manual")
+    medicoes.mudar_estado(conn, 1, mid, "recebida", None)
+    medicoes.definir_valor(conn, None, mid, "atestado", 48_000_01, "detectado")
+    assert _atestos(conn, mid) == [(48_000_01, "detectado", None, None)]
+    assert [e["texto"] for e in medicoes.edicoes_valor(conn, [mid])[mid]][-1] == \
+        "Atestado definido em R$ 48.000,01 pelo sistema"
+
+
+def test_evento_de_atesto_nao_se_altera_nem_se_apaga(conn, contrato_id):
+    import sqlite3
+    mid = medicoes.criar(conn, 1, {"contrato_id": contrato_id, "numero": 1, "tipo": "execucao", "competencia": "2026-07"})
+    medicoes.definir_valor(conn, 1, mid, "atestado", 100, "manual")
+    with pytest.raises(sqlite3.DatabaseError, match="não se altera"):
+        conn.execute("UPDATE medicao_atestos SET valor_centavos=1 WHERE medicao_id=?", (mid,))
+    conn.rollback()
+    with pytest.raises(sqlite3.DatabaseError, match="não se apaga"):
+        conn.execute("DELETE FROM medicao_atestos WHERE medicao_id=?", (mid,))
+    conn.rollback()
+    assert _atestos(conn, mid) == [(100, "manual", None, 1)]
