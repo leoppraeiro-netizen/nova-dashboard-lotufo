@@ -5,7 +5,7 @@ import pathlib
 
 import pytest
 
-from app import auth, avisos, cadastro_aplicar, conciliacao, db, diretoria, medicoes
+from app import auth, avisos, cadastro_aplicar, db, diretoria, medicoes
 from tests.test_protocolo import _contrato
 
 D = datetime.date
@@ -223,7 +223,8 @@ def test_recebimento_manual_tira_a_nota_do_a_receber_e_o_corte_nao(cenario):
     cortada = nota(911, "2026-06-02", 300_001, 15)    # protocolada; fecha pelo corte
     c.commit()
     medicoes.mudar_estado(c, uid, a_mao, "recebida", "a baixa nao entrou no RM; conferida no extrato", "2026-09-20")
-    medicoes.mudar_estado(c, uid, cortada, "recebida", conciliacao.MOTIVO_CORTE.format(data="22/09/2026"), None)
+    # o corte se reconhece pelo comeco do motivo, mesmo que o resto do texto da epoca seja outro
+    medicoes.mudar_estado(c, uid, cortada, "recebida", "corte de 22/09/2026: faturado conta como pago", None)
     ids["liberar"]()
     d = diretoria.painel(c, HOJE)["dinheiro"]["protocolado"]
     assert d["valor_centavos"] == 300_001                  # so' a nota da medicao fechada pelo corte

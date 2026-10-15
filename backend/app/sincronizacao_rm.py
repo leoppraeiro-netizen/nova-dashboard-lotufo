@@ -623,21 +623,25 @@ def reconciliacao(conn, nfs_apos: int | None = None, desfeitas_apos: int | None 
 def _recebidas_sem_baixa(conn) -> list[dict]:
     """Issue #203: medicao recebida a mao (`conciliacao.recebidas_a_mao`) com nota ligada cujo titulo o RM ainda
     mostra em aberto. O registro manual vale (a nota sai do a receber); esta lista e' o aviso de que o RM nao tem a
-    baixa. Uma linha por nota, so' as da coligada da entidade do contrato (as que decidem o recebimento) e com
-    mais que a tolerancia em aberto, a mesma regra do a receber; o valor e' o que falta do titulo, cheio."""
+    baixa. Uma linha por nota (nota partida entre duas medicoes aparece uma vez, na primeira), so' as da coligada
+    da entidade do contrato (as que decidem o recebimento) e com mais que a tolerancia em aberto, a mesma regra do
+    a receber; o valor e' o que falta do titulo, cheio."""
     from app import conciliacao, diretoria   # import local: os dois importam este modulo
     a_mao = conciliacao.recebidas_a_mao(conn)
     if not a_mao:
         return []
-    out = []
-    for r in conn.execute(f"""
+    out, vistas = [], set()
+    for r in conn.execute("""
             SELECT m.id AS medicao_id, m.contrato_id, c.numero_instrumento, m.numero, m.tipo, m.competencia,
                    m.recebida_em, n.id AS nota_id, n.numero AS numero_nf, n.serie
             FROM medicoes m JOIN contratos c ON c.id=m.contrato_id JOIN entidades e ON e.id=COALESCE(c.entidade_id, 1)
             JOIN nf_alocacoes a ON a.medicao_id=m.id AND a.desfeita_em IS NULL
             JOIN notas_fiscais n ON n.id=a.nota_id AND n.situacao='ativa' AND n.coligada=e.coligada_rm
-            WHERE m.id IN ({','.join('?' * len(a_mao))})
-            ORDER BY c.numero_instrumento, m.numero, n.id""", sorted(a_mao)):
+            WHERE m.estado='recebida'
+            ORDER BY c.numero_instrumento, m.numero, m.id, n.id"""):
+        if r["medicao_id"] not in a_mao or r["nota_id"] in vistas:
+            continue
+        vistas.add(r["nota_id"])
         recebido, devido, _ = _recebido_da_nota(conn, r["nota_id"])
         if devido - recebido > diretoria.TOLERANCIA_CENTAVOS:
             out.append({**dict(r), "falta_centavos": devido - recebido})

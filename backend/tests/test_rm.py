@@ -268,6 +268,12 @@ def test_reconciliacao_lista_recebida_a_mao_com_titulo_aberto_no_rm(conn, cid, t
     sincronizacao_rm.sincronizar(conn, _simulador(tmp_path, nfs, abertas))
     medicoes.mudar_estado(conn, 1, a_mao, "recebida", "a baixa nao entrou no RM; conferida no extrato", "2026-09-20")
     medicoes.mudar_estado(conn, 1, cortada, "recebida", conciliacao.MOTIVO_CORTE.format(data="22/09/2026"), None)
+    # a mesma NF partida com outra medicao recebida a mao: uma linha so', sem contar o titulo duas vezes
+    irma = _medicao(conn, cid, 14, 1_00)
+    nid = conn.execute("SELECT id FROM notas_fiscais WHERE idmov=100").fetchone()[0]
+    conn.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
+                 "VALUES (?, ?, 1, 'detectado', 't')", (irma, nid)); conn.commit()
+    medicoes.mudar_estado(conn, 1, irma, "recebida", "a baixa nao entrou no RM; conferida no extrato", "2026-09-20")
     r = sincronizacao_rm.reconciliacao(conn)["recebidas_sem_baixa"]
     assert [(x["medicao_id"], x["numero"], x["numero_nf"], x["falta_centavos"], x["recebida_em"]) for x in r] == [
         (a_mao, 12, "0000000100", 924_01, "2026-09-20")]
