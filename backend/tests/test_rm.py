@@ -736,6 +736,22 @@ def test_desalocar_recusa_sem_motivo_de_outra_medicao_e_repetida(conn, cid, tmp_
     assert conn.execute("SELECT COUNT(*) FROM audit_log WHERE acao='nf.desalocar'").fetchone()[0] == 1
 
 
+def test_desalocar_recusa_medicao_encerrada_e_nota_do_pdf_anexado(conn, cid, tmp_path):
+    """Medicao recebida nao recebe NF de volta; a nota que veio do PDF anexado seguiria no envio ao orgao."""
+    mid, aid, _ = _alocada(conn, cid, tmp_path)
+    nota = conn.execute("SELECT nota_id FROM nf_alocacoes WHERE id=?", (aid,)).fetchone()[0]
+    did = conn.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id) "
+                       "VALUES (?, 'operacao', 'nfs', 'nota.pdf', 'x1')", (mid,)).lastrowid
+    conn.execute("UPDATE notas_fiscais SET documento_id=? WHERE id=?", (did, nota)); conn.commit()
+    with pytest.raises(ValueError, match="PDF anexado nesta medição"):
+        sincronizacao_rm.desalocar(conn, 1, mid, aid, "errada")
+    conn.execute("UPDATE notas_fiscais SET documento_id=NULL WHERE id=?", (nota,))
+    conn.execute("UPDATE medicoes SET estado='recebida' WHERE id=?", (mid,)); conn.commit()
+    with pytest.raises(ValueError, match="recebida"):
+        sincronizacao_rm.desalocar(conn, 1, mid, aid, "errada")
+    assert conn.execute("SELECT desfeita_em FROM nf_alocacoes WHERE id=?", (aid,)).fetchone()[0] is None
+
+
 def test_rota_desalocar_so_admin(client_admin, tmp_path, monkeypatch):
     from app import auth
     monkeypatch.setattr(documentos, "exigidos",
