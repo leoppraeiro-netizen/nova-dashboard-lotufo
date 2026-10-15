@@ -220,7 +220,7 @@ describe("Notas: valor da nota manual (CampoValor)", () => {
     fireEvent.change(screen.getByLabelText("Número da nota"), { target: { value: "2290" } });
     fireEvent.change(screen.getByLabelText("Emissão"), { target: { value: "2026-09-14" } });
     const valor = screen.getByLabelText(/^Valor/) as HTMLInputElement;
-    for (const c of "5000000") fireEvent.change(valor, { target: { value: valor.value + c } });
+    for (const c of "5000000") fireEvent.input(valor, { target: { value: valor.value + c }, inputType: "insertText", data: c });
     expect(valor.value).toBe("50.000,00");
     fireEvent.click(screen.getByRole("button", { name: "Registrar nota" }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/manual", expect.objectContaining({

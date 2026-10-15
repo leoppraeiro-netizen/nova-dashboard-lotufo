@@ -12,31 +12,37 @@ const ERRO_COLADO = "Valor colado em formato inválido: use vírgula nos centavo
 
 const soDigitos = (texto: string) => texto.replace(/\D/g, "").replace(/^0+/, "");
 
-/** O que a edicao fez, comparando o texto de antes com o de depois: o trecho tirado e o trecho posto. */
-function diferenca(antes: string, depois: string): { removido: string; inserido: string } {
-  let p = 0;
-  while (p < antes.length && p < depois.length && antes[p] === depois[p]) p++;
-  let s = 0;
-  while (s < antes.length - p && s < depois.length - p && antes[antes.length - 1 - s] === depois[depois.length - 1 - s]) s++;
-  return { removido: antes.slice(p, antes.length - s), inserido: depois.slice(p, depois.length - s) };
-}
+type Resultado = string | null | { erro: true };   // `null`: a edicao nao entra; `erro`: formato que o servidor recusa
 
-/** Novo texto do campo depois da edicao, como caixa registradora: o digito entra sempre no fim e apagar tira
- *  sempre o ultimo, onde quer que esteja o cursor (gate Sol S1). Varios caracteres de uma vez (teclado que cola
- *  sem evento de colar, arrastar) sao lidos em reais, como o colar (R3). `null`: a edicao nao entra; `erro`:
- *  texto em formato que o servidor recusaria. */
-function editar(antes: string, depois: string): string | null | { erro: true } {
-  if (!depois) return "";
-  const { removido, inserido } = diferenca(antes, depois);
-  if (inserido.length > 1) return coladoParaBrl(inserido) ?? { erro: true };
-  if (inserido && !/\d/.test(inserido)) return null;   // letra, virgula ou ponto digitados: nao entram
-  let digitos = soDigitos(antes);
-  if (removido === antes) digitos = "";   // tudo selecionado e substituido
-  else if (removido) digitos = digitos.slice(0, Math.max(0, digitos.length - (removido.replace(/\D/g, "").length || 1)));
-  if (!inserido) return digitos ? digitosParaBrl(digitos) : "";   // apagar ate' o fim volta a vazio
-  digitos = soDigitos(digitos + inserido);
+/** Um digito no fim, como caixa registradora. */
+function acrescentar(antes: string, digito: string): Resultado {
+  const digitos = soDigitos(antes + digito);
   if (digitos.length > MAX_DIGITOS_VALOR) return null;   // acima do teto do servidor: o digito nao entra
   return digitosParaBrl(digitos || "0");   // "0" digitado e' R$ 0,00 (glosa total), nao vazio (S3)
+}
+
+/** Texto inteiro em reais (colar, arrastar, preenchimento automatico, teclado que insere varios de uma vez). */
+const emReais = (texto: string): Resultado => coladoParaBrl(texto) ?? { erro: true };
+
+/** Novo texto do campo pelo TIPO da edicao (InputEvent.inputType), nao pela diferenca entre os textos (rodada 2
+ *  da PR #193): o digito entra sempre no fim, apagar tira sempre um digito do fim, onde quer que esteja o cursor. */
+function editar(antes: string, depois: string, tipo: string | undefined, dado: string | null): Resultado {
+  if (tipo === "insertText" && dado !== null) {
+    if (dado.length > 1) return emReais(dado);
+    if (!/\d/.test(dado)) return null;   // letra, virgula ou ponto digitados: nao entram
+    // o campo inteiro selecionado e substituido pelo digito: comeca do zero com ele
+    return depois === dado ? acrescentar("", dado) : acrescentar(antes, dado);
+  }
+  if (tipo?.startsWith("delete")) {
+    if (!depois) return "";   // tudo selecionado e apagado
+    const digitos = soDigitos(antes).slice(0, -1);   // um digito so', com ou sem selecao parcial
+    return digitos ? digitosParaBrl(digitos) : "";   // apagar ate' o fim volta a vazio
+  }
+  if (tipo?.startsWith("history")) return null;   // desfazer/refazer do navegador nao conhece o formato: recusa
+  // colar ou arrastar: o texto que entrou substitui o campo (sem ele, o campo inteiro)
+  if (tipo === "insertFromPaste" || tipo === "insertFromDrop") return emReais(dado || depois);
+  // troca de texto, preenchimento automatico ou tipo desconhecido: o campo inteiro, em reais
+  return depois ? emReais(depois) : "";
 }
 
 export default function CampoValor({ id, name, value, onChange, className = "entrada--media entrada--num num",
@@ -49,12 +55,15 @@ export default function CampoValor({ id, name, value, onChange, className = "ent
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const [erro, setErro] = useState("");
-  // o cursor fica no fim: e' la' que o digito entra
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
+    if (!el) return;
+    // enquanto houver erro, o formulario nao envia (validacao nativa): nada de gravar o valor antigo calado (C3)
+    el.setCustomValidity(erro);
+    // o cursor fica no fim: e' la' que o digito entra
+    if (document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
   });
-  const aplicar = (r: string | null | { erro: true }) => {
+  const aplicar = (r: Resultado) => {
     if (r === null) return;
     if (typeof r === "object") { setErro(ERRO_COLADO); return; }
     setErro("");
@@ -66,11 +75,18 @@ export default function CampoValor({ id, name, value, onChange, className = "ent
       <input ref={ref} id={id} name={name} autoComplete="off" spellCheck={false} className={className} inputMode="numeric"
         placeholder={placeholder} required={required} autoFocus={autoFocus} value={value}
         aria-invalid={erro ? true : undefined} aria-describedby={erro ? `${ajuda} ${id}-erro` : ajuda}
-        onChange={ev => aplicar(editar(value, ev.target.value))}
+        onChange={ev => {
+          const nativo = ev.nativeEvent as Partial<InputEvent>;
+          if (nativo.isComposing) return;   // composicao (IME): so' no fim dela
+          aplicar(editar(value, ev.target.value, nativo.inputType, nativo.data ?? null));
+        }}
+        onCompositionEnd={ev => {
+          if (ev.data) aplicar(ev.data.length === 1 ? (/\d/.test(ev.data) ? acrescentar(value, ev.data) : null) : emReais(ev.data));
+        }}
         onPaste={ev => {
           // colar substitui o campo inteiro; texto que o servidor recusaria (ex.: "1234.56") nao entra e avisa
           ev.preventDefault();
-          aplicar(coladoParaBrl(ev.clipboardData.getData("text")) ?? { erro: true });
+          aplicar(emReais(ev.clipboardData.getData("text")));
         }} />
       {!ajudaId && <span className="campo__nota" id={ajuda}>{AJUDA_VALOR}</span>}
       <ErroCampo id={`${id}-erro`} erro={erro} />

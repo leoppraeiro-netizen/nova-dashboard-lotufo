@@ -95,7 +95,7 @@ describe("FormValor (CampoValor)", () => {
     render(<FormValor m={m} campo="protocolado" salvando={false} agir={agir} aoFechar={() => {}} />);
     const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
     expect(valor.value).toBe("");
-    for (const c of "5000000") fireEvent.change(valor, { target: { value: valor.value + c } });
+    for (const c of "5000000") fireEvent.input(valor, { target: { value: valor.value + c }, inputType: "insertText", data: c });
     expect(valor.value).toBe("50.000,00");
     fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/631/valor",
@@ -120,7 +120,20 @@ describe("FormValor (CampoValor)", () => {
     render(<FormValor m={base} campo="protocolado" salvando={false} agir={vi.fn()} aoFechar={() => {}} />);
     const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
     expect(valor.value).toBe("9.384.834,18");
-    fireEvent.change(valor, { target: { value: valor.value.slice(0, -1) } });
+    fireEvent.input(valor, { target: { value: valor.value.slice(0, -1) }, inputType: "deleteContentBackward" });
     expect(valor.value).toBe("938.483,41");
+  });
+
+  // rodada 2 da PR #193 (C3): o aviso de colar invalido segura o envio; nada de gravar o valor antigo calado
+  it("colar em formato inválido e clicar em Salvar valor não chama o servidor", () => {
+    const agir = vi.fn(async () => true);
+    render(<FormValor m={{ ...base, valor_atestado_centavos: 890000000 }} campo="atestado" salvando={false} agir={agir} aoFechar={() => {}} />);
+    const valor = screen.getByLabelText("Valor (R$)") as HTMLInputElement;
+    expect(valor.value).toBe("8.900.000,00");   // valor ja' gravado: o required nao segura
+    fireEvent.paste(valor, { clipboardData: { getData: () => "8900000.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar valor" }));
+    expect(agir).not.toHaveBeenCalled();
+    expect(api).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("formato inválido");
   });
 });

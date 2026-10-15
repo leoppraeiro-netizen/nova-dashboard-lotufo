@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import CampoValor from "./CampoValor";
 import { coladoParaBrl, digitosParaBrl } from "./formato";
 
@@ -11,9 +11,13 @@ function Campo({ inicial = "" }: { inicial?: string }) {
 }
 
 const campo = () => screen.getByLabelText("Valor") as HTMLInputElement;
-// teclar: cada digito entra no fim do que o campo mostra (como o navegador faz com o cursor no fim)
-const digitar = (texto: string) => { for (const c of texto) fireEvent.change(campo(), { target: { value: campo().value + c } }); };
-const apagar = () => fireEvent.change(campo(), { target: { value: campo().value.slice(0, -1) } });
+// O navegador manda um InputEvent com o tipo da edicao (inputType) e o texto que entrou (data); `depois` e' o
+// texto que o campo teria sem o componente (o que o navegador montou).
+const editar = (depois: string, inputType: string, data: string | null = null) =>
+  fireEvent.input(campo(), { target: { value: depois }, inputType, data });
+// teclar com o cursor no fim
+const digitar = (texto: string) => { for (const c of texto) editar(campo().value + c, "insertText", c); };
+const apagar = (depois = campo().value.slice(0, -1)) => editar(depois, "deleteContentBackward");
 const colar = (texto: string) => fireEvent.paste(campo(), { clipboardData: { getData: () => texto } });
 
 describe("CampoValor", () => {
@@ -24,7 +28,7 @@ describe("CampoValor", () => {
     digitar("1"); expect(campo().value).toBe("0,01");
     digitar("2"); expect(campo().value).toBe("0,12");
     digitar("34"); expect(campo().value).toBe("12,34");
-    fireEvent.change(campo(), { target: { value: "" } });
+    apagar("");
     digitar("5000000"); expect(campo().value).toBe("50.000,00");
   });
 
@@ -56,7 +60,7 @@ describe("CampoValor", () => {
   it("vazio continua vazio (vale zero) e letras não entram", () => {
     render(<Campo />);
     expect(campo().value).toBe("");
-    fireEvent.change(campo(), { target: { value: "a" } });
+    digitar("a");
     expect(campo().value).toBe("");
   });
 
@@ -64,7 +68,7 @@ describe("CampoValor", () => {
     render(<Campo />);
     digitar("9999999999999"); expect(campo().value).toBe("99.999.999.999,99");
     digitar("9"); expect(campo().value).toBe("99.999.999.999,99");   // acima do teto: o digito nao entra
-    fireEvent.change(campo(), { target: { value: "" } });
+    apagar("");
     digitar("123456789"); expect(campo().value).toBe("1.234.567,89");
   });
 });
@@ -77,18 +81,18 @@ describe("CampoValor: cursor, zero, colar inválido e ajuda", () => {
     render(<Campo inicial="12,34" />);
     campo().focus();
     campo().setSelectionRange(0, 0);
-    fireEvent.change(campo(), { target: { value: "512,34" } });    // o 5 digitado antes do 1
+    editar("512,34", "insertText", "5");     // o 5 digitado antes do 1
     expect(campo().value).toBe("123,45");
     expect(campo().selectionStart).toBe(6);
-    fireEvent.change(campo(), { target: { value: "12,45" } });     // apagou o 3 do meio: sai o ultimo digito
+    apagar("12,45");                         // apagou o 3 do meio: sai o ultimo digito
     expect(campo().value).toBe("12,34");
-    fireEvent.change(campo(), { target: { value: "1234" } });      // apagou a virgula: sai o ultimo digito
+    apagar("1234");                          // apagou a virgula: sai o ultimo digito
     expect(campo().value).toBe("1,23");
   });
 
   it("S1: tudo selecionado e um dígito digitado começa do zero", () => {
     render(<Campo inicial="12,34" />);
-    fireEvent.change(campo(), { target: { value: "7" } });
+    editar("7", "insertText", "7");
     expect(campo().value).toBe("0,07");
   });
 
@@ -97,7 +101,7 @@ describe("CampoValor: cursor, zero, colar inválido e ajuda", () => {
     digitar("0"); expect(campo().value).toBe("0,00");
     digitar("0"); expect(campo().value).toBe("0,00");
     digitar("5"); expect(campo().value).toBe("0,05");
-    fireEvent.change(campo(), { target: { value: "" } });
+    apagar("");
     digitar("00"); expect(campo().value).toBe("0,00");
     apagar(); expect(campo().value).toBe("");
   });
@@ -116,7 +120,7 @@ describe("CampoValor: cursor, zero, colar inválido e ajuda", () => {
     expect(campo().getAttribute("aria-invalid")).toBeNull();
   });
 
-  it("R3: vários caracteres de uma vez, sem evento de colar, são lidos em reais", () => {
+  it("R3: texto inteiro sem evento de colar é lido em reais", () => {
     render(<Campo />);
     fireEvent.change(campo(), { target: { value: "50000" } });
     expect(campo().value).toBe("50.000,00");
@@ -134,6 +138,81 @@ describe("CampoValor: cursor, zero, colar inválido e ajuda", () => {
       <CampoValor id="w" name="w" value="" onChange={() => {}} ajudaId="fora" /></>);
     expect(screen.getByLabelText("W").getAttribute("aria-describedby")).toBe("fora");
     expect(screen.queryByText(/Digite só os números/)).toBeNull();
+  });
+});
+
+// rodada 2 de correcao da PR #193: a edicao se le pelo tipo (inputType), nao pela diferenca dos textos
+describe("CampoValor: edição pelo tipo do evento", () => {
+  afterEach(cleanup);
+
+  it("C1: tudo selecionado e um dígito igual ao último caractere começa do zero", () => {
+    render(<Campo inicial="50.000,00" />);
+    editar("0", "insertText", "0");
+    expect(campo().value).toBe("0,00");
+    cleanup();
+    render(<Campo inicial="1.234,56" />);
+    editar("6", "insertText", "6");
+    expect(campo().value).toBe("0,06");
+  });
+
+  it("C2: preenchimento automático troca o valor inteiro (10,00 → 12,00)", () => {
+    render(<Campo inicial="10,00" />);
+    editar("12,00", "insertReplacementText");
+    expect(campo().value).toBe("12,00");
+    fireEvent.change(campo(), { target: { value: "15,00" } });   // sem tipo (autofill de alguns navegadores)
+    expect(campo().value).toBe("15,00");
+  });
+
+  it("C2: desfazer e refazer do navegador não mudam o valor", () => {
+    render(<Campo inicial="1,23" />);
+    editar("12,34", "historyUndo");
+    expect(campo().value).toBe("1,23");
+    editar("0,12", "historyRedo");
+    expect(campo().value).toBe("1,23");
+  });
+
+  it("A1: vários caracteres de uma vez substituem o valor, mesmo com começo e fim iguais ao anterior", () => {
+    render(<Campo inicial="9.384.834,18" />);
+    editar("9.500.000,00", "insertText", "9.500.000,00");   // tudo selecionado; comeca com "9." como o anterior
+    expect(campo().value).toBe("9.500.000,00");
+    apagar("");
+    digitar("938483418");
+    editar("9.384.834,189.500.000,00", "insertText", "9.500.000,00");
+    expect(campo().value).toBe("9.500.000,00");
+    editar("9.500.000,009.384.834,18", "insertFromDrop", "9.384.834,18");
+    expect(campo().value).toBe("9.384.834,18");
+    editar("9.384.834,189.500.000,00", "insertFromPaste", "9.500.000,00");
+    expect(campo().value).toBe("9.500.000,00");
+  });
+
+  it("A2: apagar uma seleção parcial tira um dígito só", () => {
+    render(<Campo inicial="12,34" />);
+    apagar(",34");   // "12" selecionado e apagado
+    expect(campo().value).toBe("1,23");
+    editar("1,2", "deleteContentForward");
+    expect(campo().value).toBe("0,12");
+  });
+
+  it("composição (IME): só o fim dela entra", () => {
+    render(<Campo inicial="1,23" />);
+    fireEvent.input(campo(), { target: { value: "1,235" }, inputType: "insertCompositionText", data: "5", isComposing: true });
+    expect(campo().value).toBe("1,23");
+    fireEvent.compositionEnd(campo(), { data: "5" });
+    expect(campo().value).toBe("12,35");
+  });
+
+  it("C3: com o aviso de colar inválido, o formulário não envia; a próxima edição válida libera", () => {
+    const enviar = vi.fn((ev: React.FormEvent) => ev.preventDefault());
+    render(<form onSubmit={enviar}><Campo inicial="10,00" /><button type="submit">Salvar</button></form>);
+    colar("8900000.00");
+    expect(campo().validity.valid).toBe(false);
+    expect(campo().validationMessage).toContain("formato inválido");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(enviar).not.toHaveBeenCalled();
+    digitar("1");
+    expect(campo().validity.valid).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(enviar).toHaveBeenCalledTimes(1);
   });
 });
 
