@@ -33,6 +33,9 @@ function mesSeguinte(aaaaMm: string): string {
   return mes === 12 ? `${Number(m[1]) + 1}-01` : `${m[1]}-${String(mes + 1).padStart(2, "0")}`;
 }
 
+/** O passo vem do servidor em minuscula ("enviar nota"); na linha da obra ele abre a frase ("Enviar nota"). */
+const maiuscula = (t: string | null) => (t ? t.charAt(0).toLocaleUpperCase("pt-BR") + t.slice(1) : "");
+
 const lerSerie = (o: ObraResumo, tipo: Tipo): SerieObra | null => (tipo === "projeto" ? o.projeto : o);
 
 function Icone({ d, className = "icone icone--p" }: { d: string; className?: string }) {
@@ -44,7 +47,7 @@ function SubObra({ o }: { o: ObraResumo }) {
   const partes: React.ReactNode[] = [];
   if (o.orgao_sub) partes.push(o.orgao_sub);
   if (o.aberta_numero !== null) {
-    partes.push(<span key="a" className="iniciar__sub--andamento">{o.aberta_numero}ª em andamento: {o.aberta_passo}</span>);
+    partes.push(<span key="a" className="iniciar__sub--andamento">{o.aberta_numero}ª em andamento: {maiuscula(o.aberta_passo)}</span>);
   } else if (o.prevista_id !== null) {
     partes.push(<span key="p" className="iniciar__sub--prevista">
       Prevista pelo cronograma: {o.prevista_numero}ª · {fmtCompetencia(o.prevista_competencia)}</span>);
@@ -121,17 +124,17 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
           <button type="button" className="btn btn--primario" onClick={() => ir_({ tela: "medicao", obra: o.contrato_id, id: serie.aberta_id as number })}>
             Abrir a {serie.aberta_numero}ª medição{de}</button></div></>;
     }
-    if (tipo === "execucao" && o.prevista_id !== null) {
+    if (serie.prevista_id !== null) {
       return <>{escolhaTipo}
         <div className="iniciar__aviso iniciar__aviso--info" role="status"><Icone d="M12 11v5M12 8h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
-          <span>{o.obra} tem a {o.prevista_numero}ª prevista pelo cronograma ({fmtCompetencia(o.prevista_competencia)}). O processo começa por ela, sem criar outra medição.</span></div>
+          <span>{o.obra} tem a {serie.prevista_numero}ª{de} prevista pelo cronograma ({fmtCompetencia(serie.prevista_competencia)}). O processo começa por ela, sem criar outra medição.</span></div>
         <div className="iniciar__campos">
-          <label className="iniciar__campo"><span>Nº da medição</span><input value={o.prevista_numero ?? ""} readOnly /></label>
-          <label className="iniciar__campo"><span>Competência</span><input value={porExtenso(o.prevista_competencia)} readOnly /></label>
+          <label className="iniciar__campo"><span>Nº da medição</span><input value={serie.prevista_numero ?? ""} readOnly /></label>
+          <label className="iniciar__campo"><span>Competência</span><input value={porExtenso(serie.prevista_competencia)} readOnly /></label>
         </div>
         <div className="iniciar__botoes">{cancelar}
-          <button type="button" className="btn btn--primario" onClick={() => ir_({ tela: "medicao", obra: o.contrato_id, id: o.prevista_id as number })}>
-            Começar a {o.prevista_numero}ª pelo espelho</button></div></>;
+          <button type="button" className="btn btn--primario" onClick={() => ir_({ tela: "medicao", obra: o.contrato_id, id: serie.prevista_id as number })}>
+            Começar a {serie.prevista_numero}ª{de} pelo espelho</button></div></>;
     }
     const u = serie.ultima;
     const pronto = /^[1-9][0-9]{0,2}$/.test(numero) && competencia !== "";
@@ -148,7 +151,7 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
       </div>
       <div className="iniciar__botoes">{cancelar}
         <button type="button" className="btn btn--primario" disabled={!pronto}
-          onClick={() => ir_({ tela: "nova-medicao", obra: o.contrato_id }, { numero, competencia })}>
+          onClick={() => ir_({ tela: "nova-medicao", obra: o.contrato_id }, { numero, competencia, ...(tipo === "projeto" ? { tipo } : {}) })}>
           {numero ? `Começar a ${numero}ª${de} pelo espelho` : "Informe o número"}</button></div></>;
   }
 

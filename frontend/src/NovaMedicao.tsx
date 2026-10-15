@@ -14,7 +14,8 @@ import { Migalhas } from "./Topo";
 export default function NovaMedicao({ contratoId, usuario, busca = {} }: { contratoId: number; usuario: Usuario; busca?: Busca }) {
   const numero = /^[1-9][0-9]{0,2}$/.test(busca.numero ?? "") ? busca.numero : "";
   const competencia = /^\d{4}-(0[1-9]|1[0-2])$/.test(busca.competencia ?? "") ? busca.competencia : "";
-  const inicial = numero || competencia ? { numero, competencia } : undefined;
+  const tipo: "projeto" | undefined = busca.tipo === "projeto" ? "projeto" : undefined;
+  const inicial = numero || competencia || tipo ? { numero, competencia, tipo } : undefined;
   const podeEditar = usuario.perfil === "engenharia" || usuario.perfil === "admin";
   const [obra, setObra] = useState<string | null>(null);
   useEffect(() => {
@@ -29,7 +30,7 @@ export default function NovaMedicao({ contratoId, usuario, busca = {} }: { contr
           <Migalhas itens={[{ rotulo: "Medições", para: { tela: "medicoes" } },
             { rotulo: obra || "Obra", para: { tela: "obra", id: contratoId, aba: "medicoes" } }, { rotulo: "Nova medição" }]} />
         </div>
-        <div className="topbar__linha"><h1 className="topbar__titulo">{obra || "Obra"} · Nova medição</h1></div>
+        <div className="topbar__linha"><h1 className="topbar__titulo">{obra || "Obra"} · Nova medição{tipo ? " de Projeto" : ""}</h1></div>
       </header>
       <div className="pagina">
         <BarraEtapas atual={1} />

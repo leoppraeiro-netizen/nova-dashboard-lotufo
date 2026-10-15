@@ -15,11 +15,11 @@ export type LinhaResumo = {
 /** #151: o que a janela "Iniciar processo" sabe de uma serie de medicao da obra (execucao ou Projeto). */
 export type SerieObra = {
   aberta_id: number | null; aberta_numero: number | null; aberta_passo: string | null;
+  prevista_id: number | null; prevista_numero: number | null; prevista_competencia: string | null;
   ultima: { numero: number; competencia: string } | null;   // competencia AAAA-MM
 };
 export type ObraResumo = SerieObra & {
   contrato_id: number; obra: string; contratante: string; orgao_sub: string | null; aberta: boolean;
-  prevista_id: number | null; prevista_numero: number | null; prevista_competencia: string | null;
   projeto: SerieObra | null;   // so' a obra que tem (ou teve) medicao de Projeto
 
   encerramento: boolean;   // A-21 (10/10/2026): em encerramento segue na lista, mas nao conta como "obra ativa"

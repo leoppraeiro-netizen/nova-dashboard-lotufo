@@ -74,7 +74,7 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
   /** Abre ja' no formulario (a pagina Nova medicao nao tem outra coisa a mostrar). */
   abrirForm?: boolean;
   /** Numero e competencia (AAAA-MM) ja' escolhidos na janela "Iniciar processo" (#151): o formulario abre com eles. */
-  inicial?: { numero: string; competencia: string };
+  inicial?: { numero: string; competencia: string; tipo?: "projeto" };
 }) {
   const [regra, setRegra] = useState<Regra | null | undefined>(undefined);
   const [espelhos, setEspelhos] = useState<EspelhoDetalhe[]>([]);
@@ -117,6 +117,8 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contratoId]);
 
+  // #151: "Projeto" escolhido na janela Iniciar processo mostra so' os valores de Projeto (se a regra os tem)
+  const soProjeto = inicial?.tipo === "projeto" && regra?.entradas.some(en => en.natureza === "projeto") === true;
   const titulo = medicao ? "Espelho" : "Nova medição";
   // a secao da medicao tem ancora (#espelho): quem chega pela fila no passo "enviar ao faturamento" cai nela
   // e na obra (#nova-medicao), onde a fila manda quem precisa gerar o espelho de uma obra sem medicao aberta
@@ -307,7 +309,7 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
           <p className="painel__titulo">Gerar espelho: número, competência e os valores informados pelo órgão</p>
           <div className="form-inline">
             <div className="campo">
-              <label className="campo__rotulo" htmlFor="esp-numero">Nº da medição</label>
+              <label className="campo__rotulo" htmlFor="esp-numero">Nº da medição{soProjeto ? " de Projeto" : ""}</label>
               <input id="esp-numero" name="numero" autoComplete="off" spellCheck={false} className="entrada--curta entrada--num num" required inputMode="numeric"
                 pattern="[0-9]{1,3}" placeholder="Ex.: 10…" value={form.numero}
                 onChange={e => setForm({ ...form, numero: e.target.value })} />
@@ -332,7 +334,7 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
               <input id="esp-periodo-fim" name="periodo_fim" autoComplete="off" type="date" className="entrada--media" value={form.periodoFim}
                 onChange={e => setForm({ ...form, periodoFim: e.target.value })} />
             </div>
-            {regra.entradas.map(en => (
+            {regra.entradas.filter(en => !soProjeto || en.natureza === "projeto").map(en => (
               <div className="campo" key={en.chave}>
                 <label className="campo__rotulo" htmlFor={`esp-${en.chave}`}>{en.rotulo}</label>
                 <CampoValor id={`esp-${en.chave}`} name={en.chave} className="entrada--media num"
