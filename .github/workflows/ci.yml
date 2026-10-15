@@ -1,17 +1,22 @@
 # CI minimo (fase 3,5): a suite do backend, tipos + lint + testes do frontend e o
-# build. Roda em push e pull request; nada e' publicado daqui -- a producao sobe a
-# mao pelo runbook, no <servidor>.
+# build. Roda em push, pull request e na fila de merge (merge_group); nada e' publicado
+# daqui -- a producao sobe a mao pelo runbook, no <servidor>.
 name: ci
 
 on:
   push:
     branches: [master]
   pull_request:
+  # Fila de merge: o GitHub junta a PR com a master atual e roda a CI nessa mistura antes de
+  # mergear. Os jobs exigidos pelo ruleset (backend, frontend, vazamento) precisam rodar aqui
+  # tambem, senao a fila espera para sempre.
+  merge_group:
 
 # Push novo numa PR cancela a execucao anterior dela, que ja' perdeu o sentido (issue #89:
 # 3 pushes em 6 minutos rodaram os 3 inteiros). Em master o grupo e' o proprio commit, entao
 # nada e' cancelado nem fica em fila: cada merge precisa da propria execucao verde (a skill
 # deploy confere o commit), e um grupo so' por branch cancelaria ate' a execucao que espera.
+# Na fila de merge cada grupo tem commit proprio, entao tambem cai no grupo pelo sha.
 # O job backend continua no Windows de proposito, mesmo custando em dobro: a suite curta
 # (issue #88) e' o que resolve a conta, nao trocar de sistema.
 concurrency:
@@ -48,9 +53,11 @@ jobs:
           else
             python scripts/vazamento.py
           fi
-      # v2.3.9, fixado no commit
+      # v2.3.9, fixado no commit. Pulado na fila de merge: o action so' aceita push, pull_request,
+      # workflow_dispatch e schedule e sai com erro em merge_group; os commits da fila ja' passaram
+      # pelo gitleaks na propria PR, e o push na master roda de novo depois do merge.
       - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # A CI roda o script da propria PR; por isso quem decide se o script, a lista de excecoes ou os hooks
