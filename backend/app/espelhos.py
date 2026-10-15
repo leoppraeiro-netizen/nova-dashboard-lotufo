@@ -1,7 +1,7 @@
 """Espelho de NF como ato de operacao (spec §3 passos 1-2, §4): a medicao nasce aqui.
 
-Uma linha em `espelhos` por (contrato, numero, competencia, versao) cobre execucao, reajuste e
-projeto do mesmo numero. Gerar de novo = versao nova (a anterior vira `substituido`, com motivo);
+Uma linha em `espelhos` por (contrato, numero, versao) cobre as medicoes de uma serie do numero (execucao e
+reajuste; o Projeto tem serie propria, #208). Gerar de novo = versao nova (a anterior da serie vira `substituido`);
 nada e' sobrescrito. Arquivos .docx gravados pelo sha256 em <dados>/espelhos. O envio ao
 faturamento sai pela conta de quem clica (correio.py) e liga o envio as medicoes.
 """
@@ -106,9 +106,37 @@ def _medicoes_existentes(conn, contrato_id, numero, tipos) -> dict[str, dict]:
         (contrato_id, numero, *tipos))}
 
 
+# Serie da medicao (#208): o reajuste acompanha o numero da execucao; o Projeto tem numeracao propria
+# (decisao de 14/10/2026 na #151). A 3a de Projeto e a 3a de execucao sao medicoes diferentes.
+SERIE = {"execucao": "execucao", "reajuste": "execucao", "projeto": "projeto"}
+
+
+def _espelhos_anteriores(conn, contrato_id, numero, tipos) -> list[int]:
+    """Espelhos vigentes que a geracao destes tipos substitui: os ligados (espelho_medicoes) a uma medicao
+    deste numero e de um destes tipos -- nunca o de outra serie com o mesmo numero. Espelho antigo que junta
+    execucao e Projeto no mesmo arquivo so' se substitui gerando as duas series juntas."""
+    if not tipos:
+        return []
+    marcas = ",".join("?" * len(tipos))
+    ids = [r[0] for r in conn.execute(
+        f"SELECT DISTINCT e.id FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+        f"JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=? AND e.situacao='vigente' "
+        f"AND m.tipo IN ({marcas}) ORDER BY e.id", (contrato_id, numero, *tipos))]
+    series = {SERIE[t] for t in tipos}
+    for eid in ids:
+        outras = sorted({m["tipo"] for m in conn.execute(
+            "SELECT m.tipo FROM espelho_medicoes em JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=?",
+            (eid,)) if SERIE[m["tipo"]] not in series})
+        if outras:
+            raise ValueError(f"A {numero}ª de execução e a {numero}ª de Projeto estão no mesmo espelho: "
+                             "gere as duas juntas para fazer uma versão nova")
+    return ids
+
+
 def previa(conn, contrato_id: int, numero: int, competencia: str, entradas: dict[str, int],
            periodo: tuple[str, str] | None = None) -> dict:
     _, _, saidas, por_tipo = _calcular(conn, contrato_id, numero, competencia, entradas)
+    _espelhos_anteriores(conn, contrato_id, numero, list(por_tipo))
     existentes = _medicoes_existentes(conn, contrato_id, numero, list(por_tipo))
     avisos, meds = [], []
     for tipo, valor in por_tipo.items():
@@ -140,17 +168,17 @@ def gerar(conn, usuario: dict, contrato_id: int, numero: int, competencia: str,
                for s in saidas]
     regra_sha = conn.execute("SELECT sha256 FROM espelho_regras WHERE contrato_id=?", (contrato_id,)).fetchone()[0]
     with db.mutacao(conn):
+        # A versao anterior e' a vigente do mesmo NUMERO e da mesma SERIE (#208; a medicao e' unica por
+        # contrato+numero+tipo): trocar a competencia e' correcao, nao espelho novo -- substitui, nao duplica.
+        anteriores = _espelhos_anteriores(conn, contrato_id, numero, list(por_tipo))
         ids = {tipo: medicoes.criar_para_espelho(conn, usuario["id"], contrato_id, numero, tipo, competencia, valor)
                for tipo, valor in por_tipo.items()}
-        # A versao anterior e' a vigente do mesmo NUMERO (a medicao e' unica por contrato+numero+tipo):
-        # trocar a competencia e' correcao, nao espelho novo -- substitui, nao duplica.
-        anterior = conn.execute("SELECT id, versao FROM espelhos WHERE contrato_id=? AND numero=? "
-                                "AND situacao='vigente'", (contrato_id, numero)).fetchone()
+        # UNIQUE (contrato_id, numero, versao) da 020: a versao segue a sequencia do numero, das duas series
         versao = 1 + (conn.execute("SELECT COALESCE(MAX(versao), 0) FROM espelhos WHERE contrato_id=? AND numero=?",
                                    (contrato_id, numero)).fetchone()[0])
-        if anterior is not None:
+        for aid in anteriores:
             conn.execute("UPDATE espelhos SET situacao='substituido', substituido_em=datetime('now'), motivo=? "
-                         "WHERE id=?", (motivo, anterior["id"]))
+                         "WHERE id=?", (motivo, aid))
         cur = conn.execute(
             "INSERT INTO espelhos (contrato_id, numero, competencia, versao, situacao, entradas, saidas, "
             "regra_sha256, criado_por, periodo_inicio, periodo_fim) VALUES (?,?,?,?,'vigente',?,?,?,?,?,?)",
@@ -173,7 +201,8 @@ def gerar(conn, usuario: dict, contrato_id: int, numero: int, competencia: str,
         auditoria.registrar(conn, usuario["id"], "espelho.gerar", "espelho", eid, None,
                             {"contrato_id": contrato_id, "numero": numero, "competencia": competencia,
                              "versao": versao, "entradas": entradas, "periodo": periodo,
-                             "substitui": anterior["id"] if anterior else None, "motivo": motivo,
+                             "substitui": anteriores[0] if anteriores else None, "substituidos": anteriores,
+                             "motivo": motivo,
                              "arquivos": resumo})
     return eid
 

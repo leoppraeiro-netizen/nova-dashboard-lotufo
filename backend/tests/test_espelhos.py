@@ -222,3 +222,86 @@ def test_periodo_fora_do_mes_civil_vai_no_docx_e_fica_gravado(ambiente):
                      ("2026-W31-6", "2026-08-31")):
         with pytest.raises(ValueError, match="período"):
             espelhos.validar_periodo("2026-08", ini, fim)
+
+
+# --- serie de Projeto com numeracao propria (#208) ------------------------------------------
+
+@pytest.fixture
+def ambiente_projeto(tmp_path, monkeypatch):
+    """Obra com serie de Projeto: a regra tem entrada e nota de Projeto ao lado da de execucao."""
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    conn = db.get_conn(); db.migrate(conn)
+    uid = auth.criar_usuario(conn, "Maria", "maria@l.com", "senha-forte-123", "engenharia")
+    conn.execute("UPDATE certidao_tipos SET aplicavel_por_padrao=0"); conn.commit()
+    cad = _cad_com_espelho(tmp_path)
+    m = tmp_path / "m.docx"; m.write_bytes(_modelo_completo())
+    modelo = {"caminho": m, "sha256": hashlib.sha256(m.read_bytes()).hexdigest()}
+    esp = cad["espelho"][0]
+    esp["modelos"] = {"medicao": modelo, "projeto": modelo}
+    esp["situacao"] = esp["regra"]["situacao"] = "ativa"
+    esp["regra"]["entradas"].append({"chave": "projeto", "rotulo": "p", "natureza": "projeto"})
+    esp["regra"]["saidas"].append({**esp["regra"]["saidas"][0], "chave": "projeto", "natureza": "projeto",
+                                   "valor": ["projeto"], "modelo": "projeto.docx"})
+    cadastro_aplicar.aplicar(conn, uid, cad)
+    cid = conn.execute("SELECT id FROM contratos").fetchone()[0]
+    yield conn, {"id": uid, "email": "maria@l.com"}, cid
+    conn.close()
+
+
+def _estado_espelho(conn, eid):
+    return tuple(conn.execute("SELECT situacao, versao, substituido_em, motivo FROM espelhos WHERE id=?",
+                              (eid,)).fetchone())
+
+
+def test_projeto_com_mesmo_numero_nao_substitui_espelho_da_execucao_protocolada(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
+    mid = espelhos.detalhe(conn, e_exec)["medicoes"][0]["id"]
+    medicoes.registrar_protocolo(conn, u["id"], mid, "2026-02-01", "CT-1", None, "manual")
+    antes = _estado_espelho(conn, e_exec), medicoes.detalhe(conn, mid)["estado"]
+    assert antes[0][0] == "vigente"
+    p = espelhos.previa(conn, cid, 3, "2026-03", {"projeto": 500})
+    assert p["medicoes"] == [{"tipo": "projeto", "valor_centavos": 500, "existente": None}]
+    assert not any("já tem espelho" in a for a in p["avisos"])
+    e_proj = espelhos.gerar(conn, u, cid, 3, "2026-03", {"projeto": 500})
+    assert (_estado_espelho(conn, e_exec), medicoes.detalhe(conn, mid)["estado"]) == antes
+    d = espelhos.detalhe(conn, e_proj)
+    assert d["situacao"] == "vigente" and [m["tipo"] for m in d["medicoes"]] == ["projeto"]
+    # o espelho vigente da execucao continua sendo o que o protocolo e as notas encontram
+    assert [tuple(r) for r in conn.execute(
+        "SELECT e.id FROM espelho_medicoes em JOIN espelhos e ON e.id=em.espelho_id "
+        "WHERE em.medicao_id=? AND e.situacao='vigente'", (mid,))] == [(e_exec,)]
+    log = conn.execute("SELECT depois FROM audit_log WHERE acao='espelho.gerar' AND entidade_id=?",
+                       (e_proj,)).fetchone()[0]
+    assert json.loads(log)["substitui"] is None
+
+
+def test_gerar_de_novo_a_execucao_substitui_so_o_espelho_da_execucao(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
+    e_proj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 500})
+    proj_antes = _estado_espelho(conn, e_proj)
+    assert proj_antes[0] == "vigente" and _estado_espelho(conn, e_exec)[0] == "vigente"
+    e_exec2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 200}, motivo="órgão corrigiu")
+    assert _estado_espelho(conn, e_exec)[0] == "substituido"
+    assert _estado_espelho(conn, e_proj) == proj_antes
+    assert espelhos.detalhe(conn, e_exec2)["situacao"] == "vigente"
+    # gerar de novo o Projeto substitui so' o do Projeto
+    e_proj2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 600})
+    assert _estado_espelho(conn, e_proj)[0] == "substituido"
+    assert _estado_espelho(conn, e_exec2)[0] == "vigente"
+    assert espelhos.detalhe(conn, e_proj2)["situacao"] == "vigente"
+
+
+def test_espelho_com_execucao_e_projeto_juntos_nao_e_substituido_por_uma_serie_so(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    e = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 500})
+    antes = _estado_espelho(conn, e)
+    with pytest.raises(ValueError, match="mesmo espelho"):
+        espelhos.previa(conn, cid, 3, "2026-01", {"projeto": 600})
+    with pytest.raises(ValueError, match="mesmo espelho"):
+        espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 600})
+    assert _estado_espelho(conn, e) == antes
+    # as duas juntas substituem normalmente
+    e2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 600})
+    assert _estado_espelho(conn, e)[0] == "substituido" and espelhos.detalhe(conn, e2)["situacao"] == "vigente"
