@@ -95,7 +95,8 @@ E no `~/.zshrc`: `export DASH_SERVIDOR=` seguido do nome do servidor de produç�
 - Os hooks do Claude passam por `.claude/hooks/rodar.sh`, que roda o `.ps1` no Windows e o `.sh` de mesmo nome
   no Mac; num worktree, `node_modules` e `.venv` viram links simbólicos para os do clone principal.
 - `DASH_SERVIDOR` é o nome do servidor de produção para a varredura de dado real nos hooks do git. Sem ela,
-  essa parte da varredura é pulada com aviso (o Mac não tem `COMPUTERNAME`).
+  o commit e o push param (o Mac não tem `COMPUTERNAME`). Copie também a lista local
+  `scripts/vazamento-nomes.txt` do Windows; sem ela, a checagem de nomes de pessoas é pulada.
 
 ## Produção
 

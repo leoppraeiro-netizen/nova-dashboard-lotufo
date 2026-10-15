@@ -39,9 +39,13 @@ py_exe="backend/.venv/Scripts/python.exe"               # Windows
 [ -x "$py_exe" ] || py_exe="python"
 command -v "$py_exe" >/dev/null 2>&1 || py_exe="python3"
 # Nome da maquina para a checagem de vazamento: DASH_SERVIDOR, ou o nome desta maquina (no Windows). No Mac
-# nao ha COMPUTERNAME: sem DASH_SERVIDOR no ~/.zshrc, essa parte da checagem e' pulada com aviso.
+# nao ha COMPUTERNAME: sem DASH_SERVIDOR no ~/.zshrc o hook para (o repositorio e' publico).
 DASH_SERVIDOR="${DASH_SERVIDOR:-$COMPUTERNAME}"
 export DASH_SERVIDOR
+if [ -z "$DASH_SERVIDOR" ]; then
+    echo "pre-commit: falta DASH_SERVIDOR (nome do servidor de producao; no Mac, export no ~/.zshrc)" >&2
+    exit 1
+fi
 "$py_exe" scripts/vazamento.py --staged
 rc=$?
 if [ "$rc" -eq 1 ]; then
