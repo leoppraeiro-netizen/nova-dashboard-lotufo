@@ -1,7 +1,7 @@
 """Espelho de NF como ato de operacao (spec §3 passos 1-2, §4): a medicao nasce aqui.
 
-Uma linha em `espelhos` por (contrato, numero, versao) cobre as medicoes de uma serie do numero (execucao e
-reajuste; o Projeto tem serie propria, #208). Gerar de novo = versao nova (a anterior da serie vira `substituido`);
+Uma linha em `espelhos` por (contrato, numero, versao) cobre as medicoes geradas juntas (espelho_medicoes; o
+Projeto tem numeracao propria, #208). Gerar de novo = versao nova (a anterior das mesmas medicoes vira `substituido`);
 nada e' sobrescrito. Arquivos .docx gravados pelo sha256 em <dados>/espelhos. O envio ao
 faturamento sai pela conta de quem clica (correio.py) e liga o envio as medicoes.
 """
@@ -106,36 +106,38 @@ def _medicoes_existentes(conn, contrato_id, numero, tipos) -> dict[str, dict]:
         (contrato_id, numero, *tipos))}
 
 
-# Serie da medicao (#208): o reajuste acompanha o numero da execucao; o Projeto tem numeracao propria
-# (decisao de 14/10/2026 na #151). A 3a de Projeto e a 3a de execucao sao medicoes diferentes.
-SERIE = {"execucao": "execucao", "reajuste": "execucao", "projeto": "projeto"}
-
-
-def _series_por_espelho(conn, contrato_id, numero, vigente: bool = False, enviado: bool = False) -> dict:
-    """{espelho_id: (versao, {series das medicoes ligadas})} dos espelhos deste numero, numa consulta so'."""
-    filtro = (" AND e.situacao='vigente'" if vigente else "") + (" AND e.envio_id IS NOT NULL" if enviado else "")
-    por_espelho: dict[int, tuple[int, set[str]]] = {}
+def _medicoes_por_espelho(conn, contrato_id, numero) -> dict[int, list[dict]]:
+    """{espelho_id: [{tipo, estado}]} dos espelhos VIGENTES deste numero, numa consulta so'."""
+    por_espelho: dict[int, list[dict]] = {}
     for r in conn.execute(
-            "SELECT e.id, e.versao, m.tipo FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
-            "JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=?" + filtro,
+            "SELECT e.id, m.tipo, m.estado FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+            "JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=? AND e.situacao='vigente'",
             (contrato_id, numero)):
-        por_espelho.setdefault(r["id"], (r["versao"], set()))[1].add(SERIE[r["tipo"]])
+        por_espelho.setdefault(r["id"], []).append({"tipo": r["tipo"], "estado": r["estado"]})
     return por_espelho
 
 
 def _espelhos_anteriores(conn, contrato_id, numero, tipos) -> list[int]:
-    """Espelhos vigentes que a geracao destes tipos substitui: os da mesma serie e do mesmo numero (ligados
-    por espelho_medicoes a uma medicao da serie) -- nunca o de outra serie com o mesmo numero. Espelho antigo
-    que junta execucao e Projeto no mesmo arquivo so' se substitui gerando as duas series juntas."""
-    series = {SERIE[t] for t in tipos}
+    """Espelhos vigentes que a geracao destes tipos substitui (#208). Decide pelas medicoes ligadas
+    (espelho_medicoes), nao so' pelo numero: a 3a de Projeto e a 3a de execucao sao medicoes diferentes.
+    - todas as medicoes do espelho estao sendo geradas: substitui;
+    - sobra medicao ja' protocolada (fora de ESTADOS_ESPELHO): o espelho fica vigente para ela, intocado, e o
+      novo cobre so' as geradas (o protocolado e' congelado);
+    - sobra medicao ainda em espelho: recusa, para nao deixa-la sem espelho vigente (gere junto)."""
+    tipos = set(tipos)
     ids = []
-    for eid, (_, dele) in sorted(_series_por_espelho(conn, contrato_id, numero, vigente=True).items()):
-        if not dele & series:
+    for eid, meds in sorted(_medicoes_por_espelho(conn, contrato_id, numero).items()):
+        if not any(m["tipo"] in tipos for m in meds):
             continue
-        if dele - series:
-            raise ValueError(f"A {numero}ª tem execução e Projeto no mesmo espelho: gere os dois juntos "
-                             "para fazer uma versão nova")
-        ids.append(eid)
+        resto = [m for m in meds if m["tipo"] not in tipos]
+        if not resto:
+            ids.append(eid)
+            continue
+        abertas = sorted(m["tipo"] for m in resto if m["estado"] in medicoes.ESTADOS_ESPELHO)
+        if abertas:
+            nomes = " e ".join(medicoes.nome_medicao(numero, t) for t in abertas)
+            raise ValueError(f"{nomes} está no mesmo espelho e ainda não foi protocolada: "
+                             "gere junto para fazer uma versão nova")
     return ids
 
 
@@ -174,12 +176,12 @@ def gerar(conn, usuario: dict, contrato_id: int, numero: int, competencia: str,
                for s in saidas]
     regra_sha = conn.execute("SELECT sha256 FROM espelho_regras WHERE contrato_id=?", (contrato_id,)).fetchone()[0]
     with db.mutacao(conn):
-        # A versao anterior e' a vigente do mesmo NUMERO e da mesma SERIE (#208; a medicao e' unica por
+        # A versao anterior e' a vigente das MESMAS medicoes (#208; a medicao e' unica por
         # contrato+numero+tipo): trocar a competencia e' correcao, nao espelho novo -- substitui, nao duplica.
         anteriores = _espelhos_anteriores(conn, contrato_id, numero, list(por_tipo))
         ids = {tipo: medicoes.criar_para_espelho(conn, usuario["id"], contrato_id, numero, tipo, competencia, valor)
                for tipo, valor in por_tipo.items()}
-        # UNIQUE (contrato_id, numero, versao) da 020: a versao segue a sequencia do numero, das duas series
+        # UNIQUE (contrato_id, numero, versao) da 020: a versao segue a sequencia do numero, de todos os tipos
         versao = 1 + (conn.execute("SELECT COALESCE(MAX(versao), 0) FROM espelhos WHERE contrato_id=? AND numero=?",
                                    (contrato_id, numero)).fetchone()[0])
         for aid in anteriores:
@@ -295,12 +297,14 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
     if total > correio.MAX_TOTAL:
         avisos.append(f"anexos somam {total // 1024 // 1024} MB; o limite do e-mail é "
                       f"{correio.MAX_TOTAL // 1024 // 1024} MB")
-    # so' o envio da mesma serie (#208): o da 3a de execucao nao e' substituido pelo da 3a de Projeto
-    series = {SERIE[m["tipo"]] for m in d["medicoes"]}
-    enviadas = [v for v, dele in _series_por_espelho(conn, d["contrato_id"], d["numero"], enviado=True).values()
-                if dele & series]
-    if enviadas:
-        avisos.append(f"a versão {max(enviadas)} deste espelho já foi enviada ao faturamento; este envio substitui")
+    # so' o envio que cobre uma destas medicoes (#208): o da 3a de execucao nao e' substituido pelo da 3a de Projeto
+    mids = [m["id"] for m in d["medicoes"]]
+    ja = conn.execute(
+        "SELECT MAX(e.versao) FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+        f"WHERE e.envio_id IS NOT NULL AND em.medicao_id IN ({','.join('?' * len(mids))})",
+        mids).fetchone()[0] if mids else None
+    if ja is not None:
+        avisos.append(f"a versão {ja} deste espelho já foi enviada ao faturamento; este envio substitui")
     return {"para": para, "copia": copia, "assunto": assunto, "corpo": corpo,
             "anexos": anexos, "total": total, "limite": correio.MAX_TOTAL, "avisos": avisos}
 

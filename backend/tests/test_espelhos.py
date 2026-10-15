@@ -3,7 +3,7 @@ import json
 import zipfile
 
 import pytest
-from app import arquivos, auth, cadastro_aplicar, correio, db, espelhos, graph, medicoes
+from app import arquivos, auth, cadastro_aplicar, correio, db, espelhos, graph, medicoes, notas
 from tests.test_cadastro_aplicar import _cad_com_espelho
 from tests.test_cadastro_arquivos import _modelo_completo
 
@@ -298,26 +298,73 @@ def test_espelho_com_execucao_e_projeto_juntos_nao_e_substituido_por_uma_serie_s
     conn, u, cid = ambiente_projeto
     e = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 500})
     antes = _estado_espelho(conn, e)
-    with pytest.raises(ValueError, match="mesmo espelho"):
+    with pytest.raises(ValueError, match="Medição 3 de execução está no mesmo espelho"):
         espelhos.previa(conn, cid, 3, "2026-01", {"projeto": 600})
     with pytest.raises(ValueError, match="mesmo espelho"):
         espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 600})
     assert _estado_espelho(conn, e) == antes
+    assert conn.execute("SELECT COUNT(*) FROM espelhos").fetchone()[0] == 1
     # as duas juntas substituem normalmente
     e2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 600})
     assert _estado_espelho(conn, e)[0] == "substituido" and espelhos.detalhe(conn, e2)["situacao"] == "vigente"
 
 
-def test_reajuste_e_da_serie_da_execucao_e_substitui_o_espelho_dela(ambiente_projeto):
+def _mid(conn, eid, tipo):
+    return next(m["id"] for m in espelhos.detalhe(conn, eid)["medicoes"] if m["tipo"] == tipo)
+
+
+def test_espelho_misto_com_execucao_protocolada_fica_vigente_e_projeto_ganha_espelho_proprio(ambiente_projeto):
     conn, u, cid = ambiente_projeto
-    e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
-    e_proj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 500})
-    e_reaj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"reajuste": 7})
-    assert _estado_espelho(conn, e_exec)[0] == "substituido"
-    assert _estado_espelho(conn, e_proj)[0] == "vigente" and _estado_espelho(conn, e_reaj)[0] == "vigente"
+    e = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 500})
+    m_exec, m_proj = _mid(conn, e, "execucao"), _mid(conn, e, "projeto")
+    medicoes.registrar_protocolo(conn, u["id"], m_exec, "2026-02-01", "CT-1", None, "manual")
+    antes = _estado_espelho(conn, e)
+    e2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 600})
+    assert _estado_espelho(conn, e) == antes and antes[0] == "vigente"
+    assert notas._espelho_vigente(conn, m_exec)["id"] == e
+    assert notas._espelho_vigente(conn, m_proj)["id"] == e2
+    assert [m["tipo"] for m in espelhos.detalhe(conn, e2)["medicoes"]] == ["projeto"]
 
 
-def test_aviso_de_envio_anterior_so_olha_a_mesma_serie(ambiente_projeto, tmp_path, monkeypatch):
+def test_reajuste_sozinho_nao_substitui_espelho_da_execucao_protocolada(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    # execucao sozinha no espelho
+    e1 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
+    m1 = _mid(conn, e1, "execucao")
+    medicoes.registrar_protocolo(conn, u["id"], m1, "2026-02-01", "CT-1", None, "manual")
+    antes = _estado_espelho(conn, e1)
+    e_r = espelhos.gerar(conn, u, cid, 3, "2026-01", {"reajuste": 7})
+    assert _estado_espelho(conn, e1) == antes and antes[0] == "vigente"
+    assert notas._espelho_vigente(conn, m1)["id"] == e1
+    assert espelhos.detalhe(conn, e_r)["situacao"] == "vigente"
+    # execucao e reajuste no mesmo espelho: regenerar o reajuste deixa o da execucao protocolada intocado
+    e4 = espelhos.gerar(conn, u, cid, 4, "2026-02", {"medicao": 100, "reajuste": 7})
+    m4 = _mid(conn, e4, "execucao")
+    medicoes.registrar_protocolo(conn, u["id"], m4, "2026-03-01", "CT-2", None, "manual")
+    antes4 = _estado_espelho(conn, e4)
+    e4r = espelhos.gerar(conn, u, cid, 4, "2026-02", {"reajuste": 9})
+    assert _estado_espelho(conn, e4) == antes4 and antes4[0] == "vigente"
+    assert notas._espelho_vigente(conn, m4)["id"] == e4
+    assert notas._espelho_vigente(conn, _mid(conn, e4r, "reajuste"))["id"] == e4r
+
+
+def test_reajuste_sozinho_com_execucao_editavel_no_mesmo_espelho_recusa(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    e = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "reajuste": 7})
+    antes = _estado_espelho(conn, e)
+    with pytest.raises(ValueError, match="Medição 3 de execução está no mesmo espelho"):
+        espelhos.previa(conn, cid, 3, "2026-01", {"reajuste": 9})
+    with pytest.raises(ValueError, match="gere junto"):
+        espelhos.gerar(conn, u, cid, 3, "2026-01", {"reajuste": 9})
+    assert _estado_espelho(conn, e) == antes
+    assert notas._espelho_vigente(conn, _mid(conn, e, "execucao"))["id"] == e
+    # execucao editavel em espelho proprio: o reajuste gerado depois nao a toca
+    e5 = espelhos.gerar(conn, u, cid, 5, "2026-02", {"medicao": 100})
+    e5r = espelhos.gerar(conn, u, cid, 5, "2026-02", {"reajuste": 7})
+    assert _estado_espelho(conn, e5)[0] == "vigente" and _estado_espelho(conn, e5r)[0] == "vigente"
+
+
+def test_aviso_de_envio_anterior_so_olha_as_mesmas_medicoes(ambiente_projeto, tmp_path, monkeypatch):
     monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
     conn, u, cid = ambiente_projeto
     e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
