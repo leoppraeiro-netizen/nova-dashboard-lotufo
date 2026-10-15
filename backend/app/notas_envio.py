@@ -6,11 +6,14 @@ medicao e reajuste da mesma competencia vao juntos (D9); na MTPAR e na SES, um p
 """
 import datetime
 import json
+import logging
 from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 
 from app import arquivos, auditoria, certidoes, db, documentos, frc, medicoes, notas, oficios, protocolo, tempo
+
+log = logging.getLogger(__name__)
 
 SUB_SINFRA = {"sinfra-sagpm": "SAGPM", "sinfra-suef1": "SUEF I", "sinfra-suef2": "SUEF II", "sinfra-supu": "SUPU",
               "sinfra-sacid": "SACID"}
@@ -549,7 +552,7 @@ def _remover_eml_sem_registro(conn, rel: str) -> None:
             if proprio:
                 conn.rollback()
     except Exception:
-        pass
+        log.warning("Envio por fora: o .eml %s ficou na pasta sem registro (a limpeza falhou)", rel, exc_info=True)
 
 
 def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], data: datetime.date, obs: str,

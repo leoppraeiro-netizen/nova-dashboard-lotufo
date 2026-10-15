@@ -821,6 +821,35 @@ def test_falha_depois_da_gravacao_nao_apaga_eml_que_ja_existia(svc, monkeypatch)
     assert _evidencias() == antes and arquivos.caminho_seguro(rel).read_bytes() == EML
 
 
+def test_limpeza_do_eml_nao_apaga_arquivo_que_outro_registro_cita(svc):
+    """Outro registro com o mesmo .eml entrou entre o ROLLBACK e a limpeza: a linha dele cita o arquivo, que fica.
+    Chamada dentro de um envelope de fora, a limpeza nao fecha a transacao dele."""
+    c, ids = svc
+    rel, sha = arquivos.gravar_bytes("evidencias", EML, "eml")
+    with db.mutacao(c):
+        c.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, arquivo, sha256, tamanho) "
+                  "VALUES (?,'operacao','evidencia_orgao','envio.eml',?,?,?,?)", (ids["vg_exec"], sha, rel, sha, len(EML)))
+        notas_envio._remover_eml_sem_registro(c, rel)
+        assert c.in_transaction
+    assert arquivos.caminho_seguro(rel).exists()
+    c.execute("DELETE FROM medicao_documentos WHERE arquivo=?", (rel,)); c.commit()
+    notas_envio._remover_eml_sem_registro(c, rel)
+    assert not arquivos.caminho_seguro(rel).exists()
+
+
+def test_gravar_bytes_que_falha_nao_deixa_temporario(svc, monkeypatch):
+    """Disco cheio no meio da gravacao: nem o .eml nem o temporario ficam em evidencias."""
+    import os
+
+    def falhar(*a):
+        raise OSError("disco cheio")
+    antes = _evidencias()
+    monkeypatch.setattr(os, "replace", falhar)
+    with pytest.raises(OSError):
+        arquivos.gravar_bytes("evidencias", EML, "eml")
+    assert _evidencias() == antes
+
+
 # --- testes de quebra 10/10/2026, A-15: numero do orgao vazio nao apaga o gravado ---
 
 def _numero(cl, mid):

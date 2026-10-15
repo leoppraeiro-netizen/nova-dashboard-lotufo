@@ -54,8 +54,12 @@ def gravar_bytes(nome_pasta: str, dados: bytes, ext: str) -> tuple[str, str]:
     # copia manual). Se o que esta' la' nao bate com o hash, regrava.
     if not destino.exists() or sha_do_arquivo(destino) != sha:
         tmp = destino.with_suffix(f".{os.getpid()}-{secrets.token_hex(4)}.tmp")
-        tmp.write_bytes(dados)
-        os.replace(tmp, destino)
+        try:
+            tmp.write_bytes(dados)
+            os.replace(tmp, destino)
+        except BaseException:
+            tmp.unlink(missing_ok=True)       # issue #180: disco cheio no meio nao deixa o temporario na pasta
+            raise
     return f"{nome_pasta}/{sha}.{ext}", sha
 
 
