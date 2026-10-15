@@ -6,6 +6,9 @@ from tests.conftest import novo_contrato
 def _sem_certidoes(sem_certidoes_exigidas):
     """Fase 3,5: estes testes nao sao sobre certidoes (ver conftest)."""
 
+# issue #53: recebimento a mao so' para admin, com motivo (saida para quando o RM falhar)
+MOTIVO_RM = "baixa do RM não entrou: conferido no extrato"
+
 def _contrato(client_admin):
     return novo_contrato({
         "orgao": "SINFRA", "numero_instrumento": "IC 1/2026",
@@ -67,10 +70,10 @@ def test_listar_e_estado(client_admin):
     assert client_admin.post(f"/api/medicoes/{mid}/estado",
         json={"estado": "nf_emitida"}).status_code == 422
     assert client_admin.post(f"/api/medicoes/{mid}/estado",
-        json={"estado": "recebida"}).status_code == 200
+        json={"estado": "recebida", "motivo": MOTIVO_RM}).status_code == 200
     # repetir o estado atual e transicao invalida -> 422 (nao 500)
     assert client_admin.post(f"/api/medicoes/{mid}/estado",
-        json={"estado": "recebida"}).status_code == 422
+        json={"estado": "recebida", "motivo": MOTIVO_RM}).status_code == 422
     itens = client_admin.get(f"/api/contratos/{cid}/medicoes").json()
     assert [i["estado"] for i in itens] == ["recebida"]
 
@@ -445,3 +448,60 @@ def test_medicao_manual_segue_em_obra_sem_regra_ativa(client_admin, situacao):
     r = client_admin.post(f"/api/contratos/{cid}/medicoes",
                           json={"numero": 1, "tipo": "execucao", "competencia": "2026-07"})
     assert r.status_code == 201
+
+
+# --- issue #53: recebimento manual so' para admin, com motivo obrigatorio e auditado ---
+
+def _protocolada(client_admin):
+    mid = _medicao(client_admin, _contrato(client_admin))
+    _no_estado(mid, "protocolada")
+    return mid
+
+
+def _entrar(cl, email):
+    cl.cookies.clear()
+    r = cl.post("/api/auth/login", json={"email": email, "senha": "senha-forte-123"})
+    assert r.status_code == 200, r.text
+    cl.cookies.set("sessao", r.cookies.get("sessao") or cl.cookies.get("sessao"))
+    cl.headers["X-CSRF-Token"] = r.json()["csrf"]
+
+
+def test_recebimento_manual_e_so_do_admin(client_admin):
+    from app import auth, db
+    mid = _protocolada(client_admin)
+    outra = _protocolada(client_admin)
+    conn = db.get_conn()
+    auth.criar_usuario(conn, "Eng", "eng@lotufo.com", "senha-forte-123", "engenharia")
+    conn.close()
+    _entrar(client_admin, "eng@lotufo.com")
+    r = client_admin.post(f"/api/medicoes/{mid}/estado", json={"estado": "recebida", "motivo": MOTIVO_RM})
+    assert r.status_code == 403 and "administrador" in r.json()["detail"]
+    assert client_admin.get(f"/api/medicoes/{mid}").json()["estado"] == "protocolada"
+    # os outros atos da rota seguem com a engenharia
+    assert client_admin.post(f"/api/medicoes/{outra}/estado", json={"estado": "cancelada"}).status_code == 200
+
+
+@pytest.mark.parametrize("motivo", [None, "", "   ", "curto", "  nove car "])
+def test_recebimento_manual_exige_motivo(client_admin, motivo):
+    mid = _protocolada(client_admin)
+    corpo = {"estado": "recebida"} if motivo is None else {"estado": "recebida", "motivo": motivo}
+    r = client_admin.post(f"/api/medicoes/{mid}/estado", json=corpo)
+    assert r.status_code == 422 and "motivo" in r.json()["detail"]
+    assert client_admin.get(f"/api/medicoes/{mid}").json()["estado"] == "protocolada"
+
+
+def test_recebimento_manual_audita_o_motivo(client_admin):
+    import json
+    from app import db
+    mid = _protocolada(client_admin)
+    r = client_admin.post(f"/api/medicoes/{mid}/estado",
+                          json={"estado": "recebida", "motivo": f"  {MOTIVO_RM}  ", "data": "2026-09-30"})
+    assert r.status_code == 200
+    conn = db.get_conn()
+    try:
+        ultimo = conn.execute("SELECT usuario_id, depois FROM audit_log WHERE acao='medicao.estado' "
+                              "AND entidade_id=? ORDER BY id DESC LIMIT 1", (str(mid),)).fetchone()
+    finally:
+        conn.close()
+    assert ultimo["usuario_id"] is not None
+    assert json.loads(ultimo["depois"]) == {"estado": "recebida", "motivo": MOTIVO_RM, "recebida_em": "2026-09-30"}
