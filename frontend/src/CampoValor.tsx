@@ -54,6 +54,7 @@ export default function CampoValor({ id, name, value, onChange, className = "ent
   ajudaId?: string;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const tudoSelecionado = useRef(false);   // o campo inteiro estava selecionado quando a composicao comecou
   const [erro, setErro] = useState("");
   useLayoutEffect(() => {
     const el = ref.current;
@@ -80,8 +81,16 @@ export default function CampoValor({ id, name, value, onChange, className = "ent
           if (nativo.isComposing) return;   // composicao (IME): so' no fim dela
           aplicar(editar(value, ev.target.value, nativo.inputType, nativo.data ?? null));
         }}
+        onCompositionStart={ev => {
+          // teclado que manda numeros por composicao (Firefox Android + SwiftKey): o campo inteiro selecionado no
+          // comeco dela e' substituido, como no insertText (gate Sol, rodada extra da PR #193)
+          const el = ev.currentTarget;
+          tudoSelecionado.current = el.selectionStart === 0 && el.selectionEnd === el.value.length;
+        }}
         onCompositionEnd={ev => {
-          if (ev.data) aplicar(ev.data.length === 1 ? (/\d/.test(ev.data) ? acrescentar(value, ev.data) : null) : emReais(ev.data));
+          const base = tudoSelecionado.current ? "" : value;
+          tudoSelecionado.current = false;
+          if (ev.data) aplicar(ev.data.length === 1 ? (/\d/.test(ev.data) ? acrescentar(base, ev.data) : null) : emReais(ev.data));
         }}
         onPaste={ev => {
           // colar substitui o campo inteiro; texto que o servidor recusaria (ex.: "1234.56") nao entra e avisa

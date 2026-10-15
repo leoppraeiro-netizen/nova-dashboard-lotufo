@@ -201,6 +201,21 @@ describe("CampoValor: edição pelo tipo do evento", () => {
     expect(campo().value).toBe("12,35");
   });
 
+  // gate Sol (rodada extra): teclado que manda numeros por composicao (Firefox Android + SwiftKey)
+  it("composição sobre o campo inteiro selecionado começa do zero; sem seleção total, acrescenta", () => {
+    render(<Campo inicial="12,34" />);
+    campo().setSelectionRange(0, 5);
+    fireEvent.compositionStart(campo(), { data: "" });
+    fireEvent.compositionEnd(campo(), { data: "7" });
+    expect(campo().value).toBe("0,07");
+    cleanup();
+    render(<Campo inicial="12,34" />);
+    campo().setSelectionRange(5, 5);
+    fireEvent.compositionStart(campo(), { data: "" });
+    fireEvent.compositionEnd(campo(), { data: "7" });
+    expect(campo().value).toBe("123,47");
+  });
+
   it("C3: com o aviso de colar inválido, o formulário não envia; a próxima edição válida libera", () => {
     const enviar = vi.fn((ev: React.FormEvent) => ev.preventDefault());
     render(<form onSubmit={enviar}><Campo inicial="10,00" /><button type="submit">Salvar</button></form>);
