@@ -15,7 +15,7 @@ import json
 import math
 from decimal import ROUND_HALF_UP, Decimal
 
-from app import avisos as _av, contratos, cronograma, qdop, reajuste, sincronizacao_rm, tempo
+from app import avisos as _av, conciliacao, contratos, cronograma, qdop, reajuste, sincronizacao_rm, tempo
 
 QUARTIL, MEDIANA, MINIMO, PADRAO_DIAS = 0.75, 0.5, 10, 30
 ESPERANDO_NOTA = ("espelho_gerado", "espelho_enviado")
@@ -73,8 +73,11 @@ def _notas_em_aberto(conn) -> list[dict]:
     medicoes protocoladas: nota sem medicao, ou ligada so' a medicao ja' fechada (recebida pelo corte, por
     exemplo). A obra vem da medicao ligada ou do centro de custo (atual ou anterior); consorcio sem centro, pela
     coligada. So' notas da coligada da entidade do contrato: a NFS-e da Lotufo em obra de consorcio e' repassada
-    pelo consorcio e nao e' cobranca ao orgao. O valor e' o que falta do titulo (liquido), na cota."""
+    pelo consorcio e nao e' cobranca ao orgao. O valor e' o que falta do titulo (liquido), na cota.
+    Nota ligada a medicao recebida a mao fica fora (issue #203): o registro manual vale, e o titulo ainda aberto
+    no RM aparece na Saude, nao de novo no a receber."""
     em_aberto = set(ESPERANDO_NOTA + ESPERANDO_PROTOCOLO + PROTOCOLADAS)
+    a_mao = conciliacao.recebidas_a_mao(conn)
     contr = {r["id"]: dict(r) for r in conn.execute("""
         SELECT c.id, c.percentual_direito_bp pct, c.orgao_id, c.estado, COALESCE(c.nome_curto, c.numero_instrumento) obra,
                c.centro_custo_rm, c.centros_custo_anteriores_rm, e.coligada_rm col, o.nome orgao_nome
@@ -88,10 +91,12 @@ def _notas_em_aberto(conn) -> list[dict]:
             por_coligada.setdefault(c["col"], []).append(c["id"])
     out = []
     for n in conn.execute("SELECT * FROM notas_fiscais WHERE idmov IS NOT NULL AND situacao='ativa' AND emissao IS NOT NULL"):
-        ligadas = conn.execute("""SELECT m.contrato_id, m.estado FROM nf_alocacoes a JOIN medicoes m ON m.id=a.medicao_id
+        ligadas = conn.execute("""SELECT m.id, m.contrato_id, m.estado FROM nf_alocacoes a JOIN medicoes m ON m.id=a.medicao_id
                                   WHERE a.nota_id=? AND a.desfeita_em IS NULL""", (n["id"],)).fetchall()
         if any(r["estado"] in em_aberto for r in ligadas):
             continue                                        # a medicao em aberto ja' conta
+        if any(r["id"] in a_mao for r in ligadas):
+            continue                                        # recebida a mao: o registro manual vale (#203)
         if ligadas:
             cid = ligadas[0]["contrato_id"]
         else:

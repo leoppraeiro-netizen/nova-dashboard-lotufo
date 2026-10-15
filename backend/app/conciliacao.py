@@ -27,6 +27,7 @@ da janela de 24 meses da DASH10). Mesmas regras; so' a nota que liga e as baixas
 """
 import datetime
 import json
+import re
 from collections import Counter, defaultdict
 from itertools import combinations
 
@@ -198,6 +199,21 @@ def conciliar(conn, usuario_id: int, ensaio: bool, antigas: tuple[list, list] | 
 
 MOTIVO_CORTE = ("corte de {data}: faturado até o QDOP conta como pago; o que o RM mostra em aberto segue a "
                 "receber pelas notas")
+_MOTIVO_CORTE_RE = re.compile(re.escape(MOTIVO_CORTE).replace(re.escape("{data}"), r"\d{2}/\d{2}/\d{4}"))
+
+
+def recebidas_a_mao(conn) -> set[int]:
+    """Issue #203 (decisao do Leo de 15/10/2026, opcao A): as medicoes que uma pessoa marcou como recebidas
+    (o "Registrar recebimento" da medicao), nem pelo RM nem pelo corte. O registro manual vale: a nota ligada a
+    elas sai do "a receber" (`diretoria._notas_em_aberto`) e a Saude avisa enquanto o RM nao tiver a baixa
+    (`sincronizacao_rm.reconciliacao`). Quem marcou sai da auditoria: o RM marca sem usuario
+    (`sincronizacao_rm._recebimentos`) e o corte grava o `MOTIVO_CORTE`."""
+    linhas = conn.execute("""
+        SELECT CAST(a.entidade_id AS INTEGER) AS id, json_extract(a.depois, '$.motivo') AS motivo
+        FROM audit_log a JOIN medicoes m ON m.id = CAST(a.entidade_id AS INTEGER)
+        WHERE a.entidade='medicao' AND a.acao='medicao.estado' AND a.usuario_id IS NOT NULL
+          AND json_extract(a.depois, '$.estado')='recebida' AND m.estado='recebida'""")
+    return {r["id"] for r in linhas if not _MOTIVO_CORTE_RE.fullmatch(r["motivo"] or "")}
 
 
 def cortar(conn, usuario_id: int, data_corte: str, ensaio: bool) -> dict:
