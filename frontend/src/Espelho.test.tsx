@@ -138,6 +138,19 @@ describe("Espelho", () => {
     expect((screen.getByLabelText("Nº da medição") as HTMLInputElement).value).toBe("10");
   });
 
+  // issue #208: na medicao de Projeto, o misto antigo (superado para ela) nao aparece nem como "mora na execucao"
+  it("na medição, o espelho superado por uma versão mais nova dela não aparece", async () => {
+    const misto = { ...ESPELHO, id: 7, versao: 1, medicoes: [{ id: 1, tipo: "execucao", estado: "protocolada" },
+      { id: 2, tipo: "projeto", estado: "espelho_gerado", superado: true }] };
+    const novo = { ...ESPELHO, id: 8, versao: 2, medicoes: [{ id: 2, tipo: "projeto", estado: "espelho_gerado" }],
+      arquivos: [{ documento_id: 4, saida: "projeto", nome: "ESPELHO - MT-388 - 10ª Medição de Projeto.docx", tamanho: 1 }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [novo, misto] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
+    expect(await screen.findByRole("link", { name: /Medição de Projeto/ })).toBeTruthy();
+    expect(screen.queryByText(/mora/)).toBeNull();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+  });
+
   it("versão já enviada: reenvio só com a confirmação marcada (S8)", async () => {
     const enviado = { ...ESPELHO, envio: { id: 9, remetente: "maria@l.com", para: ["f@x.com"], copia: [], assunto: "A",
       enviado_em: "2026-10-10 13:00:00" } };

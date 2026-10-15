@@ -14,7 +14,7 @@ export type MedicaoBase = {
   edicoes_valor?: { data: string; texto: string }[];   // B-02 (10/10/2026): da auditoria, texto pronto do servidor
 };
 export type EspelhoResumo = { id: number; numero: number; versao: number; situacao: string; criado_em: string;
-  criado_por_nome: string | null; medicoes: { id: number; tipo: string }[];
+  criado_por_nome: string | null; medicoes: { id: number; tipo: string; superado?: boolean }[];
   envio: { enviado_em: string; remetente: string } | null };
 export type ProtocoloResumo = { id: number; etapa_rotulo: string; numero_oficio: string | null; situacao: string;
   criado_em: string; enviado_em?: string | null; enviado_por?: string | null;

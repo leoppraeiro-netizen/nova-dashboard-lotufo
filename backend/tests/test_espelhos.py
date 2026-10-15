@@ -374,3 +374,48 @@ def test_aviso_de_envio_anterior_so_olha_as_mesmas_medicoes(ambiente_projeto, tm
     assert not any("já foi enviada" in a for a in espelhos.previa_envio(conn, e_proj)["avisos"])
     e_exec2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 200})
     assert any("versão 1" in a for a in espelhos.previa_envio(conn, e_exec2)["avisos"])
+
+
+def _misto_desmembrado(conn, u, cid, competencia_nova="2026-01"):
+    """Espelho A: execucao 100 + Projeto 500; execucao protocolada; Projeto gerado de novo com 600 (B)."""
+    a = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 500})
+    medicoes.registrar_protocolo(conn, u["id"], _mid(conn, a, "execucao"), "2026-02-01", "CT-1", None, "manual")
+    b = espelhos.gerar(conn, u, cid, 3, competencia_nova, {"projeto": 600})
+    return a, b
+
+
+def test_misto_com_medicao_de_espelho_mais_novo_nao_se_envia(ambiente_projeto, tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    conn, u, cid = ambiente_projeto
+    a, b = _misto_desmembrado(conn, u, cid)
+    m_proj = _mid(conn, a, "projeto")
+    assert {m["tipo"]: m["superado"] for m in espelhos.detalhe(conn, a)["medicoes"]} == \
+        {"execucao": False, "projeto": True}
+    assert [m["superado"] for m in espelhos.detalhe(conn, b)["medicoes"]] == [False]
+    with pytest.raises(ValueError, match="Medição 3 de projeto tem espelho mais novo"):
+        espelhos.previa_envio(conn, a)
+    with pytest.raises(ValueError, match="espelho mais novo"):
+        espelhos.enviar(conn, u, a, ["f@x.com"], [], "assunto", "corpo")
+    assert espelhos.detalhe(conn, a)["envio_id"] is None
+    assert medicoes.detalhe(conn, m_proj)["estado"] == "espelho_gerado"
+    assert conn.execute("SELECT COUNT(*) FROM envio_medicoes").fetchone()[0] == 0
+    # o mais novo do Projeto se envia normalmente
+    p = espelhos.previa_envio(conn, b)
+    espelhos.enviar(conn, u, b, p["para"], p["copia"], p["assunto"], p["corpo"])
+    assert medicoes.detalhe(conn, m_proj)["estado"] == "espelho_enviado"
+
+
+def test_listar_poe_a_versao_mais_nova_primeiro_mesmo_com_competencia_anterior(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    a = espelhos.gerar(conn, u, cid, 3, "2026-02", {"medicao": 100, "projeto": 500})
+    medicoes.registrar_protocolo(conn, u["id"], _mid(conn, a, "execucao"), "2026-03-01", "CT-1", None, "manual")
+    b = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 600})
+    assert [e["id"] for e in espelhos.listar(conn, cid)] == [b, a]
+
+
+def test_recusa_com_duas_medicoes_abertas_no_plural(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "reajuste": 7, "projeto": 500})
+    with pytest.raises(ValueError, match="Medição 3 de execução e Medição 3 de reajuste estão no mesmo espelho "
+                                         "e ainda não foram protocoladas"):
+        espelhos.previa(conn, cid, 3, "2026-01", {"projeto": 600})

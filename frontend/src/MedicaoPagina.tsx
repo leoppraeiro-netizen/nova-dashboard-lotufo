@@ -167,7 +167,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   const medicaoDa = (id: number) => medicoes.find(x => x.id === id);
   const umaCompleta = metades.some(x => x.completa) && !metades.every(x => x.completa);
   const minha = metades.find(x => x.medicao_id === m.id);
-  const espVigente = espelhos.find(e => e.situacao === "vigente" && e.medicoes.some(x => x.id === m.id));
+  // #208: o misto que ficou vigente para outra medicao (superado para esta) nao e' o espelho desta
+  const espVigente = espelhos.find(e => e.situacao === "vigente" && e.medicoes.some(x => x.id === m.id && !x.superado));
   const valor = m.valor_protocolado_centavos;
   const abrir = (p: Painel, id: string) => { disparador.current = id; setErro(""); setFeito(""); setPainel(p); };
   const fechar = () => setPainel(null);

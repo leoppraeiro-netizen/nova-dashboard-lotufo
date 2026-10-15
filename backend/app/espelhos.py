@@ -136,8 +136,9 @@ def _espelhos_anteriores(conn, contrato_id, numero, tipos) -> list[int]:
         abertas = sorted(m["tipo"] for m in resto if m["estado"] in medicoes.ESTADOS_ESPELHO)
         if abertas:
             nomes = " e ".join(medicoes.nome_medicao(numero, t) for t in abertas)
-            raise ValueError(f"{nomes} está no mesmo espelho e ainda não foi protocolada: "
-                             "gere junto para fazer uma versão nova")
+            verbo = "estão" if len(abertas) > 1 else "está"
+            ainda = "ainda não foram protocoladas" if len(abertas) > 1 else "ainda não foi protocolada"
+            raise ValueError(f"{nomes} {verbo} no mesmo espelho e {ainda}: gere junto para fazer uma versão nova")
     return ids
 
 
@@ -227,9 +228,14 @@ def detalhe(conn, espelho_id: int) -> dict | None:
         return None
     d = dict(r)
     d["entradas"], d["saidas"] = json.loads(d["entradas"]), json.loads(d["saidas"])
-    d["medicoes"] = [dict(m) for m in conn.execute(
-        "SELECT m.id, m.tipo, m.estado, m.valor_protocolado_centavos FROM espelho_medicoes em "
-        "JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=? ORDER BY m.tipo", (espelho_id,))]
+    # `superado` (#208): espelho misto que ficou vigente para a medicao protocolada, mas outra das medicoes dele
+    # ja' tem espelho vigente mais novo -- para essa medicao ele nao vale (nem na tela, nem no envio).
+    d["medicoes"] = [{**dict(m), "superado": bool(m["superado"])} for m in conn.execute(
+        "SELECT m.id, m.tipo, m.estado, m.valor_protocolado_centavos, "
+        "(? = 'vigente' AND EXISTS (SELECT 1 FROM espelho_medicoes em2 JOIN espelhos e2 ON e2.id=em2.espelho_id "
+        " WHERE em2.medicao_id=m.id AND e2.situacao='vigente' AND e2.versao > ?)) AS superado "
+        "FROM espelho_medicoes em JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=? ORDER BY m.tipo",
+        (d["situacao"], d["versao"], espelho_id))]
     d["arquivos"] = _arquivos(conn, espelho_id)
     d["criado_por_nome"] = (conn.execute("SELECT nome FROM usuarios WHERE id=?", (d["criado_por"],)).fetchone()
                             or [None])[0]
@@ -242,8 +248,10 @@ def detalhe(conn, espelho_id: int) -> dict | None:
 
 
 def listar(conn, contrato_id: int) -> list[dict]:
+    # versao antes da competencia (#208): no mesmo numero a versao cresce a cada geracao, entao o mais novo vem
+    # primeiro mesmo quando a versao nova tem competencia anterior
     ids = [r[0] for r in conn.execute("SELECT id FROM espelhos WHERE contrato_id=? "
-                                      "ORDER BY numero DESC, competencia DESC, versao DESC", (contrato_id,))]
+                                      "ORDER BY numero DESC, versao DESC", (contrato_id,))]
     return [detalhe(conn, i) for i in ids]
 
 
@@ -269,12 +277,24 @@ def saudacao() -> str:
     return "Bom dia." if tempo.para_local(tempo.agora_utc()).hour < 12 else "Boa tarde."
 
 
+def _recusar_superado(conn, d: dict) -> None:
+    """Espelho misto com uma medicao que ja' tem espelho mais novo (#208) nao se envia: mandaria ao faturamento
+    o valor velho dela. A versao mais nova e' a que vale para essa medicao."""
+    for m in d["medicoes"]:
+        if m["superado"]:
+            v = conn.execute("SELECT MAX(e.versao) FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+                             "WHERE em.medicao_id=? AND e.situacao='vigente'", (m["id"],)).fetchone()[0]
+            raise ValueError(f"{medicoes.nome_medicao(d['numero'], m['tipo'])} tem espelho mais novo "
+                             f"(versão {v}): envie aquela versão")
+
+
 def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
     d = detalhe(conn, espelho_id)
     if d is None:
         raise ValueError("espelho não encontrado")
     if d["situacao"] != "vigente":
         raise ValueError("esta versão do espelho foi substituída; envie a versão vigente")
+    _recusar_superado(conn, d)
     g = _geral(conn)
     c = contratos.vigente(conn, d["contrato_id"])
     emissores = {s["emissor"] for s in d["saidas"]}
@@ -320,6 +340,7 @@ def enviar(conn, usuario: dict, espelho_id: int, para: list[str], copia: list[st
     d = detalhe(conn, espelho_id)
     if d is None or d["situacao"] != "vigente":
         raise ValueError("esta versão do espelho foi substituída; envie a versão vigente")
+    _recusar_superado(conn, d)
     if not para:
         raise ValueError("informe ao menos um destinatário")
     # Antes de mandar o e-mail (que nao se desfaz): medicao encerrada nesse meio-tempo nao
