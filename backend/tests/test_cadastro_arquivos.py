@@ -411,3 +411,22 @@ def test_endosso_com_vigencia_sem_apolice_e_recusado(tmp_path):
                                        "vigencia_fim": "2027-09-30"}]}
     erros = _erros(_escrever(tmp_path, contratos=[c]))
     assert any("end-1" in e and "apolice" in e and "apólice" in e for e in erros)
+
+
+def _endosso(apolice):
+    return {"chave": "end-1", "tipo": "endosso_garantia", "data": "2026-09-01", "vigencia_fim": "2027-09-30",
+            "apolice": apolice}
+
+
+def test_endosso_com_vigencia_em_contrato_sem_apolice_e_erro(tmp_path):
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "instrumentos": [_endosso("AP-1")]}]))
+    assert any("end-1" in e and "garantia.apolice" in e for e in erros)
+
+
+def test_endosso_de_outra_apolice_gera_aviso_nao_erro(tmp_path):
+    c = {**CONTRATO, "garantia": {"apolice": "AP-1", "vigencia_fim": "2027-03-31"},
+         "instrumentos": [_endosso("AP 1")]}
+    cad = ca.preparar(_escrever(tmp_path, contratos=[c]))
+    assert any("end-1" in a and "'AP 1'" in a and "diferente da apólice do contrato" in a for a in cad["avisos"])
+    c["instrumentos"] = [_endosso("AP-1")]
+    assert ca.preparar(_escrever(tmp_path, contratos=[c]))["avisos"] == []

@@ -175,7 +175,7 @@ def _inteiro(v, minimo: int) -> int | None:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= minimo else None
 
 
-def _dados_instrumentos(c: dict, falha) -> None:
+def _dados_instrumentos(c: dict, falha, avisos: list[str]) -> None:
     """Bloco 7: campos de `dados` que reajuste e prazos leem, validados e normalizados."""
     meses = {d["mes"] for d in c["datas_base"]}
     de_prazo = {i["chave"] for i in c["instrumentos"]
@@ -198,6 +198,13 @@ def _dados_instrumentos(c: dict, falha) -> None:
                     falha(f"{onde}.apolice", "endosso com vigencia_fim precisa dizer de qual apólice é (campo apolice)")
                 else:
                     d["apolice"] = str(d["apolice"]).strip()
+                    if not c.get("garantia_apolice"):
+                        falha(f"{onde}.apolice", "o contrato não tem garantia.apolice no cadastro; o endosso não "
+                                                 "teria a quem se aplicar. Informe garantia: {apolice, vigencia_fim}")
+                    elif d["apolice"] != c["garantia_apolice"]:
+                        avisos.append(f"{c['nome_curto']}: {onde}: o endosso é da apólice {d['apolice']!r}, "
+                                      f"diferente da apólice do contrato ({c['garantia_apolice']!r}); "
+                                      "só vale como histórico, não muda a vigência da garantia")
             if d.get("referente") is not None and d["referente"] not in de_prazo:
                 falha(f"{onde}.referente", "use a chave de um instrumento de prazo deste contrato")
         elif inst["tipo"] == "marco_encerramento":
@@ -408,7 +415,7 @@ def _contrato(bruto: dict, arquivo: Path, raiz: Path, orgaos: set, ents: set,
         c["folga_vigencia_dias"] = _inteiro(bruto["folga_vigencia_dias"], 0)
         if c["folga_vigencia_dias"] is None:
             falha("folga_vigencia_dias", "use um inteiro ≥ 0")
-    _dados_instrumentos(c, falha)
+    _dados_instrumentos(c, falha, avisos)
     c["pleitos_anteriores"] = _pleitos_anteriores(bruto.get("pleitos_anteriores"), c, falha)
     # Bloco 4: excecao por contrato a lista de documentos do orgao.
     docs = {}
