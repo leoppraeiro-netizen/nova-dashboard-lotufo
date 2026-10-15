@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./api";
 import EnviarNota from "./EnviarNota";
 import { IconeAlerta } from "./icones";
+import { Link } from "./Link";
+import type { Rota } from "./rota";
 import { avisoPorFora, EnvioPorFora, iniciarEnvio, IconeCheck, mensagem, notasDe, type Envio, type ListaEnvios } from "./NotasAEnviar";
 import "./etapas.css";
 
@@ -28,20 +30,35 @@ export function situacaoDa(n: number, atual: number): SituacaoEtapa {
   return atual === 0 || n < atual ? "feita" : n === atual ? "atual" : "futura";
 }
 
-/** A barra no alto: cada etapa e' um link para o cartao dela. */
-export function BarraEtapas({ atual }: { atual: number }) {
+/** A barra no alto: cada etapa e' um link para o cartao dela. `espera` (issue #188): a etapa da vez esta' parada
+ *  esperando a outra metade (execucao x reajuste no mesmo e-mail). `rotulo`: a trilha de uma das metades, onde o
+ *  orgao separa medicao e reajuste (MTPAR, SES). */
+export function BarraEtapas({ atual, espera = false, rotulo, pagina }: {
+  atual: number; espera?: boolean; rotulo?: string;
+  pagina?: Rota;   // trilha da OUTRA metade: os passos levam aos cartoes da pagina dela (gate Sol S3, #188)
+}) {
   return (
-    <nav className="etapas-barra" aria-label="Etapas da medição">
+    <nav className={`etapas-barra${rotulo ? " etapas-barra--trilha" : ""}`}
+      aria-label={rotulo ? `Etapas: ${rotulo.toLocaleLowerCase("pt-BR")}` : "Etapas da medição"}>
+      {rotulo && <span className="etapas-barra__trilha">{rotulo}</span>}
       <ol>
         {ETAPAS.map((t, i) => {
           const n = i + 1;
           const s = situacaoDa(n, atual);
+          const parada = espera && s === "atual";
           return (
-            <li key={t} className={`etapas-barra__item etapas-barra__item--${s}`} aria-current={s === "atual" ? "step" : undefined}>
-              <a href={`#etapa-${n}`}>
-                <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
-                <span>{t}</span>
-              </a>
+            <li key={t} className={`etapas-barra__item etapas-barra__item--${parada ? "espera" : s}`} aria-current={s === "atual" ? "step" : undefined}>
+              {pagina ? (
+                <Link para={pagina} secao={`etapa-${n}`}>
+                  <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
+                  <span>{t}</span>
+                </Link>
+              ) : (
+                <a href={`#etapa-${n}`}>
+                  <span className="etapas-barra__n" aria-hidden="true">{s === "feita" ? <IconeCheck /> : n}</span>
+                  <span>{parada ? `${t} · em espera` : t}</span>
+                </a>
+              )}
             </li>
           );
         })}
@@ -114,6 +131,10 @@ export function EnvioDaMedicao({ medicaoId, podeEditar, aoMudar, versaoDocs = 0,
       embutido={{ aoConcluir: aoMudar, aoTrocar: setPid, aoAnexarItem }} />;
   }
   const outras = envio.medicao_ids.length > 1;
+  if (envio.situacao === "esperando") {
+    // issue #188: o orgao junta medicao e reajuste; sem as notas da outra metade, o envio nao comeca aqui
+    return <p className="campo__nota">{envio.descricao} · {envio.aviso ?? "esperando a outra metade"}.</p>;
+  }
   return (
     <div className="pilha">
       <p>{envio.descricao} · {notasDe(envio)}{outras ? " · vão no mesmo e-mail, como o órgão pede" : ""}.</p>

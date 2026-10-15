@@ -3,7 +3,7 @@ import CaixaAviso from "./CaixaAviso";
 import ErroCampo from "./ErroCampo";
 import { api } from "./api";
 import { IconeAlerta } from "./icones";
-import { DO_ESPELHO, EXCECOES } from "./medicao";
+import { DO_ESPELHO, EXCECOES, type Metade } from "./medicao";
 import type { Medicao } from "./Medicoes";
 import Selo from "./Selo";
 
@@ -287,6 +287,45 @@ export function FormEstado({ m, estado, salvando, agir, aoFechar, erro }: Base &
         </button>
         <button type="button" className="btn" onClick={aoFechar}>Voltar</button>
         <span className="campo__nota">Estado final: a medição não volta atrás.</span>
+      </div>
+    </form>
+  );
+}
+
+/** Issue #188, saida de emergencia: onde o orgao junta medicao e reajuste no mesmo e-mail, a metade pronta segue
+ *  sozinha com uma justificativa (obrigatoria, fica na linha do tempo). A outra vai depois, num envio proprio. */
+export function FormSemAOutra({ pronta, orgao, salvando, agir, aoFechar, erro }: {
+  pronta: Metade; orgao: string | null; salvando: boolean; agir: Agir; aoFechar: () => void; erro?: string;
+}) {
+  const [texto, setTexto] = useState("");
+  const execucao = pronta.tipo === "execucao";
+  async function salvar(ev: React.FormEvent) {
+    ev.preventDefault();
+    const ok = await agir(() => api(`/api/medicoes/${pronta.medicao_id}/envio-sem-a-outra`, {
+      method: "POST", body: JSON.stringify({ justificativa: texto.trim() }),
+    }), execucao ? "Envio liberado: a medição segue sem o reajuste. O reajuste vai num envio próprio quando as notas chegarem."
+      : "Envio liberado: o reajuste segue sem a medição. A medição vai num envio próprio quando as notas chegarem.");
+    if (ok) aoFechar();
+  }
+  return (
+    <form onSubmit={salvar} onKeyDown={ev => ev.key === "Escape" && aoFechar()}>
+      <p className="painel__titulo">{execucao ? "Enviar a medição sem o reajuste" : "Enviar o reajuste sem a medição"}</p>
+      <p className="campo__nota">
+        {orgao ? `Na ${orgao}` : "Neste órgão"} a medição e o reajuste vão no mesmo e-mail. Diga por que {execucao
+          ? "a medição vai separada" : "o reajuste vai separado"}. Fica registrado na linha do tempo.
+      </p>
+      <Erro erro={erro} />
+      <div className="form-inline">
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor="campo-sem-a-outra">Justificativa (obrigatória)</label>
+          <textarea id="campo-sem-a-outra" name="justificativa" className="entrada--larga" rows={2} required minLength={10}
+            maxLength={2000} autoFocus value={texto} onChange={ev => setTexto(ev.target.value)}
+            placeholder="Ex.: notas presas no faturamento; o prazo de pagamento não pode esperar…" />
+        </div>
+        <button type="submit" className="btn btn--primario" disabled={salvando || texto.trim().length < 10}>
+          {salvando ? "Liberando…" : execucao ? "Liberar o envio só da medição" : "Liberar o envio só do reajuste"}
+        </button>
+        <button type="button" className="btn" onClick={aoFechar}>Voltar</button>
       </div>
     </form>
   );
