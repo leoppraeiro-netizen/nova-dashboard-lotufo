@@ -103,7 +103,7 @@ test("Auditoria: filtro sem resultado nos já carregados avisa que há anteriore
 test("Reconciliação: a contagem é o total da API e Carregar mais traz as NFs seguintes", async () => {
   const nf = (id: number) => ({ id, coligada: 1, numero: String(id), serie: null, emissao: null, valor_centavos: 100, campo_livre1: null });
   const pagina = (nfs: ReturnType<typeof nf>[], haMais: boolean) => ({
-    nfs_sem_medicao: nfs, medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
+    nfs_sem_medicao: nfs, medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [], recebidas_sem_baixa: [],
     totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 0 }, ha_mais: { nfs_sem_medicao: haMais, alocacoes_desfeitas: false } });
   api.mockImplementation(async (url: string) => {
     if (url === "/api/admin/usuarios") return [];
@@ -117,6 +117,25 @@ test("Reconciliação: a contagem é o total da API e Carregar mais traz as NFs 
   fireEvent.click(screen.getByRole("button", { name: /Carregar mais/ }));
   expect(await screen.findByText("3 linhas", { selector: ".cartao__dica" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Carregar mais/ })).toBeNull();
+});
+
+// Issue #203: recebimento à mão com o título ainda aberto no RM aparece na reconciliação, com a NF e o que falta
+test("Reconciliação: recebida à mão sem baixa no RM mostra a medição, a NF e o valor em aberto", async () => {
+  api.mockImplementation(async (url: string) => {
+    if (url === "/api/contratos") return [];
+    if (url === "/api/rm/reconciliacao") return {
+      nfs_sem_medicao: [], medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
+      recebidas_sem_baixa: [{ medicao_id: 70, contrato_id: 12, numero_instrumento: "IC 1/2025", numero: 14, tipo: "execucao",
+        competencia: "2026-08", recebida_em: "2026-09-20", nota_id: 3, numero_nf: "100", serie: "1", falta_centavos: 924_01 }],
+      totais: { nfs_sem_medicao: 0, alocacoes_desfeitas: 0 }, ha_mais: { nfs_sem_medicao: false, alocacoes_desfeitas: false } };
+    throw new Error(`chamada inesperada: ${url}`);
+  });
+  render(<Admin aba="reconciliacao" busca={{ categoria: "recebidas" }} />);
+  expect(await screen.findByRole("heading", { name: "Recebidas à mão sem baixa no RM" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "14ª Medição" })).toBeTruthy();
+  expect(screen.getByText("100/1")).toBeTruthy();
+  expect(screen.getByText("20/09/2026")).toBeTruthy();
+  expect(screen.getByText(/924,01/)).toBeTruthy();
 });
 
 // Issue #31: a Saúde mostra o último backup, quantos estão guardados e o último erro; atrasado acima de 2 h em destaque

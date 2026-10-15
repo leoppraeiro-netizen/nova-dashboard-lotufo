@@ -564,6 +564,30 @@ function ReconciliacaoAba({ busca }: { busca: Busca }) {
           </Rolagem>
         </Grupo>
       )}
+
+      {mostra("recebidas") && (
+        <Grupo id="recebidas" titulo="Recebidas à mão sem baixa no RM" conta={conta("recebidas")} carregadas={d.recebidas_sem_baixa.length}
+          mostrando={quantas(d.recebidas_sem_baixa.length)} verTodas={verTodas("recebidas")} mais={null}>
+          <Rolagem rotulo="Recebidas à mão sem baixa no RM">
+            <table className="tabela">
+              <caption className="sr-only">Medições com recebimento registrado à mão cuja NF ainda tem título aberto no RM</caption>
+              <thead><tr><th scope="col">Obra</th><th scope="col">Medição</th><th scope="col">Recebida em</th><th scope="col">NF</th>
+                <th scope="col" className="col-num">Em aberto no RM</th></tr></thead>
+              <tbody>
+                {d.recebidas_sem_baixa.slice(0, quantas(d.recebidas_sem_baixa.length)).map((x, i) => (
+                  <tr key={`${x.medicao_id}-${x.nota_id}`} className={`linha${i % 2 === 1 ? " par" : ""}`}>
+                    <td>{nomeObra(x.contrato_id, x.numero_instrumento)}</td>
+                    <td><Link para={{ tela: "medicao", obra: x.contrato_id, id: x.medicao_id }} secao="notas">{tituloMedicao(x)}</Link></td>
+                    <td className="num">{x.recebida_em ? fmtDataPura(x.recebida_em) : "sem data"}</td>
+                    <td className="num">{x.numero_nf}{x.serie ? `/${x.serie}` : ""}</td>
+                    <td className="col-num dinheiro num">{brl(x.falta_centavos)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Rolagem>
+        </Grupo>
+      )}
     </>
   );
 }

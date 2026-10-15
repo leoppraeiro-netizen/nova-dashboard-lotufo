@@ -21,20 +21,27 @@ export type Divergencia = { medicao_id: number; contrato_id: number; numero_inst
 // `id` e' o da alocacao (o cursor da pagina seguinte).
 export type Desfeita = { id: number; medicao_id: number; desfeita_em: string; motivo_desfazer: string; numero: string; serie: string | null;
                          numero_instrumento: string; numero_medicao: number; estado: string };
+// Issue #203: medicao recebida a mao com a NF ligada e o titulo ainda aberto no RM (uma linha por NF); `falta_centavos`
+// e' o que o RM mostra em aberto, cheio. O recebimento manual vale; a linha e' o aviso de que o RM nao tem a baixa.
+export type RecebidaSemBaixa = { medicao_id: number; contrato_id: number; numero_instrumento: string; numero: number; tipo: string;
+                                 competencia: string | null; recebida_em: string | null; nota_id: number; numero_nf: string;
+                                 serie: string | null; falta_centavos: number };
 // #22: as NFs sem medicao e as alocacoes desfeitas chegam em paginas; `totais` e' o numero exato de cada uma e
 // `ha_mais` diz se existe pagina seguinte
 type PorPaginado<T> = { nfs_sem_medicao: T; alocacoes_desfeitas: T };
 export type Reconciliacao = { nfs_sem_medicao: NfSolta[]; medicoes_sem_nf: MedSemNf[]; divergencias: Divergencia[];
-                              alocacoes_desfeitas: Desfeita[]; totais: PorPaginado<number>; ha_mais: PorPaginado<boolean> };
+                              alocacoes_desfeitas: Desfeita[]; recebidas_sem_baixa: RecebidaSemBaixa[];
+                              totais: PorPaginado<number>; ha_mais: PorPaginado<boolean> };
 type CampoPaginado = keyof PorPaginado<unknown>;
 
-export type CategoriaRec = "nfs" | "medicoes" | "divergencias" | "desfeitas";
-/** Os quatro grupos, na ordem da tela (`?categoria=` na URL). */
+export type CategoriaRec = "nfs" | "medicoes" | "divergencias" | "desfeitas" | "recebidas";
+/** Os grupos, na ordem da tela (`?categoria=` na URL). */
 export const CATEGORIAS_REC: { id: CategoriaRec; campo: Exclude<keyof Reconciliacao, "totais" | "ha_mais">; titulo: string }[] = [
   { id: "nfs", campo: "nfs_sem_medicao", titulo: "NFs sem medição" },
   { id: "medicoes", campo: "medicoes_sem_nf", titulo: "Medições sem NF do RM" },
   { id: "divergencias", campo: "divergencias", titulo: "Divergências de valor" },
   { id: "desfeitas", campo: "alocacoes_desfeitas", titulo: "Alocações desfeitas" },
+  { id: "recebidas", campo: "recebidas_sem_baixa", titulo: "Recebidas à mão sem baixa no RM" },
 ];
 
 // #22: a API (`sincronizacao_rm.reconciliacao`) manda duas listas em paginas (200 NFs sem medicao, 50 alocacoes
@@ -101,6 +108,7 @@ export function rotuloRec(c: CategoriaRec, n: number): string {
     case "medicoes": return n === 1 ? "medição sem NF do RM" : "medições sem NF do RM";
     case "divergencias": return n === 1 ? "divergência de valor" : "divergências de valor";
     case "desfeitas": return n === 1 ? "alocação desfeita" : "alocações desfeitas";
+    case "recebidas": return n === 1 ? "recebida à mão sem baixa no RM" : "recebidas à mão sem baixa no RM";
   }
 }
 
@@ -118,6 +126,7 @@ export function reconciliacaoDaObra(rec: Reconciliacao, obra: { id: number; nume
     medicoes_sem_nf: rec.medicoes_sem_nf.filter(m => m.contrato_id === obra.id),
     divergencias: rec.divergencias.filter(d => d.contrato_id === obra.id),
     alocacoes_desfeitas: obra.numero_instrumento === null ? [] : rec.alocacoes_desfeitas.filter(d => d.numero_instrumento === obra.numero_instrumento),
+    recebidas_sem_baixa: rec.recebidas_sem_baixa.filter(x => x.contrato_id === obra.id),
     // os totais sao os da API, sem obra; a contagem da obra sai de `contaRec`
     totais: rec.totais, ha_mais: rec.ha_mais,
   };
