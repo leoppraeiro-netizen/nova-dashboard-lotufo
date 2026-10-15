@@ -347,6 +347,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                       return mx ? (
                         <section key={`${x.medicao_id}-${versaoNotas}`} className="notas-bloco" aria-label={rotuloDoBloco(mx)}>
                           <Notas medicao={mx} rotulo={rotuloDoBloco(mx)} podeEditar={podeEditar && !FINAIS.includes(mx.estado)}
+                            podeDesfazer={usuario.perfil === "admin"}
                             aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                         </section>
                       ) : null;
@@ -354,6 +355,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                   </div>
                 ) : (
                   <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+                    podeDesfazer={usuario.perfil === "admin"}
                     aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                 )}
               </div>
