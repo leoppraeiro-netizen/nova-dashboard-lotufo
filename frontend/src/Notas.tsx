@@ -20,7 +20,7 @@ type Esperada = {
 };
 type Diferenca = { campo: string; espelho: number | string | null; nota: number | string | null; grau: string };
 type NotaVinculada = {
-  nota_id: number; coligada: number; numero: string; serie: string | null; emissao: string | null;
+  alocacao_id: number; nota_id: number; coligada: number; numero: string; serie: string | null; emissao: string | null;
   valor_centavos: number; valor_pdf_centavos: number | null; origem_nota: string; confirmacao: string;
   documento_id: number | null; conferencia: Diferenca[]; justificativa: string | null; leitura: string | null;
   municipio: string | null; regra: string | null; recebido_centavos: number;
@@ -61,21 +61,23 @@ const NATUREZA: Record<string, string> = {
 };
 const naturezaNome = (n: string, rotulo?: string | null) => rotulo || NATUREZA[n] || emissorNome(n);
 
-export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
+export function Notas({ medicao, podeEditar, podeDesfazer = false, aoMudar, aoFechar, rotulo }: {
   medicao: Medicao; podeEditar: boolean; aoMudar: () => void; aoFechar?: () => void;
+  podeDesfazer?: boolean;   // issue #71: so' o admin desfaz o vinculo de uma nota com a medicao
   rotulo?: string;   // issue #188: o bloco da execucao ou do reajuste na pagina da medicao
 }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   // Qual acao roda: so' o botao dela troca o rotulo; os demais apenas ficam desabilitados.
-  const [acao, setAcao] = useState<"manual" | "justificar" | "declarar" | null>(null);
+  const [acao, setAcao] = useState<"manual" | "justificar" | "declarar" | "desfazer" | null>(null);
   const [linhas, setLinhas] = useState<string[]>([]);
   const [frc, setFrc] = useState(false);
   // Upload que voltou sem leitura: a pessoa digita numero, data e valor (spec §7.1).
   const [manual, setManual] = useState<{ documento_id: number; nome: string; numero: string; emissao: string; valor: string } | null>(null);
   const [justificar, setJustificar] = useState<{ nota_id: number; texto: string } | null>(null);
   const [declarar, setDeclarar] = useState("");
+  const [desfazer, setDesfazer] = useState<{ alocacao_id: number; numero: string; motivo: string } | null>(null);
   const geracao = useRef(0);
 
   const carregar = async () => {
@@ -87,14 +89,14 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
   useEffect(() => {
     geracao.current += 1;
     const g = geracao.current;
-    setDados(null); setErro(""); setLinhas([]); setManual(null); setJustificar(null); setDeclarar("");
+    setDados(null); setErro(""); setLinhas([]); setManual(null); setJustificar(null); setDeclarar(""); setDesfazer(null);
     carregar().catch(e => { if (g === geracao.current) setErro(mensagem(e)); });
     return () => { geracao.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [medicao.id]);
 
   // Toda acao com sucesso recarrega o painel e avisa a lista (o estado da linha pode ter mudado).
-  const agir = async (qual: "manual" | "justificar" | "declarar", fn: () => Promise<void>) => {
+  const agir = async (qual: "manual" | "justificar" | "declarar" | "desfazer", fn: () => Promise<void>) => {
     setErro(""); setOcupado(true); setAcao(qual);
     try {
       await fn();
@@ -169,6 +171,25 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
       setJustificar(null);
     });
   };
+
+  const enviarDesfazer = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!desfazer) return;
+    const d = desfazer;
+    await agir("desfazer", async () => {
+      await api(`/api/medicoes/${medicao.id}/notas/alocacoes/${d.alocacao_id}/desfazer`,
+        { method: "POST", body: JSON.stringify({ motivo: d.motivo }) });
+      setLinhas(l => [...l, `Vínculo da nota ${Number(d.numero) || d.numero} desfeito.`]);
+      setDesfazer(null);
+    });
+  };
+
+  // o PDF anexado na medicao seguiria no envio ao orgao: o servidor recusa, entao o botao nem aparece
+  const botaoDesfazer = (n: NotaVinculada) => podeDesfazer && n.documento_id === null && desfazer?.alocacao_id !== n.alocacao_id && (
+    <>{" "}<button type="button" className="btn btn--pequeno" disabled={ocupado}
+      aria-label={`Desfazer vínculo da nota ${Number(n.numero) || n.numero}`}
+      onClick={() => setDesfazer({ alocacao_id: n.alocacao_id, numero: n.numero, motivo: "" })}>Desfazer vínculo</button></>
+  );
 
   const enviarDeclaracao = async (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -266,7 +287,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
                     {celula("iss", e.iss)}{celula("irrf", e.irrf)}
                     {temIbsCbs && <>{celula("ibs", e.ibs)}{celula("cbs", e.cbs)}</>}
                     {celula("liquido", e.liquido)}
-                    <td>{n ? <><span className="num">{situacaoNota(n)}</span>{" \u00b7\u00a0"}{conferencia(n)}</> : <span className="campo__nota">aguardando</span>}</td>
+                    <td>{n ? <><span className="num">{situacaoNota(n)}</span>{" \u00b7\u00a0"}{conferencia(n)}{botaoDesfazer(n)}</> : <span className="campo__nota">aguardando</span>}</td>
                   </tr>
                 );
               })}
@@ -279,7 +300,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
         <ul className="lista-simples">
           {soltas.map(n => (
             <li key={n.nota_id}>
-              <span className="num">NF {situacaoNota(n)} · {brl(n.valor_centavos)}</span>{" \u00b7\u00a0"}{dados && dados.esperadas.length > 0 ? conferencia(n) : conferencia(n)}
+              <span className="num">NF {situacaoNota(n)} · {brl(n.valor_centavos)}</span>{" \u00b7\u00a0"}{dados && dados.esperadas.length > 0 ? conferencia(n) : conferencia(n)}{botaoDesfazer(n)}
             </li>
           ))}
         </ul>
@@ -294,6 +315,21 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar, rotulo }: {
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "justificar" ? "Gravando…" : "Gravar justificativa"}</button>
           <button type="button" className="btn" onClick={() => setJustificar(null)}>Voltar</button>
+        </form>
+      )}
+
+      {desfazer && (
+        <form className="form-inline" onSubmit={enviarDesfazer}>
+          <div className="campo">
+            <label className="campo__rotulo" htmlFor={`nota-desfazer-${medicao.id}`}>
+              Motivo para desfazer o vínculo da nota {Number(desfazer.numero) || desfazer.numero}
+            </label>
+            <input id={`nota-desfazer-${medicao.id}`} name="motivo" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
+              value={desfazer.motivo} onChange={ev => setDesfazer({ ...desfazer, motivo: ev.target.value })} />
+          </div>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "desfazer" ? "Desfazendo…" : "Desfazer o vínculo"}</button>
+          <button type="button" className="btn" onClick={() => setDesfazer(null)}>Voltar</button>
+          <span className="campo__nota">A medição não muda de estado; a nota não volta a casar sozinha pelo RM.</span>
         </form>
       )}
 

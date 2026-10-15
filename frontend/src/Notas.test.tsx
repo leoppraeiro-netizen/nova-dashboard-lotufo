@@ -245,4 +245,42 @@ describe("Notas: valor da nota manual (CampoValor)", () => {
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/manual", expect.objectContaining({
       method: "POST", body: JSON.stringify({ documento_id: 9, numero: 2290, emissao: "2026-09-14", valor: "50.000,00" }) })));
   });
+
+  // issue #71: so' o admin desfaz o vinculo, e com motivo
+  const COM_NOTA = {
+    ...DADOS, faltam: 0, pode_declarar: false,
+    esperadas: [{ ...DADOS.esperadas[0], nota_id: 5 }],
+    notas: [{ alocacao_id: 77, nota_id: 5, coligada: 1, numero: "2288", serie: null, emissao: "2026-09-14",
+              valor_centavos: 71919072, valor_pdf_centavos: 71919072, origem_nota: "rm", confirmacao: "so_rm",
+              documento_id: null, conferencia: [], justificativa: null, leitura: null, municipio: "Cuiabá",
+              regra: "valor_exato", recebido_centavos: 0 }],
+  };
+
+  it("sem ser admin, não oferece desfazer o vínculo da nota", async () => {
+    api.mockResolvedValueOnce(COM_NOTA);
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
+  });
+
+  it("nota que veio do PDF anexado na medição não oferece desfazer o vínculo (o servidor recusa)", async () => {
+    api.mockResolvedValueOnce({ ...COM_NOTA, notas: [{ ...COM_NOTA.notas[0], documento_id: 3, origem_nota: "pdf" }] });
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar podeDesfazer aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
+  });
+
+  it("o admin desfaz o vínculo informando o motivo", async () => {
+    api.mockResolvedValueOnce(COM_NOTA);
+    const aoMudar = vi.fn();
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar={false} podeDesfazer aoMudar={aoMudar} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Desfazer vínculo/ }));
+    fireEvent.change(screen.getByLabelText(/Motivo para desfazer o vínculo/), { target: { value: "NF de outra obra" } });
+    api.mockResolvedValueOnce({ ok: true, estado: "nota_emitida" });
+    api.mockResolvedValueOnce({ ...COM_NOTA, notas: [], faltam: 1, esperadas: DADOS.esperadas });
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer o vínculo" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/alocacoes/77/desfazer", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ motivo: "NF de outra obra" }) })));
+    await waitFor(() => expect(aoMudar).toHaveBeenCalled());
+  });
 });

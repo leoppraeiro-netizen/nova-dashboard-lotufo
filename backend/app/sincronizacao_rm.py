@@ -10,6 +10,7 @@ Uma rodada (`sincronizar`) faz, nesta ordem:
    nao volta de estado sozinha -- aparece na reconciliacao para um humano decidir.
    Bloco 3: NF que ja' entrou pelo PDF (mesma coligada e numero, emissao ou valor iguais)
    nao vira linha nova -- a linha do PDF e' preenchida e CONFIRMADA (ou marcada divergente).
+   Issue #71: o admin desfaz a' mao um vinculo errado (`desalocar`, com motivo); essa NF nao casa mais sozinha.
 4. Casamento NF -> medicao (spec §4 e §7.1), do mais forte para o mais fraco, so' entre
    medicoes em andamento que ainda faltam nota e NAO sao legado (nascidas do espelho ou de
    competencia >= COMPETENCIA_CORTE_RM):
@@ -224,6 +225,59 @@ def _desfazer_alocacoes_de_nf_cancelada(conn, nota_id: int, numero: str) -> int:
     return n
 
 
+# Prefixo do motivo de quem desfez o vinculo a' mao: o casador nao volta a casar sozinho essa NF.
+MOTIVO_A_MAO = "Desfeita à mão: "
+# NF com vinculo desfeito a' mao (usar com o id da nota em `{nota}` e o parametro MOTIVO_A_MAO + "%"): o mesmo
+# filtro no casamento direto e na irma da soma do dia.
+_SQL_DESFEITA_A_MAO = ("EXISTS (SELECT 1 FROM nf_alocacoes d WHERE d.nota_id={nota} AND d.desfeita_em IS NOT NULL "
+                       "AND d.motivo_desfazer LIKE ?)")
+
+
+def desalocar(conn, usuario_id, medicao_id: int, alocacao_id: int, motivo: str) -> None:
+    """Issue #71: o admin desfaz um vinculo NF <-> medicao errado, com motivo. Marca (nunca apaga), audita com
+    quem fez, e a medicao nao volta de estado sozinha (como na NF cancelada: a reconciliacao a mostra). A NF
+    desvinculada a' mao sai do casamento automatico; volta a uma medicao so' pelo PDF anexado nela."""
+    motivo = (motivo or "").strip()
+    if not motivo:
+        raise ValueError("Informe o motivo para desfazer o vínculo da nota")
+    with db.mutacao(conn):
+        a = conn.execute("""SELECT a.*, n.numero, n.serie, n.coligada, n.documento_id, m.estado FROM nf_alocacoes a
+                            JOIN notas_fiscais n ON n.id=a.nota_id JOIN medicoes m ON m.id=a.medicao_id
+                            WHERE a.id=? AND a.medicao_id=?""", (alocacao_id, medicao_id)).fetchone()
+        if a is None:
+            raise ValueError("Vínculo da nota com esta medição não encontrado")
+        if a["desfeita_em"] is not None:
+            raise ValueError(f"O vínculo da nota {a['numero']} já foi desfeito")
+        # Como em `alocar`: medicao encerrada nao recebe NF, entao tirar a nota dela nao teria volta.
+        if a["estado"] in ("cancelada", "desistida", "recebida"):
+            raise ValueError(f"Medição em estado {a['estado']} não tem o vínculo da nota desfeito")
+        # O PDF anexado nesta medicao seguiria no envio ao orgao e na FRC: desfazer o vinculo nao o tira dali.
+        if a["documento_id"] is not None and conn.execute(
+                "SELECT 1 FROM medicao_documentos WHERE id=? AND medicao_id=?", (a["documento_id"], medicao_id)).fetchone():
+            raise ValueError(f"A nota {a['numero']} veio do PDF anexado nesta medição; desfazer o vínculo "
+                             "não tira o PDF do envio ao órgão")
+        from app import notas    # import local: notas importa este modulo
+        faltavam = notas.faltam(conn, medicao_id)
+        texto = MOTIVO_A_MAO + motivo
+        if conn.execute("UPDATE nf_alocacoes SET desfeita_em=datetime('now'), motivo_desfazer=? "
+                        "WHERE id=? AND desfeita_em IS NULL", (texto, alocacao_id)).rowcount != 1:
+            raise ValueError(f"O vínculo da nota {a['numero']} já foi desfeito")
+        # Revisor R1/R4 (PR #202): em `nota_emitida` a medicao ja' passou da espera da nota; tirar a nota que atendia
+        # uma saida (a falta aumenta) ou a ultima nota a faria protocolar sem a ressalva "nota nao emitida" (A-09).
+        # A nota a mais, que nao atende saida nenhuma (medicao declarada completa), sai normalmente.
+        if a["estado"] == "nota_emitida":
+            if (notas.faltam(conn, medicao_id) > faltavam
+                    or not conn.execute("SELECT 1 FROM nf_alocacoes WHERE medicao_id=? AND desfeita_em IS NULL",
+                                        (medicao_id,)).fetchone()):
+                raise ValueError(f"Medição com nota emitida ficaria faltando nota: anexe antes a nota certa e depois "
+                                 f"desfaça o vínculo da nota {a['numero']}")
+        auditoria.registrar(conn, usuario_id, "nf.desalocar", "medicao", medicao_id,
+                            {"alocacao_id": alocacao_id, "nota_id": a["nota_id"], "nf": f"{a['numero']}/{a['serie'] or ''}",
+                             "coligada": a["coligada"], "valor_centavos": a["valor_alocado_centavos"],
+                             "origem": a["origem"], "regra": a["regra"], "estado_medicao": a["estado"]},
+                            {"motivo": texto})
+
+
 def notas_da_medicao(conn, medicao_id: int) -> list[dict]:
     """NFs alocadas (vigentes) com o recebido de cada uma -- para o detalhe da medicao."""
     out = []
@@ -393,8 +447,9 @@ def _casar_soma_dia(conn, nf, candidatas) -> tuple[int, int] | None:
         SELECT id, valor_centavos, campo_livre1 FROM notas_fiscais
         WHERE coligada=? AND centro_custo IS NOT NULL AND TRIM(centro_custo)=TRIM(?)
           AND emissao=? AND situacao='ativa'
-          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=notas_fiscais.id AND a.desfeita_em IS NULL)""",
-        (nf["coligada"], nf["centro_custo"] or "", nf["emissao"])).fetchall()
+          AND NOT EXISTS (SELECT 1 FROM nf_alocacoes a WHERE a.nota_id=notas_fiscais.id AND a.desfeita_em IS NULL)
+          AND NOT """ + _SQL_DESFEITA_A_MAO.format(nota="notas_fiscais.id"),
+        (nf["coligada"], nf["centro_custo"] or "", nf["emissao"], MOTIVO_A_MAO + "%")).fetchall()
     # valor -> medicoes candidatas com aquele valor (a obra ja' esta' estreitada em cands)
     med_por_valor: dict = {}
     for m in candidatas:
@@ -427,6 +482,9 @@ def _casar(conn, nota_id: int, coligadas_com_centro: set, cache: dict | None = N
     if nf["situacao"] != "ativa":
         return None
     if conn.execute("SELECT 1 FROM nf_alocacoes WHERE nota_id=? AND desfeita_em IS NULL", (nota_id,)).fetchone():
+        return None
+    # Issue #71: vinculo desfeito a' mao e' decisao humana -- o casador nao a desfaz na rodada seguinte.
+    if conn.execute("SELECT " + _SQL_DESFEITA_A_MAO.format(nota="?"), (nota_id, MOTIVO_A_MAO + "%")).fetchone()[0]:
         return None
 
     def _aloca(mid, confianca, regra, irma=None):
@@ -488,7 +546,9 @@ def _casar(conn, nota_id: int, coligadas_com_centro: set, cache: dict | None = N
 
 def _recebimentos(conn) -> int:
     n = 0
-    for m in conn.execute("""SELECT m.id, e.coligada_rm FROM medicoes m JOIN contratos c ON c.id=m.contrato_id
+    for m in conn.execute("""SELECT m.id, e.coligada_rm,
+                                    COALESCE(m.valor_atestado_centavos, m.valor_protocolado_centavos) AS valor
+                             FROM medicoes m JOIN contratos c ON c.id=m.contrato_id
                              JOIN entidades e ON e.id=COALESCE(c.entidade_id, 1)
                              WHERE m.estado IN ('protocolada','nf_emitida')"""):
         # Bloco 3 (decisao 13 do plano): so' as notas da COLIGADA DA ENTIDADE DO CONTRATO decidem o
@@ -497,6 +557,12 @@ def _recebimentos(conn) -> int:
         notas = [x for x in notas_da_medicao(conn, m["id"]) if x["coligada"] == m["coligada_rm"]]
         if not notas:
             continue
+        # Gate Sol S1 (PR #202): vinculo desfeito a' mao pode ter levado parte do faturamento (medicao em duas
+        # notas). Ai' so' fecha sozinha se as notas que ficaram cobrem o valor da medicao.
+        if m["valor"] is None or sum(x["valor_alocado_centavos"] for x in notas) < m["valor"]:
+            if conn.execute("SELECT 1 FROM nf_alocacoes WHERE medicao_id=? AND desfeita_em IS NOT NULL "
+                            "AND motivo_desfazer LIKE ?", (m["id"], MOTIVO_A_MAO + "%")).fetchone():
+                continue
         # Recebida quando o TITULO de CADA NF alocada esta quitado (recebido >= devido, o
         # valor liquido do titulo). Comparar com o bruto da NF nunca fechava por causa das
         # retencoes. NF sem titulo (devido=0: titulo ainda nao existe ou foi cancelado) segura
