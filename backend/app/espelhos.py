@@ -111,25 +111,31 @@ def _medicoes_existentes(conn, contrato_id, numero, tipos) -> dict[str, dict]:
 SERIE = {"execucao": "execucao", "reajuste": "execucao", "projeto": "projeto"}
 
 
+def _series_por_espelho(conn, contrato_id, numero, vigente: bool = False, enviado: bool = False) -> dict:
+    """{espelho_id: (versao, {series das medicoes ligadas})} dos espelhos deste numero, numa consulta so'."""
+    filtro = (" AND e.situacao='vigente'" if vigente else "") + (" AND e.envio_id IS NOT NULL" if enviado else "")
+    por_espelho: dict[int, tuple[int, set[str]]] = {}
+    for r in conn.execute(
+            "SELECT e.id, e.versao, m.tipo FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+            "JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=?" + filtro,
+            (contrato_id, numero)):
+        por_espelho.setdefault(r["id"], (r["versao"], set()))[1].add(SERIE[r["tipo"]])
+    return por_espelho
+
+
 def _espelhos_anteriores(conn, contrato_id, numero, tipos) -> list[int]:
-    """Espelhos vigentes que a geracao destes tipos substitui: os ligados (espelho_medicoes) a uma medicao
-    deste numero e de um destes tipos -- nunca o de outra serie com o mesmo numero. Espelho antigo que junta
-    execucao e Projeto no mesmo arquivo so' se substitui gerando as duas series juntas."""
-    if not tipos:
-        return []
-    marcas = ",".join("?" * len(tipos))
-    ids = [r[0] for r in conn.execute(
-        f"SELECT DISTINCT e.id FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
-        f"JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=? AND e.situacao='vigente' "
-        f"AND m.tipo IN ({marcas}) ORDER BY e.id", (contrato_id, numero, *tipos))]
+    """Espelhos vigentes que a geracao destes tipos substitui: os da mesma serie e do mesmo numero (ligados
+    por espelho_medicoes a uma medicao da serie) -- nunca o de outra serie com o mesmo numero. Espelho antigo
+    que junta execucao e Projeto no mesmo arquivo so' se substitui gerando as duas series juntas."""
     series = {SERIE[t] for t in tipos}
-    for eid in ids:
-        outras = sorted({m["tipo"] for m in conn.execute(
-            "SELECT m.tipo FROM espelho_medicoes em JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=?",
-            (eid,)) if SERIE[m["tipo"]] not in series})
-        if outras:
-            raise ValueError(f"A {numero}ª de execução e a {numero}ª de Projeto estão no mesmo espelho: "
-                             "gere as duas juntas para fazer uma versão nova")
+    ids = []
+    for eid, (_, dele) in sorted(_series_por_espelho(conn, contrato_id, numero, vigente=True).items()):
+        if not dele & series:
+            continue
+        if dele - series:
+            raise ValueError(f"A {numero}ª tem execução e Projeto no mesmo espelho: gere os dois juntos "
+                             "para fazer uma versão nova")
+        ids.append(eid)
     return ids
 
 
@@ -289,11 +295,12 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
     if total > correio.MAX_TOTAL:
         avisos.append(f"anexos somam {total // 1024 // 1024} MB; o limite do e-mail é "
                       f"{correio.MAX_TOTAL // 1024 // 1024} MB")
-    ja = conn.execute("SELECT versao FROM espelhos WHERE contrato_id=? AND numero=? "
-                      "AND envio_id IS NOT NULL ORDER BY versao DESC LIMIT 1",
-                      (d["contrato_id"], d["numero"])).fetchone()
-    if ja is not None:
-        avisos.append(f"a versão {ja['versao']} deste espelho já foi enviada ao faturamento; este envio substitui")
+    # so' o envio da mesma serie (#208): o da 3a de execucao nao e' substituido pelo da 3a de Projeto
+    series = {SERIE[m["tipo"]] for m in d["medicoes"]}
+    enviadas = [v for v, dele in _series_por_espelho(conn, d["contrato_id"], d["numero"], enviado=True).values()
+                if dele & series]
+    if enviadas:
+        avisos.append(f"a versão {max(enviadas)} deste espelho já foi enviada ao faturamento; este envio substitui")
     return {"para": para, "copia": copia, "assunto": assunto, "corpo": corpo,
             "anexos": anexos, "total": total, "limite": correio.MAX_TOTAL, "avisos": avisos}
 

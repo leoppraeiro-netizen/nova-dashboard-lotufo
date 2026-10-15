@@ -237,11 +237,12 @@ def ambiente_projeto(tmp_path, monkeypatch):
     m = tmp_path / "m.docx"; m.write_bytes(_modelo_completo())
     modelo = {"caminho": m, "sha256": hashlib.sha256(m.read_bytes()).hexdigest()}
     esp = cad["espelho"][0]
-    esp["modelos"] = {"medicao": modelo, "projeto": modelo}
+    esp["modelos"] = {"medicao": modelo, "projeto": modelo, "reajuste": modelo}
     esp["situacao"] = esp["regra"]["situacao"] = "ativa"
-    esp["regra"]["entradas"].append({"chave": "projeto", "rotulo": "p", "natureza": "projeto"})
-    esp["regra"]["saidas"].append({**esp["regra"]["saidas"][0], "chave": "projeto", "natureza": "projeto",
-                                   "valor": ["projeto"], "modelo": "projeto.docx"})
+    for nat in ("projeto", "reajuste"):
+        esp["regra"]["entradas"].append({"chave": nat, "rotulo": nat[0], "natureza": nat})
+        esp["regra"]["saidas"].append({**esp["regra"]["saidas"][0], "chave": nat, "natureza": nat,
+                                       "valor": [nat], "modelo": f"{nat}.docx"})
     cadastro_aplicar.aplicar(conn, uid, cad)
     cid = conn.execute("SELECT id FROM contratos").fetchone()[0]
     yield conn, {"id": uid, "email": "maria@l.com"}, cid
@@ -305,3 +306,24 @@ def test_espelho_com_execucao_e_projeto_juntos_nao_e_substituido_por_uma_serie_s
     # as duas juntas substituem normalmente
     e2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100, "projeto": 600})
     assert _estado_espelho(conn, e)[0] == "substituido" and espelhos.detalhe(conn, e2)["situacao"] == "vigente"
+
+
+def test_reajuste_e_da_serie_da_execucao_e_substitui_o_espelho_dela(ambiente_projeto):
+    conn, u, cid = ambiente_projeto
+    e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
+    e_proj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 500})
+    e_reaj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"reajuste": 7})
+    assert _estado_espelho(conn, e_exec)[0] == "substituido"
+    assert _estado_espelho(conn, e_proj)[0] == "vigente" and _estado_espelho(conn, e_reaj)[0] == "vigente"
+
+
+def test_aviso_de_envio_anterior_so_olha_a_mesma_serie(ambiente_projeto, tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    conn, u, cid = ambiente_projeto
+    e_exec = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 100})
+    p = espelhos.previa_envio(conn, e_exec)
+    espelhos.enviar(conn, u, e_exec, p["para"], p["copia"], p["assunto"], p["corpo"])
+    e_proj = espelhos.gerar(conn, u, cid, 3, "2026-01", {"projeto": 500})
+    assert not any("já foi enviada" in a for a in espelhos.previa_envio(conn, e_proj)["avisos"])
+    e_exec2 = espelhos.gerar(conn, u, cid, 3, "2026-01", {"medicao": 200})
+    assert any("versão 1" in a for a in espelhos.previa_envio(conn, e_exec2)["avisos"])
