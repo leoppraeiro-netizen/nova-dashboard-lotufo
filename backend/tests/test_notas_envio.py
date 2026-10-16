@@ -1392,16 +1392,40 @@ def test_assinado_do_pacote_anterior_e_recusado_depois_de_montar_de_novo(conn, u
     v2 = test_frc._texto_da_frc(conn, mid)
     assert "2290" in v2 and "2290" not in v1
     test_frc._assinar(conn, usuario, mid, _texto, "FRC v2 assinada.pdf")
-    protocolo.montar(conn, usuario["id"], pid)
-    pacote_v2 = arquivos.caminho_seguro(protocolo._linha(conn, pid)["montado_arquivo"]).read_bytes()
     carimbo = "\nDocuSign Envelope ID: 0A1B2C3D-0000-1111-2222-333344445555\n"
     # o texto de cada pacote como o DocuSign o devolve: o da FRC que ele leva (as notas de teste nao tem texto)
-    textos = {pacote_v1: [v1 + carimbo], pacote_v2: [v2 + carimbo]}
+    textos = {pacote_v1: [v1 + carimbo]}
     monkeypatch.setattr(protocolo.leitura_pdf, "textos_por_pagina_com_limite", lambda pdf, teto=400: textos[pdf])
+    # o pacote de agora ainda leva a A: assinar de novo nao resolve, a mensagem manda montar de novo
+    with pytest.raises(ValueError, match="O pacote foi montado antes da FRC assinada que vale agora"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v1)
+    protocolo.montar(conn, usuario["id"], pid)
+    pacote_v2 = arquivos.caminho_seguro(protocolo._linha(conn, pid)["montado_arquivo"]).read_bytes()
+    textos[pacote_v2] = [v2 + carimbo]
     with pytest.raises(ValueError, match=f"O assinado não traz a FRC nº {n} vigente da 14ª Medição"):
         protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v1)
+    # os numeros e valores da v2 numa pagina que nao e' a da FRC (nota, carta) nao contam
+    textos[b"fora"] = [v2.replace("FATURA DE RECEBIMENTO DE CONSÓRCIO", "NOTA FISCAL") + carimbo, v1 + carimbo]
+    with pytest.raises(ValueError, match=f"O assinado não traz a FRC nº {n} vigente"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, b"fora")
+    textos[b"digitalizado"] = ["", ""]
+    with pytest.raises(ValueError, match="O assinado não tem texto para conferir a FRC"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, b"digitalizado")
     p = protocolo._linha(conn, pid)
     assert (p["situacao"], p["assinado_arquivo"]) == ("montado", None)
+    # o pacote montado de novo entre a conferencia e a gravacao: a conferencia sob o lock recusa
+    conferir = protocolo.assinatura.conferir
+
+    def no_meio(*a):
+        conn.execute("UPDATE protocolos SET montado_sha256='outro' WHERE id=?", (pid,))
+        conn.commit()
+        return conferir(*a)
+    monkeypatch.setattr(protocolo.assinatura, "conferir", no_meio)
+    with pytest.raises(ValueError, match="O pacote foi montado de novo enquanto o assinado era conferido"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v2)
+    monkeypatch.setattr(protocolo.assinatura, "conferir", conferir)
+    conn.execute("UPDATE protocolos SET montado_sha256=? WHERE id=?", (p["montado_sha256"], pid))
+    conn.commit()
     d = protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v2)
     assert d["situacao"] == "assinado" and protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) is None
 

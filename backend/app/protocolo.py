@@ -689,19 +689,31 @@ def listar(conn, contrato_id: int) -> dict:
 
 # --- assinado, previa, envio -----------------------------------------------------------------------
 
-def _recusar_frc_fora_do_assinado(conn, p: dict, texto: str) -> None:
+ASSINADO_SEM_TEXTO = ("O assinado não tem texto para conferir a FRC do pacote: anexe o PDF que o DocuSign entrega, "
+                      "não uma digitalização")
+
+
+def _recusar_frc_fora_do_assinado(conn, p: dict, paginas: list[str]) -> None:
     """Revisor adversarial na rodada 4 da PR #179: com as notas DENTRO do pacote, o assinado tem que trazer a FRC
-    vigente de cada medicao (numero, valores e notas, como em frc.para_assinar). A conferencia por semelhanca de
-    pagina (assinatura.conferir) deixa passar o assinado do pacote anterior, que so' difere nos numeros da FRC."""
+    vigente de cada medicao (numero, valores e notas, como em frc.para_assinar) numa pagina da FRC (as notas e a carta
+    repetem numeros e valores). A conferencia por semelhanca de pagina (assinatura.conferir) deixa passar o assinado
+    do pacote anterior, que so' difere nos numeros da FRC. O pacote que ja' nao leva a assinada que vale pede montar
+    de novo antes de tudo (assinar o mesmo pacote de novo nao resolve)."""
     _, _, e, c = _contexto(conn, p)
     if not (e.carta and "notas" in e.partes and c.get("entidade_id")):
         return
+    if velho := [r for r in frc_recusadas(conn, p) if r in PACOTE_SEM_A_FRC_VIGENTE]:
+        raise ValueError(velho[0])
+    paginas_frc = assinatura.paginas_com(paginas, "FATURA DE RECEBIMENTO DE CONSÓRCIO")
     for m in _medicoes(conn, p["id"]):
         a = frc.assinada(conn, m["id"])
         vig = frc._vigente(conn, m["id"]) if a["controla"] and a["documento"] else None
-        if vig and not frc.no_texto(texto, vig):
-            raise ValueError(f"O assinado não traz a FRC nº {vig['numero']} vigente da {titulo(m)} (número, notas ou "
-                             "valores não batem): assine no DocuSign o pacote montado agora e anexe o assinado dele")
+        if vig is None or any(frc.no_texto(t, vig) for t in paginas_frc):
+            continue
+        if not any((t or "").strip() for t in paginas):
+            raise ValueError(ASSINADO_SEM_TEXTO)
+        raise ValueError(f"O assinado não traz a FRC nº {vig['numero']} vigente da {titulo(m)} (número, notas ou "
+                         "valores não batem): assine no DocuSign o pacote montado agora e anexe o assinado dele")
 
 
 def receber_assinado(conn, usuario_id: int, protocolo_id: int, pdf: bytes) -> dict:
@@ -709,12 +721,18 @@ def receber_assinado(conn, usuario_id: int, protocolo_id: int, pdf: bytes) -> di
     _editavel(p)
     if not p["montado_arquivo"]:
         raise ValueError("Monte o pacote antes de anexar o assinado")
-    teto = pdfs.TETO_PAGINAS_PACOTE
-    assinado = leitura_pdf.textos_por_pagina_com_limite(pdf, teto)
-    conf = assinatura.conferir(leitura_pdf.textos_por_pagina_com_limite(_bytes(p["montado_arquivo"]), teto), assinado)
-    _recusar_frc_fora_do_assinado(conn, p, "\n".join(t or "" for t in assinado))
+    assinado = assinatura.textos(pdf)
+    _recusar_frc_fora_do_assinado(conn, p, assinado)         # antes de ler o montado: a recusa barata primeiro
+    conf = assinatura.conferir(assinatura.textos(_bytes(p["montado_arquivo"])), assinado)
     rel, sha = arquivos.gravar_bytes("protocolos", pdf, "pdf")
     with db.mutacao(conn):
+        # rodada 5 da PR #179: de novo sob o lock; a FRC gerada de novo ou o pacote montado de novo no meio recusa
+        agora = _linha(conn, protocolo_id)
+        _editavel(agora)
+        if agora["montado_sha256"] != p["montado_sha256"]:
+            raise ValueError("O pacote foi montado de novo enquanto o assinado era conferido: anexe o assinado do "
+                             "pacote de agora")
+        _recusar_frc_fora_do_assinado(conn, agora, assinado)
         conn.execute("UPDATE protocolos SET assinado_arquivo=?, assinado_sha256=?, assinado_em=datetime('now'), "
                      "conferencia=?, situacao='assinado' WHERE id=?", (rel, sha, json.dumps(conf), protocolo_id))
         auditoria.registrar(conn, usuario_id, "protocolo.assinado", "protocolo", protocolo_id, None,
