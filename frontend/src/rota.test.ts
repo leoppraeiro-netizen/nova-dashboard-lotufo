@@ -93,7 +93,7 @@ describe("rota", () => {
     expect(buscaDosAvisosEmObras({})).toEqual({ c: "todas", avisos: "1" });
     expect(buscaDosAvisosEmObras({ obra: "7", familia: "prazos" })).toEqual({ c: "todas", avisos: "1", obra: "7", familia: "prazos" });
     window.history.replaceState(null, "", "/avisos?obra=7#x");
-    substituir({ tela: "obras" }, buscaDosAvisosEmObras({ obra: "7" }));
+    substituir({ tela: "obras" }, { busca: buscaDosAvisosEmObras({ obra: "7" }) });
     expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe("/obras?c=todas&avisos=1&obra=7#x");
     window.history.replaceState(null, "", "/contratos?q=x");
     substituir({ tela: "obras" });

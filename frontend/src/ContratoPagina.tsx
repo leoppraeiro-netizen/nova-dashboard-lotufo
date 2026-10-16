@@ -5,8 +5,8 @@ import CurvaS from "./CurvaS";
 import ExecucaoContrato from "./ExecucaoContrato";
 import { IconeAlerta } from "./icones";
 import type { Usuario } from "./Login";
-import Espelho from "./Espelho";
-import Medicoes, { brl, NovaMedicaoManual } from "./Medicoes";
+import IniciarProxima from "./IniciarProxima";
+import Medicoes, { brl } from "./Medicoes";
 import { ContratoObra, DocumentosObra } from "./ObraAbas";
 import type { PontoDaCurva } from "./obra";
 import Prazos from "./Prazos";
@@ -199,12 +199,8 @@ export default function ContratoPagina({ contratoId, usuario, aba, origem, busca
                 <div className="painel-aba">
                   {aba === "medicoes" && (
                     <div className="pilha">
-                      {/* a medicao nasce do espelho (ou, no fluxo antigo, a mao); gerar recarrega a lista */}
-                      {podeEditar && (
-                        <Espelho contratoId={contratoId} podeEditar={podeEditar} aoMudar={() => setVersaoMedicoes(v => v + 1)}
-                          aoGerar={id => ir({ tela: "medicao", obra: contratoId, id }, { secao: "etapa-2", forcar: true })}
-                          semRegra={<NovaMedicaoManual contratoId={contratoId} aoCriar={() => setVersaoMedicoes(v => v + 1)} />} />
-                      )}
+                      {/* a medicao nasce do espelho, na etapa 1 da pagina dela (ou, no fluxo antigo, a mao): aqui so' o atalho */}
+                      {podeEditar && <IniciarProxima contratoId={contratoId} versao={versaoMedicoes} aoCriar={() => setVersaoMedicoes(v => v + 1)} />}
                       <Medicoes contratoId={contratoId} busca={busca} versao={versaoMedicoes} />
                       {podeEditar && <NovoProtocolo contratoId={contratoId} versao={versaoMedicoes} aoMudar={() => setVersaoMedicoes(v => v + 1)} />}
                     </div>
