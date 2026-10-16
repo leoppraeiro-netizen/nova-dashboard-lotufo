@@ -18,7 +18,7 @@ const det = {
     valor_centavos: 100, emitida_em: "2026-10-08", dias: 2, situacao: "pronto", aviso: null, protocolo_id: 3, itens: [] },
   familia: "sinfra", etapa: "nota", situacao_protocolo: "rascunho", carta: null,
   previa: { para: ["orgao@exemplo.com"], copia: [], assunto: "Notas", corpo: "Bom dia.", anexos: [], links: [] },
-  bloqueio: null, pendencias: [], justificativa_obrigatoria: false, extras: [],
+  bloqueio: null, pendencias: [] as string[], extras: [],
 };
 
 describe("Enviar a nota", () => {
@@ -61,21 +61,82 @@ describe("Enviar a nota", () => {
     expect(screen.queryByRole("button", { name: /Juntar outra nota/ })).toBeNull();
   });
 
-  // issue #11: com documento faltando o Enviar não fica apagado; o clique diz o que falta, junto da justificativa
-  it("sem a justificativa pedida, o clique em Enviar a nota mostra o erro no campo e não envia", async () => {
-    api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3"
-      ? { ...det, justificativa_obrigatoria: true, pendencias: ["Falta a certidão federal"] } : {}));
-    render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
-    const botao = await screen.findByRole("button", { name: "Enviar o e-mail" }) as HTMLButtonElement;
-    expect(botao.disabled).toBe(false);
-    fireEvent.click(botao);
-    const campo = screen.getByLabelText("Justificativa para enviar sem o documento");
-    expect(campo.getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById(campo.getAttribute("aria-describedby") ?? "")?.textContent).toContain("pelo menos 10 caracteres");
-    expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(false);
-    fireEvent.change(campo, { target: { value: "DP confirmou o envio direto" } });
-    fireEvent.click(botao);
-    await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/3/enviar")).toBe(true));
+  // issue #213 (decisão do Leo de 16/10/2026): documento faltando não bloqueia; o Enviar abre o aviso com a lista
+  describe("aviso do que falta", () => {
+    const FALTAM = ["FRC assinada não anexada", "Falta a certidão federal"];
+    const enviados = () => api.mock.calls.filter(c => c[0] === "/api/notas/envio/3/enviar");
+
+    it("abre o ATENÇÃO com a lista; Cancelar não envia nada", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3"
+        ? { ...det, pendencias: FALTAM } : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const botao = await screen.findByRole("button", { name: "Enviar o e-mail" }) as HTMLButtonElement;
+      expect(botao.disabled).toBe(false);
+      expect(screen.queryByLabelText(/Justificativa/)).toBeNull();
+      fireEvent.click(botao);
+      const aviso = screen.getByRole("alertdialog", { name: "ATENÇÃO" });
+      expect(within(aviso).getByText("Faltam 2 itens neste envio:")).toBeTruthy();
+      for (const f of FALTAM) expect(within(aviso).getByText(f)).toBeTruthy();
+      expect(within(aviso).getByText("Deseja continuar com o envio?")).toBeTruthy();
+      expect(document.activeElement).toBe(within(aviso).getByRole("button", { name: "Cancelar" }));
+      fireEvent.click(within(aviso).getByRole("button", { name: "Cancelar" }));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(enviados()).toHaveLength(0);
+    });
+
+    it("Continuar com o envio manda a lista confirmada", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3"
+        ? { ...det, pendencias: FALTAM } : {}));
+      const aoConcluir = vi.fn();
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar o e-mail" }));
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Continuar com o envio" }));
+      await waitFor(() => expect(aoConcluir).toHaveBeenCalled());
+      expect(JSON.parse(enviados()[0][1].body).confirmadas).toEqual(FALTAM);
+    });
+
+    it("sem nada faltando não há aviso, e o envio não leva confirmação", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3" ? det : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar o e-mail" }));
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      await waitFor(() => expect(enviados()).toHaveLength(1));
+      expect(JSON.parse(enviados()[0][1].body).confirmadas).toBeNull();
+    });
+
+    it("bloqueio continua desabilitando o envio, sem aviso", async () => {
+      api.mockImplementation((caminho: string) => Promise.resolve(caminho === "/api/notas/envio/3"
+        ? { ...det, bloqueio: "FRC assinada recusada", pendencias: FALTAM } : {}));
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir: () => {}, aoTrocar: () => {} }} />);
+      const botao = await screen.findByRole("button", { name: "Enviar o e-mail" }) as HTMLButtonElement;
+      expect(botao.disabled).toBe(true);
+      fireEvent.click(botao);
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(enviados()).toHaveLength(0);
+    });
+
+    it("a lista mudou no servidor: o aviso abre de novo com a lista nova e pede nova confirmação", async () => {
+      const NOVA = [...FALTAM, "Falta a regularidade"];
+      let leituras = 0;
+      api.mockImplementation((caminho: string) => {
+        if (caminho === "/api/notas/envio/3") { leituras += 1; return Promise.resolve({ ...det, pendencias: leituras > 1 ? NOVA : FALTAM }); }
+        if (caminho === "/api/notas/envio/3/enviar" && enviados().length === 1) {
+          return Promise.reject(new ApiErro(422, "A lista do que falta mudou", { codigo: "CONFIRMAR_PENDENCIAS", pendencias: NOVA }));
+        }
+        return Promise.resolve({});
+      });
+      const aoConcluir = vi.fn();
+      render(<EnviarNota protocoloId={3} podeEditar embutido={{ aoConcluir, aoTrocar: () => {} }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enviar o e-mail" }));
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Continuar com o envio" }));
+      const aviso = await screen.findByText(/mudou desde a sua confirmação/);
+      const caixa = aviso.closest("[role=alertdialog]") as HTMLElement;
+      expect(within(caixa).getByText("Falta a regularidade")).toBeTruthy();
+      expect(aoConcluir).not.toHaveBeenCalled();
+      fireEvent.click(within(caixa).getByRole("button", { name: "Continuar com o envio" }));
+      await waitFor(() => expect(aoConcluir).toHaveBeenCalled());
+      expect(JSON.parse(enviados()[1][1].body).confirmadas).toEqual(NOVA);
+    });
   });
 
   it("a ajuda do link diz que só vale o OneDrive ou SharePoint da Lotufo (testes de quebra 10/10, A-13)", async () => {

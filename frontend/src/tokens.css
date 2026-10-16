@@ -1471,6 +1471,15 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
   .ol-topo { flex-wrap: wrap; }
 }
 .ol-pendencias { padding: 12px; border-bottom: 1px solid #e1dfdd; background: #fffbf0; border-radius: 8px 8px 0 0; }
+/* Issue #213: aviso "ATENÇÃO" do envio com documento faltando (ConfirmarFaltas.tsx) */
+.confirmar-faltas { width: min(520px, calc(100vw - 32px)); max-height: 88vh; overflow: auto; display: grid; gap: 12px;
+  padding: 20px; background: var(--superficie); border: 1px solid var(--atencao-linha); border-radius: var(--raio-sobreposicao);
+  box-shadow: var(--sombra-sobreposicao); color: var(--texto); }
+.confirmar-faltas p { margin: 0; }
+.confirmar-faltas__titulo { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; color: var(--atencao); }
+.confirmar-faltas__lista { margin: 8px 0; padding-left: 20px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.confirmar-faltas__pergunta { font-weight: 600; }
+.confirmar-faltas__acoes { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .assinatura-previa { display: block; max-width: 600px; width: 100%; height: auto; border: 1px solid var(--linha, #e1dfdd); border-radius: 4px; }
 .ol-corpo .ol-editor { height: auto; padding: 0; border-radius: 0; max-width: none; }
 .ol-janela input, .ol-janela textarea { box-shadow: none; }

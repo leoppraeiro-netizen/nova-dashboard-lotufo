@@ -439,17 +439,19 @@ def detalhe_envio(conn, protocolo_id: int, remetente: str | None = None, hoje: d
     return {"envio": _envio(conn, c, familia, o, ms, protocolo_id, hoje) if ms else None, "familia": familia,
             "etapa": p["etapa"], "protocolo_id": protocolo_id, "situacao_protocolo": p["situacao"], "carta": carta,
             "previa": {k: pv[k] for k in ("para", "copia", "assunto", "corpo", "anexos", "total", "limite", "links")},
+            # issue #213: com pendencia, o Enviar abre o aviso "ATENÇÃO" com esta lista e manda a lista confirmada
             "bloqueio": pv["bloqueio"], "pendencias": [x["mensagem"] for x in pv["pendencias"]],
-            "justificativa_obrigatoria": bool(pv["pendencias"]),
             "extras": [{"id": x["id"], "nome": x["nome"], "tamanho": x["tamanho"]}
                        for x in protocolo._pecas(conn, protocolo_id) if x["tipo"] == protocolo.ANEXO]}
 
 
 def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[str], assunto: str, corpo: str,
-           justificativa: str | None, cco: list[str] | None = None, *, anexos_previa: list[dict]) -> int:
+           justificativa: str | None, cco: list[str] | None = None, *, anexos_previa: list[dict],
+           confirmadas: list[str] | None = None) -> int:
     """Envia pelo Outlook de quem esta' logado e marca `protocolada` (protocolo.enviar). Bloqueio -> protocolo.Bloqueio.
     `anexos_previa` (issue #100): os anexos que a tela mostrou; se o servidor montar outros, recusa antes de reservar
-    (protocolo.AnexosMudaram). Obrigatorio (gate Sol S1, PR #141): None nao vira envio sem conferencia."""
+    (protocolo.AnexosMudaram). Obrigatorio (gate Sol S1, PR #141): None nao vira envio sem conferencia.
+    `confirmadas` (issue #213): o que falta, confirmado no aviso; sem ela ou diferente -> protocolo.ConfirmarPendencias."""
     if anexos_previa is None:
         raise ValueError("Faltam os anexos da prévia: abra a prévia de novo para conferir o que vai no e-mail")
     p = protocolo._linha(conn, protocolo_id)
@@ -457,7 +459,7 @@ def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[
         raise ValueError("Este protocolo não é de envio de nota")
     # issue #188: a espera pela outra metade e' conferida dentro de protocolo.enviar, sob o lock da reserva
     return protocolo.enviar(conn, usuario, [protocolo_id], para, copia, assunto, corpo, justificativa, cco=cco,
-                            anexos_previa=anexos_previa)
+                            anexos_previa=anexos_previa, confirmadas=confirmadas)
 
 
 # --- envio feito por fora --------------------------------------------------------------------------

@@ -9,7 +9,7 @@ from app import envio_reserva, graph, notas_envio, protocolo
 from app.api_auth import conexao
 from app.api_espelhos import _emails
 from app.api_medicoes import ID, MAX_INT64, _contrato_existe
-from app.api_protocolos import AnexoVistoIn, _existe
+from app.api_protocolos import AnexoVistoIn, Confirmadas, _existe
 from app.permissoes import exigir
 
 router = APIRouter()
@@ -31,6 +31,8 @@ class EnviarIn(BaseModel):
     # issue #100: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado.
     # Obrigatorio (revisor na PR #141): sem a lista nao ha' o que conferir, e o e-mail nao sai sem conferencia
     anexos: list[AnexoVistoIn] = Field(max_length=200)
+    # issue #213: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO"
+    confirmadas: Confirmadas = None
 
 
 class NumeroIn(BaseModel):
@@ -76,10 +78,13 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
         eid = notas_envio.enviar(conn, {"id": usuario["id"], "email": usuario["email"]}, pid, _emails(dados.para),
                                  _emails(dados.copia), dados.assunto.strip(), dados.corpo, dados.justificativa,
                                  cco=_emails(dados.cco),
-                                 anexos_previa=[a.model_dump() for a in dados.anexos])
+                                 anexos_previa=[a.model_dump() for a in dados.anexos], confirmadas=dados.confirmadas)
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None
+    except protocolo.ConfirmarPendencias as e:
+        conn.rollback()
+        raise HTTPException(422, detail=e.detalhe()) from None
     except protocolo.AnexosMudaram as e:
         conn.rollback()
         raise HTTPException(422, detail={"codigo": e.codigo, "mensagem": str(e)}) from None
