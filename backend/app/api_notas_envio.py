@@ -3,7 +3,7 @@ pagamento. Regras em `notas_envio` e `protocolo`; aqui so' entrada e HTTP. Certi
 import sqlite3
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from app import envio_reserva, graph, notas_envio, protocolo
 from app.api_auth import conexao
@@ -104,9 +104,10 @@ def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(...
                   # issue #230: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO" (um campo por item)
                   confirmadas: list[str] = Form(default=[]),
                   usuario: dict = Depends(exigir("editar_cadastros")), conn: sqlite3.Connection = Depends(conexao)):
-    # os mesmos limites do `Confirmadas` das rotas JSON (api_protocolos)
-    if len(confirmadas) > 200 or any(len(x) > 2000 for x in confirmadas):
-        raise HTTPException(422, "Lista do que falta grande demais: abra o registro de novo")
+    try:            # os mesmos limites do `Confirmadas` das rotas JSON (api_protocolos)
+        TypeAdapter(Confirmadas).validate_python(confirmadas)
+    except ValidationError:
+        raise HTTPException(422, "Lista do que falta grande demais: abra o registro de novo") from None
     for mid in [*medicao_ids, *irma_ids]:
         _medicao_existe(conn, mid)
     arquivo = None

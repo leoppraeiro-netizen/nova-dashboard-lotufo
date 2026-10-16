@@ -80,7 +80,8 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
           }
         }
       }
-      const aviso = escolhidos.length === 1 ? avisoPorFora(todasJuntas, escolhidos[0].medicao_ids.length)
+      // depois de um registro parcial (o aviso "ATENÇÃO" no meio), o que sobrou e' um so', mas foram varios envios
+      const aviso = escolhidos.length === 1 && !parcial ? avisoPorFora(todasJuntas, escolhidos[0].medicao_ids.length)
         : "Envios registrados: as notas foram para Aguardando pagamento.";
       aoFeito(semNumero.length > 0 ? `${aviso} O nº do processo não foi gravado (${semNumero[0]}): registre-o na etapa 4, depois do envio.` : aviso);
     } catch (x) {
@@ -148,7 +149,10 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
               {(e.irmas ?? []).map(i => (
                 <label key={i.medicao_id} className="campo--linha">
                   <input type="checkbox" checked={!irmasFora.includes(i.medicao_id)}
-                    onChange={ev => setIrmasFora(ev.target.checked ? irmasFora.filter(x => x !== i.medicao_id) : [...irmasFora, i.medicao_id])} />
+                    onChange={ev => {
+                      setIrmasFora(ev.target.checked ? irmasFora.filter(x => x !== i.medicao_id) : [...irmasFora, i.medicao_id]);
+                      setConfirmadas({});     // outra composicao: a lista confirmada era a das medicoes de antes
+                    }} />
                   Incluir também {i.tipo === "reajuste" ? "o" : "a"} {i.titulo} (saiu no mesmo e-mail)
                 </label>
               ))}
@@ -162,7 +166,12 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
           <button type="button" className="btn" onClick={fechar}>Cancelar</button>
         </div>
       </form>
-      {confirmar && <ConfirmarFaltas itens={confirmar.itens} mudou={confirmar.mudou} aoCancelar={() => setConfirmar(null)}
+      {confirmar && <ConfirmarFaltas itens={confirmar.itens} mudou={confirmar.mudou}
+        aoCancelar={() => {
+          // cancelou: o proximo Registrar pergunta de novo (nao reaproveita uma confirmacao que nao valeu)
+          setConfirmadas(c => Object.fromEntries(Object.entries(c).filter(([k]) => k !== confirmar.chave)));
+          setConfirmar(null);
+        }}
         pergunta="Deseja continuar com o registro do envio?" rotuloContinuar="Continuar com o registro"
         aoContinuar={() => {
           const conf = { ...confirmadas, [confirmar.chave]: confirmar.itens };

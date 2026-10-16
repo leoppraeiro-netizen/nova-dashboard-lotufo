@@ -306,6 +306,38 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     const medicoes = apiForm.mock.calls.map(c => (c[1] as FormData).getAll("medicao_ids"));
     expect(medicoes).toEqual([["631"], ["632"], ["632"]]);
     expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual(FALTA);
+    // os dois foram registrados: o aviso final fala dos envios, não só do último
+    expect(p.aoMudar).toHaveBeenCalledWith("Envios registrados: as notas foram para Aguardando pagamento.");
+  });
+
+  it("Cancelar depois de uma confirmação recusada: o próximo Registrar pergunta de novo, sem a lista antiga", async () => {
+    await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao()).mockRejectedValueOnce(pedeConfirmacao([FALTA[0]]))
+      .mockRejectedValueOnce(pedeConfirmacao([FALTA[0]]));
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    await waitFor(() => expect(screen.getByText(/O que falta mudou/)).toBeTruthy());
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancelar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(3));
+    expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual([]);
+    const aviso = await screen.findByRole("alertdialog");
+    expect(within(aviso).queryByText(/O que falta mudou/)).toBeNull();
+  });
+
+  it("mudar a irmã descarta a confirmação: a lista confirmada era de outra composição", async () => {
+    await abrir([envio({ irmas })]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao()).mockRejectedValueOnce(new ApiErro(0, "Sem conexão com o servidor."))
+      .mockResolvedValueOnce({ ok: true });
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Sem conexão");
+    fireEvent.click(screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)"));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(3));
+    expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual([]);
   });
 
   it("envio bloqueado não oferece o registro", async () => {
