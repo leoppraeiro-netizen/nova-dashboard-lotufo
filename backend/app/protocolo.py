@@ -623,6 +623,9 @@ def certidoes_vencidas(conn, p: dict, hoje: datetime.date) -> list[str]:
 
 PACOTE_FRC_VELHA = ("O pacote foi montado antes da FRC assinada que vale agora e leva a anterior: monte o pacote de "
                     "novo (e assine de novo, se já tinha assinado)")
+PACOTE_SEM_FRC = ("O pacote foi montado sem a FRC assinada que vale agora: monte o pacote de novo (e assine de novo, se "
+                  "já tinha assinado)")
+PACOTE_SEM_A_FRC_VIGENTE = (PACOTE_FRC_VELHA, PACOTE_SEM_FRC)
 
 
 def frc_recusadas(conn, p: dict) -> list[str]:
@@ -642,7 +645,7 @@ def frc_recusadas(conn, p: dict) -> list[str]:
     # vale agora (a da FRC gerada de novo) leva a velha; o envio espera montar de novo (migracao 041).
     no_pacote = set(json.loads(p.get("montado_frcs") or "[]"))
     if e.carta and "notas" in e.partes and p["montado_arquivo"] and not set(valem) <= no_pacote:
-        out.append(PACOTE_FRC_VELHA)
+        out.append(PACOTE_FRC_VELHA if no_pacote else PACOTE_SEM_FRC)
     return out
 
 
@@ -686,12 +689,30 @@ def listar(conn, contrato_id: int) -> dict:
 
 # --- assinado, previa, envio -----------------------------------------------------------------------
 
+def _recusar_frc_fora_do_assinado(conn, p: dict, texto: str) -> None:
+    """Revisor adversarial na rodada 4 da PR #179: com as notas DENTRO do pacote, o assinado tem que trazer a FRC
+    vigente de cada medicao (numero, valores e notas, como em frc.para_assinar). A conferencia por semelhanca de
+    pagina (assinatura.conferir) deixa passar o assinado do pacote anterior, que so' difere nos numeros da FRC."""
+    _, _, e, c = _contexto(conn, p)
+    if not (e.carta and "notas" in e.partes and c.get("entidade_id")):
+        return
+    for m in _medicoes(conn, p["id"]):
+        a = frc.assinada(conn, m["id"])
+        vig = frc._vigente(conn, m["id"]) if a["controla"] and a["documento"] else None
+        if vig and not frc.no_texto(texto, vig):
+            raise ValueError(f"O assinado não traz a FRC nº {vig['numero']} vigente da {titulo(m)} (número, notas ou "
+                             "valores não batem): assine no DocuSign o pacote montado agora e anexe o assinado dele")
+
+
 def receber_assinado(conn, usuario_id: int, protocolo_id: int, pdf: bytes) -> dict:
     p = _linha(conn, protocolo_id)
     _editavel(p)
     if not p["montado_arquivo"]:
         raise ValueError("Monte o pacote antes de anexar o assinado")
-    conf = assinatura.conferir_pdfs(_bytes(p["montado_arquivo"]), pdf)
+    teto = pdfs.TETO_PAGINAS_PACOTE
+    assinado = leitura_pdf.textos_por_pagina_com_limite(pdf, teto)
+    conf = assinatura.conferir(leitura_pdf.textos_por_pagina_com_limite(_bytes(p["montado_arquivo"]), teto), assinado)
+    _recusar_frc_fora_do_assinado(conn, p, "\n".join(t or "" for t in assinado))
     rel, sha = arquivos.gravar_bytes("protocolos", pdf, "pdf")
     with db.mutacao(conn):
         conn.execute("UPDATE protocolos SET assinado_arquivo=?, assinado_sha256=?, assinado_em=datetime('now'), "

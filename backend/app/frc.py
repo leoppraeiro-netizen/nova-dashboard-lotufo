@@ -343,6 +343,18 @@ def _no_texto(texto: str, esperado: str) -> bool:
     return re.search(rf"(?<![\w.,/-]){padrao}(?![\w.,/-])", texto) is not None
 
 
+def esperados(vig: dict) -> list[str]:
+    """O que a FRC `vig` (linha de `frcs`) imprime e o PDF assinado tem que trazer: numero, bruto, liquido e o numero
+    de cada nota."""
+    return [f"{vig['numero']:05d}", _br(vig["bruto_centavos"]), _br(vig["liquido_centavos"]),
+            *(str(x["numero"]) for x in json.loads(vig["notas"]))]
+
+
+def no_texto(texto: str, vig: dict) -> bool:
+    """A FRC `vig` inteira no texto (cada item de `esperados` como palavra inteira, ver `_no_texto`)."""
+    return all(_no_texto(texto, e) for e in esperados(vig))
+
+
 def para_assinar(conn, medicao_id: int, lida: dict | None) -> int | None:
     """A FRC (frcs.id) que o PDF assinado assina; `lida` e' o `ler_assinada` do PDF (None em obra propria). Chamada
     DENTRO da transacao do anexo (rodada 3 da PR #179): a FRC gerada de novo ou desatualizada entre a conferencia e o
@@ -364,9 +376,7 @@ def para_assinar(conn, medicao_id: int, lida: dict | None) -> int | None:
     texto = lida["texto"]
     if not texto.strip():
         raise ValueError(SEM_TEXTO)
-    esperados = [f"{n:05d}", _br(vig["bruto_centavos"]), _br(vig["liquido_centavos"]),
-                 *(str(x["numero"]) for x in json.loads(vig["notas"]))]
-    if not all(_no_texto(texto, e) for e in esperados):
+    if not no_texto(texto, vig):
         raise ValueError(f"Este PDF não é a FRC nº {n} vigente (número, notas ou valores não batem): baixe a FRC "
                          "gerada, assine no DocuSign e anexe a assinada dela")
     return vig["id"]
