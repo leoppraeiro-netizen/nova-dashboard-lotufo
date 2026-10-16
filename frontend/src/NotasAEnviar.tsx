@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
-import { api, apiForm, mensagemDeErro } from "./api";
+import { api, apiForm, baixarArquivo, mensagemDeErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { trocarBusca, type Busca } from "./rota";
@@ -25,6 +25,7 @@ export type Envio = {
   grupo: string; a_pedido: boolean; medicao_ids: number[]; descricao: string; notas: NotaEnvio[];
   valor_centavos: number; emitida_em: string | null; dias: number | null; situacao: string;
   aviso: string | null; itens: ItemEnvio[]; protocolo_id: number | null;
+  envio_reservado_em?: string | null;   // so' leitura: o e-mail do envio comecado pode estar saindo (so' entao ha' o que liberar)
   irmas?: Irma[];   // issue #172: SINFRA e Pref. VG: a medicao/reajuste irma com nota emitida fora deste envio
   // issue #188: onde o orgao junta, a outra metade ainda sem as notas segura o envio (situacao "esperando")
   espera?: { medicao_id: number; titulo: string; tipo: string; texto: string } | null;
@@ -116,10 +117,18 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
     try { await apiForm(`/api/medicoes/${it.medicao_id}/notas`, fd); aoMudar(); } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
-  // issue #148: falta a assinada mas a FRC ja' foi gerada: o link para baixa-la fica no proprio item
+  // issue #148: falta a assinada mas a FRC ja' foi gerada: o link para baixa-la fica no proprio item. Issue #169: a FRC
+  // que ficou desatualizada depois de a tela carregar e' recusada pelo servidor; a mensagem aparece e a tela recarrega
+  async function baixar(caminho: string) {
+    setErro("");
+    try { await baixarArquivo(caminho, "FRC.pdf"); } catch (e) { setErro(mensagem(e)); aoMudar(); }
+  }
   const baixarFrc = (it: ItemEnvio) => it.frc_gerada && it.estado !== "ok" && it.medicao_id ? (
     <span className="nota-item__detalhe">
-      <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}>Baixar a FRC gerada (nº {it.frc_gerada})</a>
+      <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}
+        onClick={ev => { ev.preventDefault(); void baixar(`/api/medicoes/${it.medicao_id}/frc/pdf`); }}>
+        Baixar a FRC gerada (nº {it.frc_gerada})
+      </a>
     </span>
   ) : null;
 
@@ -287,6 +296,12 @@ export function resumoDe(e: Envio, onde: "aba" | "etapa" = "aba"): Resumo {
 
 /** O que vai junto, so' para ler: cada item com o estado e, onde falta algo, o caminho ate' onde se resolve. */
 function ItensLeitura({ e, certidoes }: { e: Envio; certidoes: ItemCertidao[] | null }) {
+  const [erroBaixar, setErroBaixar] = useState("");
+  // issue #169: a FRC desatualizada e' recusada pelo servidor; a mensagem aparece aqui em vez do JSON do erro
+  async function baixar(caminho: string) {
+    setErroBaixar("");
+    try { await baixarArquivo(caminho, "FRC.pdf"); } catch (x) { setErroBaixar(mensagem(x)); }
+  }
   const aqui = { tela: "medicao" as const, obra: e.contrato_id, id: e.medicao_ids[0] };
   const itens = certidoes && certidoes.length > 0 ? e.itens.filter(i => !i.chave.startsWith("certidoes")) : e.itens;
   return (
@@ -300,7 +315,8 @@ function ItensLeitura({ e, certidoes }: { e: Envio; certidoes: ItemCertidao[] | 
               {it.detalhe && <span className={`nota-item__detalhe nota-item__detalhe--${it.estado}`}>{it.detalhe}</span>}
               {it.acao === "anexar_frc" && it.estado !== "ok" && it.frc_gerada && it.medicao_id && (
                 <span className="nota-item__detalhe">
-                  <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}>Baixar a FRC gerada (nº {it.frc_gerada})</a>
+                  <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}
+                    onClick={ev => { ev.preventDefault(); void baixar(`/api/medicoes/${it.medicao_id}/frc/pdf`); }}>Baixar a FRC gerada (nº {it.frc_gerada})</a>
                 </span>
               )}
               {it.acao === "anexar_frc" && it.estado !== "ok" && (
@@ -313,6 +329,7 @@ function ItensLeitura({ e, certidoes }: { e: Envio; certidoes: ItemCertidao[] | 
           </span>
         </li>
       ))}
+      {erroBaixar && <li><p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erroBaixar}</p></li>}
     </ul>
   );
 }

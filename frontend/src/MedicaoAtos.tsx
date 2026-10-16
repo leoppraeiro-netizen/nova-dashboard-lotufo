@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import CaixaAviso from "./CaixaAviso";
 import CampoValor from "./CampoValor";
 import ErroCampo from "./ErroCampo";
 import { api } from "./api";
 import { IconeAlerta } from "./icones";
 import { DO_ESPELHO, EXCECOES, type Metade } from "./medicao";
 import type { Medicao } from "./Medicoes";
+import Selo from "./Selo";
 
 // Os atos de UMA medicao (valor, recebimento, cancelar ou desistir, medicao final), num formulario
 // que a pagina da medicao abre numa janela. O protocolo feito fora virou o "Registrar envio feito fora do sistema"
@@ -90,6 +92,148 @@ function FormValorDoCampo({ m, campo, salvando, agir, aoFechar, erro }: PropsVal
         <button type="submit" className="btn btn--primario" disabled={salvando}>{salvando ? "Salvando…" : "Salvar valor"}</button>
         <button type="button" className="btn" onClick={aoFechar}>Cancelar</button>
         {campo === "atestado" && <span className="campo__nota">O atestado permanece editável após o protocolo (glosa).</span>}
+      </div>
+    </form>
+  );
+}
+
+// Recorte do checklist "pronto para protocolar" (app/checklist.py) que o ato precisa: o veredito e os
+// documentos pendentes. A regra mora no servidor.
+// gate Sol S6 (10/10/2026): o servidor recusa menos que isso ao protocolar com pendencia (protocolo.MIN_JUSTIFICATIVA)
+const MIN_JUSTIFICATIVA = 10;
+
+type Checklist = {
+  entidade: string | null; pronto: boolean;
+  itens: { entidade_id: number; entidade: string | null; tipo: string; situacao: string }[];
+};
+
+/** Registrar protocolo feito FORA do sistema (o "Protocolar" antigo da linha): data, oficio, processo e o
+ *  checklist do ato, que trava com certidao pendente ate' o operador assumir e justificar. */
+export function FormProtocoloManual({ contratoId, m, salvando, agir, aoFechar, erro }: Base & { contratoId: number }) {
+  const [proto, setProto] = useState({ data: "", oficio: "", processo: "" });
+  // `undefined` = ainda lendo; `null` = a leitura falhou (o servidor decide sozinho ao gravar).
+  const [checklist, setChecklist] = useState<Checklist | null | undefined>(undefined);
+  const [apesar, setApesar] = useState(false);
+  const [justificativa, setJustificativa] = useState("");
+  const [tentou, setTentou] = useState(false);   // clicou em Registrar: so' ai' os campos mostram o que falta
+
+  useEffect(() => {
+    let vivo = true;
+    // A exigencia depende da natureza: o reajuste pode pedir menos que a medicao.
+    api<Checklist>(`/api/contratos/${contratoId}/checklist-protocolo?natureza=${m.tipo}`)
+      .then(c => { if (vivo) setChecklist(c); })
+      .catch(() => { if (vivo) setChecklist(null); });
+    return () => { vivo = false; };
+  }, [contratoId, m.tipo]);
+
+  const pendentes = checklist ? checklist.itens.filter(i => i.situacao === "pendente") : [];
+
+  // O botao nao fica apagado esperando o formulario valer (issue #11): o clique diz o que falta, junto do campo.
+  const faltas = {
+    data: !proto.data ? "Informe a data do protocolo." : undefined,
+    apesar: pendentes.length > 0 && !apesar
+      ? "Marque “Protocolar apesar das pendências” e justifique, ou anexe os documentos em Documentos." : undefined,
+    justificativa: pendentes.length > 0 && apesar && justificativa.trim().length < MIN_JUSTIFICATIVA
+      ? `Escreva a justificativa, com pelo menos ${MIN_JUSTIFICATIVA} caracteres.` : undefined,
+  };
+  const erroDe = (campo: keyof typeof faltas) => tentou ? faltas[campo] : undefined;
+  const ligacao = (campo: keyof typeof faltas, id: string) =>
+    erroDe(campo) ? { "aria-invalid": true as const, "aria-describedby": `${id}-erro` } : {};
+
+  async function salvar(ev: React.FormEvent) {
+    ev.preventDefault();
+    setTentou(true);
+    const primeira = faltas.data ? "campo-data" : faltas.apesar ? "campo-apesar" : faltas.justificativa ? "campo-justificativa" : null;
+    if (primeira) { document.getElementById(primeira)?.focus(); return; }
+    const ok = await agir(() => api(`/api/medicoes/${m.id}/protocolo`, {
+      method: "POST",
+      body: JSON.stringify({
+        data: proto.data, numero_oficio: proto.oficio || null, numero_processo: proto.processo || null,
+        // So' quando o operador assumiu a pendencia: sem isso o servidor trava o protocolo com certidao
+        // pendente (422) e a mensagem dele aparece aqui.
+        ...(apesar ? { apesar_das_pendencias: true, justificativa } : {}),
+      }),
+    }), "Protocolo registrado.");
+    if (ok) aoFechar();
+  }
+
+  return (
+    <form onSubmit={salvar} noValidate onKeyDown={ev => ev.key === "Escape" && aoFechar()}>
+      <p className="painel__titulo">Registrar protocolo feito fora do sistema: {m.numero}ª medição</p>
+      <Erro erro={erro} />
+      <div className="form-inline">
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor="campo-data">Data do protocolo</label>
+          <input id="campo-data" name="data_protocolo" autoComplete="off" type="date" className="entrada--media" required autoFocus
+            {...ligacao("data", "campo-data")}
+            value={proto.data} onChange={ev => setProto({ ...proto, data: ev.target.value })} />
+          <ErroCampo id="campo-data-erro" erro={erroDe("data")} />
+        </div>
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor="campo-oficio">Nº do ofício (opcional)</label>
+          <input id="campo-oficio" name="numero_oficio" autoComplete="off" spellCheck={false} className="entrada--media" maxLength={100}
+            placeholder="Ex.: 1234/2026…" value={proto.oficio} onChange={ev => setProto({ ...proto, oficio: ev.target.value })} />
+        </div>
+        {/* O orgao devolve um numero de PROCESSO quando protocola, e e' por ele que se cobra andamento
+            depois — o oficio e' o nosso lado da conversa. */}
+        <div className="campo">
+          <label className="campo__rotulo" htmlFor="campo-processo">Nº do processo no órgão (opcional)</label>
+          <input id="campo-processo" name="numero_processo" autoComplete="off" spellCheck={false} className="entrada--media" maxLength={100}
+            placeholder="Ex.: 0001234-56.2026…" value={proto.processo} onChange={ev => setProto({ ...proto, processo: ev.target.value })} />
+        </div>
+      </div>
+
+      {/* F-69: a condicao que libera o botao vem ANTES dele. O resultado da conferencia chega depois e muda o
+          que o botao aceita: anuncia-se quando chega */}
+      <div className="painel__rodape checklist-ato" aria-live="polite">
+        {checklist === undefined && <span className="campo__nota">Conferindo os documentos exigidos…</span>}
+        {checklist === null && (
+          <CaixaAviso nivel="atencao" como="span">
+            Não foi possível conferir os documentos agora — o servidor confere de novo ao registrar.
+          </CaixaAviso>
+        )}
+        {checklist && pendentes.length === 0 && (
+          <Selo classe="selo--ok" title={`Documentos de ${checklist.entidade ?? "da entidade"} em dia para protocolar`}>
+            Documentos de {checklist.entidade ?? "da entidade"} em dia para protocolar
+          </Selo>
+        )}
+        {checklist && pendentes.length > 0 && (
+          <>
+            <CaixaAviso nivel="critico" como="span">
+                {pendentes.length === 1 ? "1 documento sem validade hoje" : `${pendentes.length} documentos sem validade hoje`} —{" "}
+                {pendentes.map(i => new Set(pendentes.map(x => x.entidade_id)).size > 1 ? `${i.entidade}: ${i.tipo}` : i.tipo).join(", ")}.
+                Anexe em Documentos antes de protocolar, ou assuma a pendência abaixo.
+            </CaixaAviso>
+            <label className="marcar">
+              <input id="campo-apesar" type="checkbox" name="apesar_das_pendencias" checked={apesar} {...ligacao("apesar", "campo-apesar")}
+                onChange={ev => setApesar(ev.target.checked)} />
+              Protocolar apesar das pendências (fica registrado na auditoria)
+            </label>
+            <ErroCampo id="campo-apesar-erro" erro={erroDe("apesar")} />
+            {apesar && (
+              <div className="campo">
+                <label className="campo__rotulo" htmlFor="campo-justificativa">Justificativa</label>
+                <input id="campo-justificativa" name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={500}
+                  placeholder="Ex.: órgão aceita a CND em até 5 dias…" value={justificativa} {...ligacao("justificativa", "campo-justificativa")}
+                  onChange={ev => setJustificativa(ev.target.value)} />
+                <ErroCampo id="campo-justificativa-erro" erro={erroDe("justificativa")} />
+              </div>
+            )}
+          </>
+        )}
+        {/* consequencia do ato, nao pendencia: nota neutra (ambar e' do que trava) */}
+        <span className="campo__nota">
+          {m.estado === "prevista"
+            ? "Protocolar move a medição para protocolada e congela o valor protocolado."
+            : "Protocolar congela o valor protocolado desta medição."}
+        </span>
+      </div>
+
+      <div className="form-inline painel__rodape">
+        <button type="submit" className="btn btn--primario" disabled={salvando}>
+          {salvando ? "Registrando…" : "Registrar protocolo"}
+        </button>
+        <button type="button" className="btn" onClick={aoFechar}>Cancelar</button>
       </div>
     </form>
   );

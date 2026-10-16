@@ -15,25 +15,33 @@ import { hojeLocal } from "./tempo";
 // onde o servidor guarda esse numero nos protocolos feitos por fora. O nº do oficio nao tem campo proprio no
 // registro por fora: vai na observacao, que fica na auditoria e na medicao.
 
-export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
+export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, aoRecarregar }: {
   envios: Envio[]; aoFechar: () => void; aoFeito: (aviso: string) => void;
+  /** a medicao da pagina: so' o envio dela comeca marcado */
+  medicaoId: number;
+  /** falha no meio, com algo ja' gravado: a pagina le de novo */
+  aoRecarregar: () => void;
 }) {
   const [data, setData] = useState(hojeLocal());
   const [oficio, setOficio] = useState("");
   const [processo, setProcesso] = useState("");
   const [obs, setObs] = useState("");
   const [eml, setEml] = useState<File | null>(null);
-  const [marcados, setMarcados] = useState<string[]>(envios.map(e => e.chave));
+  const dela = envios.filter(e => e.medicao_ids.includes(medicaoId));
+  const [marcados, setMarcados] = useState<string[]>((dela.length > 0 ? dela : envios.slice(0, 1)).map(e => e.chave));
+  const [parcial, setParcial] = useState(false);
   const [irmasFora, setIrmasFora] = useState<number[]>([]);   // irmas desmarcadas
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
+
+  const fechar = () => { if (parcial) aoRecarregar(); aoFechar(); };
 
   async function registrar(ev: React.FormEvent) {
     ev.preventDefault();
     const escolhidos = envios.filter(e => marcados.includes(e.chave));
     if (escolhidos.length === 0) { setErro("Marque o que saiu neste envio."); return; }
-    const observacao = [oficio.trim() ? `Ofício ${oficio.trim()}` : "", obs.trim()].filter(Boolean).join(" · ")
-      || "Registrado na etapa 4 da medição.";
+    // a observacao vira a justificativa da ressalva na auditoria: nao ha' texto padrao
+    const observacao = [oficio.trim() ? `Ofício ${oficio.trim()}` : "", obs.trim()].filter(Boolean).join(" · ");
     setOcupado(true); setErro("");
     const feitos: string[] = [];
     const semNumero: string[] = [];
@@ -51,7 +59,7 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
         await apiForm("/api/notas/envio-externo", fd);
         feitos.push(e.chave);
         todasJuntas = [...todasJuntas, ...juntas];
-        if (processo.trim()) {
+        if (processo.trim() && escolhidos.length === 1) {
           // o envio ja' esta' gravado: se o numero nao entrar, a pessoa o registra na etapa 4 (nao refaz o envio)
           for (const id of [...e.medicao_ids, ...juntas.map(i => i.medicao_id)]) {
             try { await api(`/api/notas/${id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: processo.trim() }) }); }
@@ -65,7 +73,7 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
     } catch (x) {
       setErro(feitos.length > 0 ? `${mensagem(x)} Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`
         : mensagem(x));
-      if (feitos.length > 0) setMarcados(marcados.filter(c => !feitos.includes(c)));
+      if (feitos.length > 0) { setMarcados(marcados.filter(c => !feitos.includes(c))); setParcial(true); aoRecarregar(); }
       setOcupado(false);
       return;
     }
@@ -73,7 +81,7 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
   }
 
   return (
-    <Janela titulo="Registrar envio feito fora do sistema" aoFechar={aoFechar}>
+    <Janela titulo="Registrar envio feito fora do sistema" aoFechar={fechar}>
       <form className="pilha" onSubmit={registrar}>
         <p className="campo__nota">Para o que já saiu por fora: e-mail pelo Outlook ou protocolo no balcão do órgão. As notas vão
           para Aguardando pagamento.</p>
@@ -85,13 +93,14 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
           </div>
           <div className="campo">
             <label className="campo__rotulo" htmlFor="porfora-oficio">Nº do ofício (opcional)</label>
-            <input id="porfora-oficio" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 1234/2026…"
+            <input id="porfora-oficio" name="numero_oficio" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 1234/2026…"
               value={oficio} onChange={e => setOficio(e.target.value)} />
           </div>
           <div className="campo">
             <label className="campo__rotulo" htmlFor="porfora-processo">Nº do processo no órgão (opcional)</label>
-            <input id="porfora-processo" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 0001234-56.2026…"
-              value={processo} onChange={e => setProcesso(e.target.value)} />
+            <input id="porfora-processo" name="numero_processo" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 0001234-56.2026…"
+              value={processo} disabled={marcados.length !== 1} onChange={e => setProcesso(e.target.value)} />
+            {marcados.length > 1 && <span className="campo__nota">Cada envio tem o seu: marque um só para informar.</span>}
           </div>
         </div>
         <div className="campo">
@@ -99,8 +108,9 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
           <input id="porfora-eml" type="file" accept=".eml,message/rfc822" onChange={e => setEml(e.target.files?.[0] ?? null)} />
         </div>
         <div className="campo">
-          <label className="campo__rotulo" htmlFor="porfora-obs">Observação</label>
-          <textarea id="porfora-obs" rows={2} maxLength={2000} value={obs} onChange={e => setObs(e.target.value)} />
+          <label className="campo__rotulo" htmlFor="porfora-obs">Como e para quem a nota foi enviada</label>
+          <textarea id="porfora-obs" rows={2} maxLength={2000} required value={obs} placeholder="Ex.: pelo Outlook, ao fiscal do contrato…"
+            onChange={e => setObs(e.target.value)} />
         </div>
         <fieldset className="opcoes">
           <legend className="campo__rotulo">O que saiu neste envio</legend>
@@ -124,8 +134,8 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
         <p className="campo__nota">Registrar congela o valor protocolado das medições marcadas.</p>
         {erro && <p className="erro" role="alert"><IconeAlerta className="icone icone--p" />{erro}</p>}
         <div className="iniciar__rodape">
-          <button type="submit" className="btn btn--primario" disabled={ocupado || !data}>{ocupado ? "Gravando…" : "Registrar"}</button>
-          <button type="button" className="btn" onClick={aoFechar}>Cancelar</button>
+          <button type="submit" className="btn btn--primario" disabled={ocupado || !data || !obs.trim()}>{ocupado ? "Gravando…" : "Registrar"}</button>
+          <button type="button" className="btn" onClick={fechar}>Cancelar</button>
         </div>
       </form>
     </Janela>

@@ -13,7 +13,7 @@ import type { Usuario } from "./Login";
 import MaisAcoes, { type ItemAcao } from "./MaisAcoes";
 import { eventosDaMedicao, EXCECOES, FINAIS, metadeQueEspera, passoDe, PROXIMOS, resumoDoPar, rotuloDoBloco, tituloMedicao,
          type EspelhoResumo, type MedicaoBase, type ParDaMedicao } from "./medicao";
-import { FormDesmarcarFinal, FormEstado, FormFinal, FormRecebimento, FormSemAOutra, FormValor, valorEditavel, type Agir } from "./MedicaoAtos";
+import { FormDesmarcarFinal, FormEstado, FormFinal, FormProtocoloManual, FormRecebimento, FormSemAOutra, FormValor, valorEditavel, type Agir } from "./MedicaoAtos";
 import { brl, type Medicao } from "./Medicoes";
 import { Notas } from "./Notas";
 import { ProtocolosDaMedicao, useProtocolos } from "./Protocolo";
@@ -33,7 +33,7 @@ import "./etapas.css";
 
 type Cabecalho = { obra: string; orgao: string; instrumento: string; percentual_lotufo_bp: number };
 type LinhaAndamento = { id: number; proximo_passo: string; desde: string };
-type Painel = "protocolado" | "atestado" | "recebimento" | "cancelada" | "desistida" | "final" | "desfinal" | "sozinha" | "liberar" | null;
+type Painel = "fora" | "protocolado" | "atestado" | "recebimento" | "cancelada" | "desistida" | "final" | "desfinal" | "sozinha" | "liberar" | null;
 
 // Ancoras antigas (#notas, #espelho, #protocolo) abrem a etapa onde a coisa mora hoje.
 const SECAO_ETAPA: Record<string, number> = { espelho: 1, notas: 3, protocolo: 4 };
@@ -143,7 +143,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   // issue #188: a metade pronta que espera a outra (orgao que junta); o passo da vez e' a espera
   const pronta = metadeQueEspera(par);
   const esperaAqui = pronta?.medicao_id === medicaoId ? pronta.espera : null;
-  const passo = esperaAqui ? { rotulo: esperaAqui.texto.charAt(0).toUpperCase() + esperaAqui.texto.slice(1), secao: "etapa-3" }
+  const passo = esperaAqui ? { rotulo: esperaAqui.texto.charAt(0).toUpperCase() + esperaAqui.texto.slice(1), secao: "etapa-4" }
     : passoDe(linha?.proximo_passo);
   const aqui: Rota = { tela: "medicao", obra: contratoId, id: medicaoId };
 
@@ -210,7 +210,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   const registrados = m.protocolos.filter(p => !p.protocolo_id);
 
   // Mais acoes: so' o que nao e' de uma etapa
-  const preso = (envios.envios ?? []).filter(e => e.protocolo_id !== null);
+  const preso = (envios.envios ?? []).filter(e => e.protocolo_id !== null && !!e.envio_reservado_em);
   const acoes: ItemAcao[] = !podeEditar ? [] : [
     ...(valorEditavel(m, "atestado", podeEditar) ? [{ id: "atestado", rotulo: m.valor_atestado_centavos === null ? "Definir o atestado" : "Editar o atestado" }] : []),
     ...(m.final !== 1 && !EXCECOES.includes(m.estado) ? [{ id: "final", rotulo: "Marcar como medição final" }] : []),
@@ -289,13 +289,17 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             <span className="campo__nota"> · registrado fora do sistema</span>
           </p>
         ))}
-        {registrados.length > 0 && <NumeroDoOrgaoFora ms={grupo.filter(x => x.protocolos.some(p => !p.protocolo_id) && !FINAIS.includes(x.estado))} atual={registrados.at(-1)?.numero_processo ?? ""} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+        {registrados.length > 0 && <NumeroDoOrgaoFora ms={grupo.filter(x => x.protocolos.some(p => !p.protocolo_id) && !FINAIS.includes(x.estado))} junta={!!par?.junta} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
           aoMudar={() => { setFeito("Número gravado."); recarregar(); }} />}
+        {/* outro protocolo feito fora (reprotocolo) numa medicao ja protocolada: confere as certidoes e pede a justificativa */}
+        {podeEditar && !FINAIS.includes(m.estado) && (
+          <div><button type="button" id="ato-fora" className="btn btn--pequeno" disabled={salvando} onClick={() => abrir("fora")}>Registrar protocolo feito fora</button></div>
+        )}
       </ProtocolosDaMedicao>
     </div>
   ) : (
     <div className="med-etapa__corpo">
-      <EtapaEnvio envios={envios.envios} erro={envios.erro} recarregarEnvios={envios.carregar} podeEditar={podeEditar}
+      <EtapaEnvio medicaoId={m.id} envios={envios.envios} erro={envios.erro} recarregarEnvios={envios.carregar} podeEditar={podeEditar}
         versaoDocs={versaoNotas + versaoFrc} aoAnexarItem={() => setVersaoFrc(v => v + 1)}
         aoMudar={aviso => { setErro(""); setFeito(aviso ?? ""); recarregar(); }}
         pronta={pronta} orgao={par?.orgao ?? null} aoSemAOutra={() => abrir("sozinha")} />
@@ -383,6 +387,11 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
         </Janela>
       )}
       {/* F-92: medicao final (e desfazer) por formulario, no lugar de confirm/prompt do navegador */}
+      {painel === "fora" && (
+        <Janela titulo="Registrar protocolo feito fora do sistema" aoFechar={fechar}>
+          <FormProtocoloManual contratoId={contratoId} m={m} salvando={salvando} agir={agir} aoFechar={fechar} erro={erro} />
+        </Janela>
+      )}
       {painel === "final" && (
         <Janela titulo="Marcar como medição final" aoFechar={fechar}>
           <FormFinal m={m} salvando={salvando} agir={agir} aoFechar={fechar} erro={erro} />
@@ -418,25 +427,45 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
 }
 
 
-/** O nº do protocolo no orgao de um envio registrado fora do sistema: so' se digita aqui, na etapa 4. */
-function NumeroDoOrgaoFora({ ms, atual, podeEditar, aoMudar }: { ms: Medicao[]; atual: string; podeEditar: boolean; aoMudar: () => void }) {
+/** O nº do protocolo no orgao de um envio registrado fora do sistema: so' se digita aqui, na etapa 4. Onde o orgao
+ *  junta medicao e reajuste (SINFRA, Pref. VG) o registro cobriu as duas e o numero e' um so'; onde separa (MTPAR,
+ *  SES) cada medicao tem o SIGA dela, um campo por envio registrado por fora. */
+function NumeroDoOrgaoFora({ ms, junta, podeEditar, aoMudar }: { ms: Medicao[]; junta: boolean; podeEditar: boolean; aoMudar: () => void }) {
+  const unidades = junta ? [ms] : ms.map(x => [x]);
+  return (
+    <div className="pilha">
+      {unidades.map(u => <CampoNumeroOrgao key={u.map(x => x.id).join("-")} ms={u} rotulo={unidades.length > 1 ? ` · ${tituloMedicao(u[0])}` : ""}
+        podeEditar={podeEditar} aoMudar={aoMudar} />)}
+    </div>
+  );
+}
+
+function CampoNumeroOrgao({ ms, rotulo, podeEditar, aoMudar }: { ms: Medicao[]; rotulo: string; podeEditar: boolean; aoMudar: () => void }) {
+  const atual = ms[0].protocolos.filter(p => !p.protocolo_id).at(-1)?.numero_processo ?? "";
   const [numero, setNumero] = useState(atual);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const id = `numero-orgao-fora-${ms[0].id}`;
   async function salvar(ev: React.FormEvent) {
     ev.preventDefault();
     setOcupado(true); setErro("");
+    const gravadas: string[] = [];
     try {
-      // onde o orgao junta, o registro por fora cobriu a medicao e o reajuste: o numero vale para os dois
-      for (const x of ms) await api(`/api/notas/${x.id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: numero.trim() }) });
+      for (const x of ms) {
+        await api(`/api/notas/${x.id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: numero.trim() }) });
+        gravadas.push(tituloMedicao(x));
+      }
       aoMudar();
-    } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
+    } catch (e) {
+      setErro(gravadas.length > 0 ? `${mensagemDeErro(e)} O número já ficou na ${gravadas.join(" e na ")}; salve de novo para a outra.` : mensagemDeErro(e));
+      if (gravadas.length > 0) aoMudar();   // a pagina le de novo e mostra o que ja' foi gravado
+    } finally { setOcupado(false); }
   }
   return (
     <form className="form-inline" onSubmit={salvar}>
       <div className="campo">
-        <label className="campo__rotulo" htmlFor="numero-orgao-fora">Nº do protocolo no órgão</label>
-        <input id="numero-orgao-fora" name="numero_orgao" autoComplete="off" spellCheck={false} className="entrada--media" maxLength={100}
+        <label className="campo__rotulo" htmlFor={id}>Nº do protocolo no órgão{rotulo}</label>
+        <input id={id} name="numero_orgao" autoComplete="off" spellCheck={false} className="entrada--media" maxLength={100}
           value={numero} disabled={!podeEditar} onChange={ev => setNumero(ev.target.value)} />
         <span className="campo__nota">Obrigatório; informe o número dado pelo órgão.</span>
       </div>

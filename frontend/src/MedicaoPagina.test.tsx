@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiErro } from "./api";
 import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
@@ -124,10 +125,20 @@ describe("Página da medição: o trilho, a etapa aberta e a coluna da direita",
     expect(screen.queryByRole("button", { name: /Mais ações/ })).toBeNull();
   });
 
-  it("“Liberar envio preso” aparece com um envio começado e abre a liberação", async () => {
+  const ENVIO_COMECADO = { chave: "m5", contrato_id: 1, medicao_ids: [5], protocolo_id: 3, notas: [], itens: [], situacao: "pronto",
+    descricao: "23ª medição", valor_centavos: 1, familia: "sinfra", aviso: null };
+
+  it("“Liberar envio preso” não aparece com o envio só começado, sem reserva", async () => {
     responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }],
-      "/api/notas/a-enviar": { envios: [{ chave: "m5", contrato_id: 1, medicao_ids: [5], protocolo_id: 3, notas: [], itens: [], situacao: "pronto",
-        descricao: "23ª medição", valor_centavos: 1, familia: "sinfra", aviso: null }], contadores: {} } });
+      "/api/notas/a-enviar": { envios: [{ ...ENVIO_COMECADO, envio_reservado_em: null }], contadores: {} } });
+    pagina();
+    fireEvent.click(await screen.findByRole("button", { name: /Mais ações/ }));
+    expect(screen.queryByRole("menuitem", { name: "Liberar envio preso" })).toBeNull();
+  });
+
+  it("“Liberar envio preso” aparece só com a reserva de fato e abre a liberação", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }],
+      "/api/notas/a-enviar": { envios: [{ ...ENVIO_COMECADO, envio_reservado_em: "2026-10-16T10:05:00-04:00" }], contadores: {} } });
     pagina();
     fireEvent.click(await screen.findByRole("button", { name: /Mais ações/ }));
     await waitFor(() => expect(screen.getByRole("menuitem", { name: "Liberar envio preso" })).toBeTruthy());
@@ -207,16 +218,77 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes")).toHaveLength(2));
   });
 
-  it("etapa 4 já feita: o protocolo registrado fora mostra o nº do órgão e não há mais “Registrar protocolo feito fora”", async () => {
+  const REGISTRADO = { id: 9, data: "2026-10-10", numero_oficio: "360/2026", numero_processo: null, origem: "manual", protocolo_id: null };
+
+  it("etapa 4 já feita: o protocolo registrado fora mostra o campo do nº do órgão", async () => {
     abrirEtapa(4);
-    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [{ id: 9, data: "2026-10-10", numero_oficio: "360/2026",
-      numero_processo: null, origem: "manual", protocolo_id: null }] }] });
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [REGISTRADO] }] });
     pagina();
     expect(await screen.findByText(/registrado fora do sistema/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Registrar protocolo feito fora/ })).toBeNull();
     fireEvent.change(screen.getByLabelText("Nº do protocolo no órgão"), { target: { value: "2026.10.004512" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/notas/5/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "2026.10.004512" }) }));
+  });
+
+  // o reprotocolo: outro protocolo feito fora numa medição já protocolada, com a conferência das certidões
+  it("etapa 4 já feita: “Registrar protocolo feito fora” confere as certidões e grava com a justificativa das pendências", async () => {
+    abrirEtapa(4);
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [REGISTRADO] }],
+      "/api/contratos/1/checklist-protocolo?natureza=execucao": { entidade: "Lotufo", pronto: false,
+        itens: [{ entidade_id: 1, entidade: "Lotufo", tipo: "CND Federal", situacao: "pendente" }] } });
+    pagina();
+    fireEvent.click(await screen.findByRole("button", { name: "Registrar protocolo feito fora" }));
+    fireEvent.change(await screen.findByLabelText("Data do protocolo"), { target: { value: "2026-10-14" } });
+    fireEvent.click(await screen.findByLabelText(/Protocolar apesar das pendências/));
+    fireEvent.change(screen.getByLabelText("Justificativa"), { target: { value: "órgão aceita a CND em até 5 dias" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar protocolo" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/5/protocolo", { method: "POST", body: JSON.stringify({
+      data: "2026-10-14", numero_oficio: null, numero_processo: null, apesar_das_pendencias: true, justificativa: "órgão aceita a CND em até 5 dias" }) }));
+  });
+
+  it("quem só consulta não vê “Registrar protocolo feito fora”", async () => {
+    abrirEtapa(4);
+    responder();
+    pagina("diretoria");
+    await screen.findByRole("heading", { name: "Envio ao órgão", level: 2 });
+    expect(screen.queryByRole("button", { name: "Registrar protocolo feito fora" })).toBeNull();
+  });
+
+  // MTPAR/SES: medição e reajuste têm o SIGA próprio; só onde o órgão junta o número vale para os dois
+  const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste", protocolos: [{ ...REGISTRADO, id: 10, numero_processo: "SIGA-REAJ" }] };
+  const metade = (id: number, tipo: string) => ({ medicao_id: id, tipo, titulo: "x", estado: "protocolada", faltam: 0, esperadas: [],
+    completa: true, espera: null, liberacao: null });
+  const par = (junta: boolean) => ({ junta, orgao: "MTPAR", metades: [metade(5, "execucao"), metade(6, "reajuste")] });
+
+  it("MTPAR com dois registros por fora: um campo por envio, cada um com o número da sua medição", async () => {
+    abrirEtapa(4);
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [{ ...REGISTRADO, numero_processo: "SIGA-MED" }] }, REAJ],
+      "/api/medicoes/5/par": par(false) });
+    pagina();
+    const med = await screen.findByLabelText(/Nº do protocolo no órgão · 23ª Medição/) as HTMLInputElement;
+    const rea = screen.getByLabelText(/Nº do protocolo no órgão · Reajuste da 23ª Medição/) as HTMLInputElement;
+    expect([med.value, rea.value]).toEqual(["SIGA-MED", "SIGA-REAJ"]);
+    fireEvent.change(med, { target: { value: "SIGA-NOVO" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Salvar" })[0]);
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/notas/5/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "SIGA-NOVO" }) }));
+    expect(api.mock.calls.some(c => c[0] === "/api/notas/6/numero-orgao")).toBe(false);   // o SIGA do reajuste nao e' sobrescrito
+  });
+
+  it("onde o órgão junta, um campo só grava o número nas duas medições; falha no meio diz qual já ficou", async () => {
+    abrirEtapa(4);
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [REGISTRADO] }, { ...REAJ, protocolos: [{ ...REGISTRADO, id: 10 }] }],
+      "/api/medicoes/5/par": par(true) });
+    pagina();
+    fireEvent.change(await screen.findByLabelText("Nº do protocolo no órgão"), { target: { value: "SEI-1" } });
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, o?: unknown) => {
+      if (url === "/api/notas/6/numero-orgao") throw new ApiErro(422, "Medição sem envio registrado");
+      return base(url, o);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/notas/5/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "SEI-1" }) }));
+    expect((await screen.findByText(/O número já ficou na 23ª Medição/)).textContent).toContain("Medição sem envio registrado");
+    await waitFor(() => expect(leituras("/api/contratos/1/medicoes").length).toBeGreaterThan(1));   // recarregou
   });
 });
 
@@ -260,6 +332,8 @@ describe("Página da medição: medição e reajuste", () => {
     const trilho = screen.getByRole("navigation", { name: "Etapas da medição" });
     expect(trilho.querySelector(".seta--espera")!.textContent).toContain("Envio ao órgão");
     expect(screen.queryByRole("button", { name: "Enviar a nota" })).toBeNull();    // nada a iniciar: falta a outra metade
+    // o próximo passo, "Esperando as notas do reajuste", leva à etapa 4 (onde a espera e a saída de emergência moram)
+    expect(screen.getByRole("link", { name: "Esperando as notas do reajuste" }).getAttribute("href")).toBe("/obras/1/medicoes/5#etapa-4");
     fireEvent.click(botao);
     const enviar = screen.getByRole("button", { name: "Liberar o envio só da medição" }) as HTMLButtonElement;
     expect(enviar.disabled).toBe(true);

@@ -53,8 +53,8 @@ function CelulaNotas({ e }: { e: Envio }) {
   );
 }
 
-export function EtapaEnvio({ envios, erro, recarregarEnvios, podeEditar, versaoDocs, aoAnexarItem, aoMudar, pronta, orgao, aoSemAOutra }: {
-  envios: Envio[] | null; erro: string; recarregarEnvios: () => Promise<void>;
+export function EtapaEnvio({ medicaoId, envios, erro, recarregarEnvios, podeEditar, versaoDocs, aoAnexarItem, aoMudar, pronta, orgao, aoSemAOutra }: {
+  medicaoId: number; envios: Envio[] | null; erro: string; recarregarEnvios: () => Promise<void>;
   podeEditar: boolean; versaoDocs: number; aoAnexarItem: () => void;
   /** depois de enviar ou registrar por fora: a pagina le tudo de novo e mostra o aviso */
   aoMudar: (aviso?: string) => void;
@@ -157,7 +157,7 @@ export function EtapaEnvio({ envios, erro, recarregarEnvios, podeEditar, versaoD
           </div>
         </div>
       )}
-      {fora && <RegistrarFora envios={registraveis} aoFechar={() => setFora(false)}
+      {fora && <RegistrarFora envios={registraveis} medicaoId={medicaoId} aoRecarregar={() => aoMudar()} aoFechar={() => setFora(false)}
         aoFeito={aviso => { setFora(false); aoMudar(aviso); }} />}
       {oficioDe && (
         <Janela titulo="Número do ofício desta nota" aoFechar={() => setOficioDe(null)}>
@@ -165,7 +165,7 @@ export function EtapaEnvio({ envios, erro, recarregarEnvios, podeEditar, versaoD
             <p className="campo__nota">{orgao ? `Na ${orgao} o` : "O"} envio leva carta com número de ofício. Digite só o número, ex.: 361.</p>
             <div className="campo">
               <label className="campo__rotulo" htmlFor="oficio-numero">Nº do ofício</label>
-              <input id="oficio-numero" type="text" autoFocus autoComplete="off" spellCheck={false} maxLength={40} className="entrada--media entrada--num"
+              <input id="oficio-numero" name="numero_oficio" type="text" autoFocus autoComplete="off" spellCheck={false} maxLength={40} className="entrada--media entrada--num"
                 value={oficio} onChange={ev => setOficio(ev.target.value)} />
             </div>
             <div className="iniciar__rodape">

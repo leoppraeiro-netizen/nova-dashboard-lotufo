@@ -1,9 +1,10 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiErro } from "./api";
 import NotasAEnviar from "./NotasAEnviar";
 
-const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
-vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
+const { api, apiForm, baixarArquivo } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn(), baixarArquivo: vi.fn() }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm, baixarArquivo }));
 
 const envio = (chave: string, obra: string, grupo: string, extra: Record<string, unknown> = {}) => ({
   chave, contrato_id: 12, obra, orgao: grupo, orgao_sub: null, familia: "sinfra", grupo, a_pedido: false,
@@ -61,6 +62,17 @@ describe("Aba Enviar nota", () => {
     expect(within(painel).getByText(/registrar um envio feito fora do sistema se fazem na etapa 4/)).toBeTruthy();
     expect(screen.getByRole("region", { name: "MTPAR" }).textContent).toContain("Falta FRC assinada");
     expect(api.mock.calls.some(c => c[1]?.method === "POST")).toBe(false);
+  });
+
+  it("a FRC gerada baixa pelo download que mostra a recusa do servidor (issue #169)", async () => {
+    responder({ envios: [envio("c20:m700", "Complexo Xtreme", "MTPAR", { medicao_ids: [700], contrato_id: 20, itens: [
+      { chave: "frc:700", rotulo: "FRC assinada", estado: "falta", acao: "anexar_frc", medicao_id: 700, frc_gerada: 13, detalhe: "falta" }] })],
+      contadores: { Todas: 1 } });
+    baixarArquivo.mockRejectedValueOnce(new ApiErro(409, "A FRC ficou desatualizada: gere de novo"));
+    render(<NotasAEnviar busca={{}} podeEditar />);
+    fireEvent.click(await screen.findByRole("link", { name: /Baixar a FRC gerada/ }));
+    expect(baixarArquivo).toHaveBeenCalledWith("/api/medicoes/700/frc/pdf", "FRC.pdf");
+    expect((await screen.findByRole("alert")).textContent).toContain("A FRC ficou desatualizada");
   });
 
   it("mostra a validade de cada certidão no que vai junto", async () => {

@@ -15,7 +15,7 @@ const envio = (extra: Partial<Envio> = {}): Envio => ({
   valor_centavos: 123456, emitida_em: "2026-10-08", dias: 2, situacao: "pronto", aviso: null, protocolo_id: null, itens: [], ...extra });
 
 function montar(envios: Envio[], extra: Partial<Parameters<typeof EtapaEnvio>[0]> = {}) {
-  const props = { envios, erro: "", recarregarEnvios: vi.fn(async () => {}), podeEditar: true, versaoDocs: 0, aoAnexarItem: vi.fn(),
+  const props = { medicaoId: 631, envios, erro: "", recarregarEnvios: vi.fn(async () => {}), podeEditar: true, versaoDocs: 0, aoAnexarItem: vi.fn(),
     aoMudar: vi.fn(), pronta: null, orgao: "SINFRA", aoSemAOutra: vi.fn(), ...extra };
   render(<EtapaEnvio {...props} />);
   return props;
@@ -120,6 +120,7 @@ describe("Etapa 4: o envio ao órgão", () => {
 describe("Etapa 4: registrar envio feito fora do sistema", () => {
   afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
   const irmas = [{ medicao_id: 632, titulo: "Reajuste da 7ª Medição", tipo: "reajuste" }];
+  const COMO = "Como e para quem a nota foi enviada";
 
   async function abrir(envios: Envio[]) {
     api.mockResolvedValue({ itens: [] });
@@ -128,29 +129,38 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     fireEvent.click(screen.getByText("Registrar envio feito fora do sistema"));
     return p;
   }
+  const dois = () => [envio({ chave: "a" }), envio({ chave: "b", medicao_ids: [632], descricao: "Reajuste da 7ª medição" })];
 
-  it("data, ofício, processo e .eml opcionais: a irmã vem marcada e o registro leva as duas medições", async () => {
+  it("data, ofício, processo e .eml opcionais; a irmã vem marcada e o registro leva as duas medições", async () => {
     const p = await abrir([envio({ irmas })]);
     expect((screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByLabelText("Nº do ofício (opcional)")).toBeTruthy();
     expect(screen.getByLabelText("Nº do processo no órgão (opcional)")).toBeTruthy();
     expect(screen.getByLabelText("E-mail enviado (.eml, opcional)")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(p.aoMudar).toHaveBeenCalledWith(
       "Envio registrado: esta nota e a do Reajuste da 7ª Medição foram para Aguardando pagamento."));
     const [caminho, fd] = apiForm.mock.calls[0] as [string, FormData];
     expect(caminho).toBe("/api/notas/envio-externo");
     expect([fd.getAll("medicao_ids"), fd.getAll("irma_ids")]).toEqual([["631"], ["632"]]);
-    // sem observação nem ofício, o servidor recebe um texto padrão (ele exige a observação)
-    expect(String(fd.get("observacao"))).toBe("Registrado na etapa 4 da medição.");
     expect(api.mock.calls.some(c => c[0] === "/api/notas/envio/iniciar")).toBe(false);
+  });
+
+  it("a observação é obrigatória (vira a justificativa na auditoria) e não há texto padrão", async () => {
+    await abrir([envio()]);
+    const botao = screen.getByRole("button", { name: "Registrar" }) as HTMLButtonElement;
+    expect(botao.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "   " } });
+    expect(botao.disabled).toBe(true);
+    expect(apiForm).not.toHaveBeenCalled();
   });
 
   it("o ofício vai na observação e o processo no nº do órgão da medição", async () => {
     const p = await abrir([envio()]);
     fireEvent.change(screen.getByLabelText("Nº do ofício (opcional)"), { target: { value: "360/2026" } });
     fireEvent.change(screen.getByLabelText("Nº do processo no órgão (opcional)"), { target: { value: "0001234-56.2026" } });
-    fireEvent.change(screen.getByLabelText("Observação"), { target: { value: "Pelo Outlook" } });
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
     expect(String((apiForm.mock.calls[0][1] as FormData).get("observacao"))).toBe("Ofício 360/2026 · Pelo Outlook");
@@ -161,29 +171,54 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     const p = await abrir([envio()]);
     api.mockRejectedValueOnce(new ApiErro(422, "Medição sem envio registrado"));
     fireEvent.change(screen.getByLabelText("Nº do processo no órgão (opcional)"), { target: { value: "123" } });
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
     expect((p.aoMudar as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("O nº do processo não foi gravado");
   });
 
+  it("MTPAR, dois envios: só o da medição da página começa marcado; o processo só vale com um envio marcado", async () => {
+    await abrir(dois());
+    const [medicao, reajuste] = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect([medicao.checked, reajuste.checked]).toEqual([true, false]);
+    const processo = screen.getByLabelText("Nº do processo no órgão (opcional)") as HTMLInputElement;
+    expect(processo.disabled).toBe(false);
+    fireEvent.click(reajuste);
+    expect(processo.disabled).toBe(true);
+    expect(screen.getByText(/Cada envio tem o seu/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(2));
+  });
+
+  it("falha no segundo envio: o primeiro fica dito como registrado e a página lê de novo (no erro e ao fechar)", async () => {
+    const p = await abrir(dois());
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    apiForm.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new ApiErro(422, "Medição 632 não está com a nota emitida"));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent).toContain("não está com a nota emitida");
+    expect(alerta.textContent).toContain("Já registrados: 7ª medição");
+    expect(p.aoMudar).toHaveBeenCalledTimes(1);   // leitura de novo, sem aviso de sucesso
+    expect((p.aoMudar as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(p.aoMudar).toHaveBeenCalledTimes(2);
+  });
+
   it("desmarcada a irmã, o registro leva só a medição do envio", async () => {
     await abrir([envio({ irmas })]);
     fireEvent.click(screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)"));
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(apiForm).toHaveBeenCalled());
     expect((apiForm.mock.calls[0][1] as FormData).getAll("irma_ids")).toEqual([]);
   });
 
-  it("MTPAR, dois envios: um registro por envio marcado", async () => {
-    const p = await abrir([envio({ chave: "a" }), envio({ chave: "b", medicao_ids: [632], descricao: "Reajuste da 7ª medição" })]);
-    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
-    await waitFor(() => expect(p.aoMudar).toHaveBeenCalledWith("Envios registrados: as notas foram para Aguardando pagamento."));
-    expect(apiForm).toHaveBeenCalledTimes(2);
-  });
-
   it("erro do servidor fica na janela e nada é dado como registrado", async () => {
     const p = await abrir([envio()]);
     apiForm.mockRejectedValueOnce(new ApiErro(422, "Medição 631 não está com a nota emitida"));
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     expect((await screen.findByRole("alert")).textContent).toContain("não está com a nota emitida");
     expect(p.aoMudar).not.toHaveBeenCalled();
