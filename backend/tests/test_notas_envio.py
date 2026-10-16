@@ -1555,6 +1555,16 @@ def test_registro_por_fora_com_algo_faltando_pede_a_mesma_confirmacao(api):
     assert aud["pendencias_confirmadas"] == det["pendencias"]
 
 
+def test_registro_por_fora_com_certidao_vencida_tambem_pede_a_confirmacao(api):
+    """Code-review da #213: a certidao vencida (que bloqueia o envio pelo sistema) nao some do aviso do registro."""
+    cl, c, ids = api
+    _validade(c, "fgts", "2026-09-10")
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook, ao fiscal"})
+    assert r.status_code == 422, r.text
+    assert any("vencida" in p for p in r.json()["detail"]["pendencias"])
+
+
 def test_registro_por_fora_sem_nada_faltando_nao_pede_confirmacao(api):
     cl, c, ids = api
     r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",

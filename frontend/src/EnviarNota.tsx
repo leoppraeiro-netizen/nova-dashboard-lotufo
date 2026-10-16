@@ -268,7 +268,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
         if (erro instanceof ApiErro && erro.status === 422 && erro.corpo?.codigo === "ANEXOS_MUDARAM") await carregar();
         // issue #213: o que falta mudou desde a confirmacao: a tela le de novo e pede outra, com a lista de agora
         const novas = pendenciasDoErro(erro);
-        if (novas) { await carregar(); setConfirmar({ m, pendencias: novas, mudou: true }); return; }
+        if (novas) { await carregar(); setConfirmar({ m, pendencias: novas, mudou: confirmadas !== null }); return; }
         throw erro;
       }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
@@ -308,7 +308,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
       <ul className="lista-simples">
         {faltas.map((p, i) => <li key={i} className="notas__diverge">{p}</li>)}
       </ul>
-      <span className="campo__nota">Não impede o envio: ao enviar, o sistema pede a sua confirmação.</span>
+      <span className="campo__nota">Ao enviar, o sistema pede a sua confirmação do que falta.</span>
     </div>
   );
 

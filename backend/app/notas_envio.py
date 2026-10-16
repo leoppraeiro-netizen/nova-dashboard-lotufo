@@ -528,7 +528,9 @@ def faltas_externo(conn, ms: list[dict], hoje: datetime.date | None = None) -> l
     c = protocolo._contrato(conn, ms[0]["contrato_id"])
     familia, _, _ = protocolo._orgao(conn, c)
     itens = _itens(conn, c, familia, ms, hoje or tempo.hoje_local())[0]
-    return [f"{i['rotulo']}: {i['detalhe']}" for i in itens if i["estado"] == "falta"]
+    # vencida e FRC que o envio pelo sistema bloqueia tambem entram: o registro por fora nao as esconde (so' avisa)
+    return [f"{i['rotulo']}: {i['detalhe']}" for i in itens
+            if i["estado"] in ("falta", "vencida") or i.get("bloqueia")]
 
 
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,

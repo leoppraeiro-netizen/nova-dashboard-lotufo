@@ -317,8 +317,13 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
       // issue #213: o que falta mudou desde a confirmacao: a lista de agora entra na previa e pede outra confirmacao
       const novas = pendenciasDoErro(e);
       if (novas) {
-        setPrevia(p => (p ? { ...p, pendencias: novas.map(texto => ({ codigo: "pendencia", mensagem: texto })) } : p));
-        setConfirmar({ m, pendencias: novas, mudou: true });
+        // a lista do "O que falta" vem da previa de agora (com o codigo de cada uma, que decide o selo)
+        const ids = previa!.ids;
+        try {
+          const nova = await api<Previa>("/api/protocolos/envio/previa", { method: "POST", body: JSON.stringify({ protocolo_ids: ids }) });
+          setPrevia(p => (p ? { ...p, pendencias: nova.pendencias } : p));
+        } catch { /* a janela abaixo ja' mostra a lista de agora */ }
+        setConfirmar({ m, pendencias: novas, mudou: confirmadas !== null });
       } else setErro(mensagem(e));
     } finally { setOcupado(false); }
   }
@@ -353,7 +358,7 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
                   <span className="campo__rotulo">O que falta</span>
                   <Pendencias itens={previa.pendencias} />
                   {/* issue #213: sem justificativa escrita; a confirmacao vem no clique em Enviar */}
-                  <span className="campo__nota">Não impede o envio: ao enviar, o sistema pede a sua confirmação.</span>
+                  <span className="campo__nota">Ao enviar, o sistema pede a sua confirmação do que falta.</span>
                 </div>
               )}
               aoEnviar={enviar} aoDescartar={() => setPrevia(null)} />

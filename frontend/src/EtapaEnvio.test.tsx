@@ -272,6 +272,16 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
       expect((apiForm.mock.calls[2][1] as FormData).getAll("pendencias_confirmadas")).toEqual(NOVA);
       expect((apiForm.mock.calls[0][1] as FormData).getAll("pendencias_confirmadas")).toEqual([]);
     });
+
+    it("dois envios, o segundo pede a confirmação: a janela diz que o primeiro já foi registrado", async () => {
+      await abrir(dois());
+      fireEvent.click(screen.getAllByRole("checkbox")[1]);
+      fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+      apiForm.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(recusa(FALTA));
+      fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+      expect(await screen.findByRole("dialog", { name: "Confirmar o envio" })).toBeTruthy();
+      expect(screen.getByRole("alert").textContent).toBe("Já registrados: 7ª medição.");
+    });
   });
 
   it("envio bloqueado não oferece o registro", async () => {

@@ -130,7 +130,7 @@ def conferir_confirmacao(atuais: list[str], confirmadas: list[str] | None) -> li
     if confirmadas is None:
         raise PendenciasNaoConfirmadas("ATENÇÃO: " + "; ".join(atuais) + ". Confirme para continuar com o envio",
                                        list(atuais))
-    if sorted(x.strip() for x in confirmadas) != sorted(atuais):
+    if sorted(x.strip() for x in confirmadas) != sorted(x.strip() for x in atuais):
         raise PendenciasNaoConfirmadas("O que falta mudou depois da sua confirmação: confira a lista de agora e "
                                        "confirme de novo", list(atuais))
     return list(atuais)

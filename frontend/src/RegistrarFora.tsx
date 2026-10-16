@@ -89,6 +89,10 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
       const pendente = escolhidos[feitos.length];
       if (novas && pendente) {     // falta documento neste envio: pede a confirmacao (os ja' registrados ficam)
         setAConfirmar({ chave: pendente.chave, pendencias: novas, mudou: !!conf[pendente.chave] });
+        // os ja' registrados saem da lista: a janela diz quais, para ninguem registra-los de novo
+        if (feitos.length > 0) {
+          setErro(`Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`);
+        }
         setOcupado(false);
         return;
       }
