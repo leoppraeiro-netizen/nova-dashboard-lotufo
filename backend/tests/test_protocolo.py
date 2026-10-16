@@ -232,21 +232,109 @@ def test_enviar_mtpar_marca_protocolada_e_liga_o_envio(cenario):
     assert d["enviado_por"] == "Maria" and d["enviado_em"]              # A6: quando e quem enviou
 
 
-def test_enviar_com_pendencia_exige_justificativa_e_nada_muda_antes(cenario):
+def _faltas(pv):
+    return [x["mensagem"] for x in pv["pendencias"]]
+
+
+def test_enviar_com_pendencia_exige_a_confirmacao_da_lista_e_nada_muda_antes(cenario):
+    """Issue #213: documento faltando pede a confirmacao (a justificativa escrita nao basta mais) e a lista confirmada
+    tem de ser a de agora; sem isso, nada sai nem fica reservado."""
     c, ids = cenario
     pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
     protocolo.montar(c, ids["uid"], pid)                                  # sem assinar: pendencia
     pv = protocolo.previa_envio(c, [pid])
-    with pytest.raises(ValueError, match="justificativa"):
-        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"])
-    with pytest.raises(ValueError, match="10 caracteres"):
-        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
-                         justificativa=" . ")
+    assert _faltas(pv) == ["Pacote ainda não assinado"]
+    args = [c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"]]
+    with pytest.raises(protocolo.PendenciasNaoConfirmadas, match="ATENÇÃO: Pacote ainda não assinado") as e:
+        protocolo.enviar(*args, justificativa="assinado fisicamente pelo diretor")
+    assert e.value.detalhe() == {"codigo": "CONFIRMAR_PENDENCIAS", "mensagem": str(e.value),
+                                 "pendencias": ["Pacote ainda não assinado"]}
+    with pytest.raises(protocolo.PendenciasNaoConfirmadas, match="mudou") as e:
+        protocolo.enviar(*args, pendencias_confirmadas=["Falta a certidão federal"])
+    assert e.value.pendencias == ["Pacote ainda não assinado"]
+    with pytest.raises(protocolo.PendenciasNaoConfirmadas):
+        protocolo.enviar(*args, pendencias_confirmadas=[])
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao LIKE 'protocolo.%confirm%'").fetchone()[0] == 0
+    assert protocolo.detalhe(c, pid)["envio_reservado_em"] is None
+
+
+def test_enviar_confirmado_grava_quem_quando_e_o_que_faltava_antes_do_email(cenario, monkeypatch):
+    """Issue #213: "Continuar com o envio" manda o e-mail e a confirmacao (usuario, data e lista) fica na auditoria,
+    gravada junto da reserva, antes de o e-mail sair; a ressalva do envio e' a lista, sem texto inventado."""
+    c, ids = cenario
+    pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
+    protocolo.montar(c, ids["uid"], pid)
+    pv = protocolo.previa_envio(c, [pid])
+    original, antes = correio.enviar_e_registrar, []
+
+    def confere(*a, **k):        # no instante do e-mail a confirmacao ja' esta' gravada
+        antes.append(c.execute("SELECT usuario_id, depois, criado_em FROM audit_log "
+                               "WHERE acao='protocolo.confirmar_pendencias'").fetchall())
+        return original(*a, **k)
+
+    monkeypatch.setattr(correio, "enviar_e_registrar", confere)
     protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
-                     justificativa="assinado fisicamente pelo diretor")
-    depois = c.execute("SELECT depois FROM audit_log WHERE acao='protocolo.enviar'").fetchone()[0]
-    assert json.loads(depois)["justificativa"] == "assinado fisicamente pelo diretor"
+                     pendencias_confirmadas=_faltas(pv))
+    assert len(antes) == 1 and len(antes[0]) == 1
+    uid, depois, quando = antes[0][0]
+    assert uid == ids["uid"] and quando and json.loads(depois) == {"pendencias_confirmadas": ["Pacote ainda não assinado"]}
+    env = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='protocolo.enviar'").fetchone()[0])
+    assert env["pendencias_confirmadas"] == ["Pacote ainda não assinado"] and env["justificativa"] is None
+    ressalva = "Enviado com confirmação do que faltava: Pacote ainda não assinado"
+    assert protocolo.detalhe(c, pid)["justificativa"] == ressalva
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["mtpar_exec"],)).fetchone()[0] == "protocolada"
+
+
+def test_sem_nada_faltando_o_envio_nao_pede_confirmacao(cenario):
+    c, ids = cenario
+    pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
+    protocolo.receber_assinado(c, ids["uid"], pid, _assinar(_montado(c, ids, pid)))
+    pv = protocolo.previa_envio(c, [pid])
+    assert pv["pendencias"] == []
+    protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"])
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='protocolo.confirmar_pendencias'").fetchone()[0] == 0
+    assert protocolo.detalhe(c, pid)["justificativa"] is None
+
+
+def test_bloqueio_continua_recusando_mesmo_com_a_confirmacao(cenario):
+    """Issue #213: bloqueio (certidao vencida) nao vira confirmacao."""
+    c, ids = cenario
+    pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
+    protocolo.receber_assinado(c, ids["uid"], pid, _assinar(_montado(c, ids, pid)))
+    c.execute("UPDATE certidoes SET validade='2026-09-01' WHERE tipo_id=(SELECT id FROM certidao_tipos "
+              "WHERE chave='fgts')")
+    c.commit()
+    pv = protocolo.previa_envio(c, [pid])
+    assert pv["bloqueio"]
+    with pytest.raises(protocolo.Bloqueio):
+        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                         pendencias_confirmadas=_faltas(pv))
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_lista_que_muda_sob_a_reserva_recusa_e_destrava_sem_email(cenario, monkeypatch):
+    """Issue #213: o servidor confere de novo o que falta depois de reservar; mudou desde a confirmacao, recusa antes do
+    e-mail, solta a reserva e devolve a lista nova para a tela pedir outra confirmacao."""
+    c, ids = cenario
+    pid = protocolo.criar(c, ids["uid"], ids["mtpar"], "unico", [ids["mtpar_exec"]], "301")
+    protocolo.montar(c, ids["uid"], pid)
+    pv = protocolo.previa_envio(c, [pid])
+    original, chamadas = protocolo._pendencias_envio, []
+
+    def muda(*a, **k):           # a segunda leitura (sob a reserva) ve mais uma falta
+        chamadas.append(1)
+        lista = original(*a, **k)
+        return lista if len(chamadas) == 1 else [*lista, {"protocolo_id": pid, "codigo": "certidao",
+                                                           "mensagem": "Lotufo: FGTS sem validade hoje"}]
+
+    monkeypatch.setattr(protocolo, "_pendencias_envio", muda)
+    with pytest.raises(protocolo.PendenciasNaoConfirmadas) as e:
+        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                         pendencias_confirmadas=_faltas(pv))
+    assert e.value.pendencias == ["Pacote ainda não assinado", "Lotufo: FGTS sem validade hoje"]
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    assert protocolo.detalhe(c, pid)["envio_reservado_em"] is None and protocolo.detalhe(c, pid)["situacao"] == "montado"
 
 
 def test_sinfra_medicao_nao_protocola_e_nota_protocola_com_o_oficio_da_medicao(cenario):
@@ -266,7 +354,7 @@ def test_sinfra_medicao_nao_protocola_e_nota_protocola_com_o_oficio_da_medicao(c
     # D5: a nota nao leva mais a ficha do CNO; A-18 (10/10/2026): o reajuste irmao ficou fora do e-mail
     assert [x["codigo"] for x in pv2["pendencias"]] == ["irma_fora"]
     protocolo.enviar(c, ids["usuario"], [p2], pv2["para"], pv2["copia"], pv2["assunto"], pv2["corpo"],
-                     justificativa="reajuste vai no próximo e-mail")
+                     justificativa="reajuste vai no próximo e-mail", pendencias_confirmadas=_faltas(pv2))
     mp = c.execute("SELECT numero_oficio, protocolo_id FROM medicao_protocolos WHERE medicao_id=?",
                    (ids["sinfra_exec"],)).fetchone()
     assert (mp["numero_oficio"], mp["protocolo_id"]) == ("CT-310-LT-2026", p2)

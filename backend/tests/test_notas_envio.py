@@ -305,7 +305,9 @@ def test_certidao_vencida_bloqueia_com_409(api):
                                                     "medicao_ids": sinfra["medicao_ids"]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
     assert d["bloqueio"] == "Certidão vencida — renove antes de enviar: Lotufo: federal vencida em 10/09/2026"
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="mandar assim mesmo, urgente"))
+    # issue #213: bloqueio nao vira confirmacao: nem com a lista confirmada o envio sai
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="mandar assim mesmo, urgente",
+                                                               pendencias_confirmadas=d["pendencias"]))
     assert r.status_code == 409, r.text
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
 
@@ -317,7 +319,7 @@ def test_envio_pelo_simulador_vira_aguardando_pagamento(api, tmp_path):
     pid = r.json()["protocolo_id"]
     assert _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])[0]["protocolo_id"] == pid
     d = cl.get(f"/api/notas/envio/{pid}").json()
-    assert d["etapa"] == "nota" and d["justificativa_obrigatoria"] is False
+    assert d["etapa"] == "nota" and d["confirmar_pendencias"] is False
     r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
     assert r.status_code == 200, r.text
     enviado = json.loads(sorted((tmp_path / "sim" / "enviados").glob("*.json"))[0].read_text(encoding="utf-8"))
@@ -656,7 +658,7 @@ def test_protocolo_ja_enviado_nao_lista_mais_a_irma_fora(svc):
     assert "irma_fora" in cods()                                          # rascunho: como hoje
     pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
     protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
-                     justificativa="reajuste vai no próximo e-mail")
+                     pendencias_confirmadas=[x["mensagem"] for x in pv["pendencias"]])
     assert protocolo.detalhe(c, pid, hoje=HOJE)["situacao"] == "enviado"
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_reaj"],)).fetchone()[0] == "nota_emitida"
     assert "irma_fora" not in cods()
@@ -678,17 +680,52 @@ def test_projeto_e_reajuste_do_mesmo_numero_nao_sao_irmas(svc):
     assert [m.split(" (")[0] for m in irmas] == ["23ª Medição"]                  # so' a execucao, nao o projeto
 
 
-def test_envio_sem_o_reajuste_irmao_exige_justificativa(api):
+def test_envio_com_algo_faltando_pede_a_confirmacao_da_lista(api):
+    """Issue #213: o que falta pede a confirmacao "ATENCAO: ... Deseja continuar com o envio?" no lugar da
+    justificativa escrita. Sem ela (ou com outra lista), 422 com a lista de agora; com ela, sai e grava a lista."""
     cl, c, ids = api
     pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
                                                     "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
-    assert d["justificativa_obrigatoria"] is True and any(p.startswith(IRMA) for p in d["pendencias"])
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
-    assert r.status_code == 422 and "justificativa" in r.json()["detail"]
+    assert d["confirmar_pendencias"] is True and any(p.startswith(IRMA) for p in d["pendencias"])
+    assert "justificativa_obrigatoria" not in d
+    for extra in ({}, {"justificativa": "reajuste vai no próximo e-mail"},
+                  {"pendencias_confirmadas": ["Falta a certidão federal"]}):
+        r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, **extra))
+        assert r.status_code == 422, r.text
+        det = r.json()["detail"]
+        assert det["codigo"] == "CONFIRMAR_PENDENCIAS" and det["pendencias"] == d["pendencias"] and det["mensagem"]
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="reajuste vai no próximo e-mail"))
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, pendencias_confirmadas=list(reversed(d["pendencias"]))))
     assert r.status_code == 200, r.text
+    uid, depois = c.execute("SELECT usuario_id, depois FROM audit_log WHERE acao='protocolo.confirmar_pendencias'").fetchone()
+    admin = c.execute("SELECT id FROM usuarios WHERE email='admin@lotufo.com'").fetchone()[0]
+    assert uid == admin and json.loads(depois)["pendencias_confirmadas"] == d["pendencias"]
+
+
+def test_dois_envios_confirmados_simultaneos_saem_uma_vez(api, monkeypatch):
+    """Regra do envio (rules/envio.md): com a confirmacao, dois POST simultaneos continuam dando 1x200 e 1x409."""
+    import threading
+    from tests.test_envio_reserva import CorreioFalso
+    cl, c, ids = api
+    falso = CorreioFalso(espera=0.3)
+    monkeypatch.setattr(correio, "cliente", falso)
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    corpo, respostas, portao = _corpo(d, pendencias_confirmadas=d["pendencias"]), [], threading.Barrier(2)
+
+    def um():
+        portao.wait()
+        respostas.append(cl.post(f"/api/notas/envio/{pid}/enviar", json=corpo).status_code)
+
+    fios = [threading.Thread(target=um) for _ in range(2)]
+    for f in fios:
+        f.start()
+    for f in fios:
+        f.join()
+    assert sorted(respostas) == [200, 409], respostas
+    assert len(falso.enviados) == 1 and c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 1
 
 
 # --- testes de quebra 10/10/2026: A-13 (link de qualquer site) e A-11 (qualquer arquivo como .eml) ---
@@ -1491,3 +1528,37 @@ def test_a_enviar_mostra_se_o_envio_comecado_esta_reservado(api):
     c.execute("UPDATE protocolos SET envio_reservado_em=datetime('now') WHERE id=?", (pid,)); c.commit()
     sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
     assert sinfra["envio_reservado_em"] is not None
+
+
+def test_registro_por_fora_com_algo_faltando_pede_a_mesma_confirmacao(api):
+    """Issue #213 (decisao do Leo nas #152/#157): o registro do envio feito por fora segue a regra do documento
+    faltando. Sem a confirmacao (ou com outra lista), 422 com o que falta e nada gravado, nem o .eml; com ela, registra
+    e a auditoria guarda a lista confirmada."""
+    cl, c, ids = api
+    c.execute("DELETE FROM certidoes WHERE tipo_id=(SELECT id FROM certidao_tipos WHERE chave='fgts')")
+    c.commit()
+    mid = ids["mtpar_exec"]
+    dados = {"medicao_ids": [str(mid)], "enviado_em": "2026-09-15", "observacao": "Pelo Outlook, ao fiscal"}
+    eml = {"eml": ("envio.eml", EML, "message/rfc822")}
+    for extra in ({}, {"pendencias_confirmadas": ["Nota fiscal (1): outra coisa"]}):
+        r = cl.post("/api/notas/envio-externo", data={**dados, **extra}, files=eml)
+        assert r.status_code == 422, r.text
+        det = r.json()["detail"]
+        assert det["codigo"] == "CONFIRMAR_PENDENCIAS" and len(det["pendencias"]) == 1
+        assert det["pendencias"][0].startswith("Certidões Lotufo") and "sem certidão" in det["pendencias"][0]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "nota_emitida"
+    assert not list(arquivos.pasta("evidencias").glob("*.eml"))
+    r = cl.post("/api/notas/envio-externo", data={**dados, "pendencias_confirmadas": det["pendencias"]}, files=eml)
+    assert r.status_code == 200, r.text
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "protocolada"
+    aud = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert aud["pendencias_confirmadas"] == det["pendencias"]
+
+
+def test_registro_por_fora_sem_nada_faltando_nao_pede_confirmacao(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook, ao fiscal"})
+    assert r.status_code == 200, r.text
+    aud = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert "pendencias_confirmadas" not in aud

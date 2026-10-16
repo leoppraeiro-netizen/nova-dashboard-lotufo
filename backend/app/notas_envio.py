@@ -440,13 +440,15 @@ def detalhe_envio(conn, protocolo_id: int, remetente: str | None = None, hoje: d
             "etapa": p["etapa"], "protocolo_id": protocolo_id, "situacao_protocolo": p["situacao"], "carta": carta,
             "previa": {k: pv[k] for k in ("para", "copia", "assunto", "corpo", "anexos", "total", "limite", "links")},
             "bloqueio": pv["bloqueio"], "pendencias": [x["mensagem"] for x in pv["pendencias"]],
-            "justificativa_obrigatoria": bool(pv["pendencias"]),
+            # issue #213: com algo faltando, o envio pede a confirmacao (a lista e' a de `pendencias`)
+            "confirmar_pendencias": bool(pv["pendencias"]),
             "extras": [{"id": x["id"], "nome": x["nome"], "tamanho": x["tamanho"]}
                        for x in protocolo._pecas(conn, protocolo_id) if x["tipo"] == protocolo.ANEXO]}
 
 
 def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[str], assunto: str, corpo: str,
-           justificativa: str | None, cco: list[str] | None = None, *, anexos_previa: list[dict]) -> int:
+           justificativa: str | None, cco: list[str] | None = None, *, anexos_previa: list[dict],
+           pendencias_confirmadas: list[str] | None = None) -> int:
     """Envia pelo Outlook de quem esta' logado e marca `protocolada` (protocolo.enviar). Bloqueio -> protocolo.Bloqueio.
     `anexos_previa` (issue #100): os anexos que a tela mostrou; se o servidor montar outros, recusa antes de reservar
     (protocolo.AnexosMudaram). Obrigatorio (gate Sol S1, PR #141): None nao vira envio sem conferencia."""
@@ -457,7 +459,7 @@ def enviar(conn, usuario: dict, protocolo_id: int, para: list[str], copia: list[
         raise ValueError("Este protocolo não é de envio de nota")
     # issue #188: a espera pela outra metade e' conferida dentro de protocolo.enviar, sob o lock da reserva
     return protocolo.enviar(conn, usuario, [protocolo_id], para, copia, assunto, corpo, justificativa, cco=cco,
-                            anexos_previa=anexos_previa)
+                            anexos_previa=anexos_previa, pendencias_confirmadas=pendencias_confirmadas)
 
 
 # --- envio feito por fora --------------------------------------------------------------------------
@@ -520,9 +522,20 @@ def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
     return ms
 
 
+def faltas_externo(conn, ms: list[dict], hoje: datetime.date | None = None) -> list[str]:
+    """Issue #213 (decisao do Leo nas #152/#157): o registro por fora segue a mesma regra de documento faltando do
+    envio. O que falta sao os itens do envio em "falta" (FRC assinada, notas, certidoes, regularidade), um por linha."""
+    c = protocolo._contrato(conn, ms[0]["contrato_id"])
+    familia, _, _ = protocolo._orgao(conn, c)
+    itens = _itens(conn, c, familia, ms, hoje or tempo.hoje_local())[0]
+    return [f"{i['rotulo']}: {i['detalhe']}" for i in itens if i["estado"] == "falta"]
+
+
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
-                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None) -> None:
-    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`)."""
+                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None,
+                  pendencias_confirmadas: list[str] | None = None) -> None:
+    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`).
+    `pendencias_confirmadas` (issue #213): o que falta, confirmado por quem registra; conferido de novo sob o lock."""
     irmas = set(irma_ids or [])
     ids = sorted(set(medicao_ids or []) | irmas)
     if not set(medicao_ids or []):
@@ -538,7 +551,7 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     obs = (observacao or "").strip()
     if not obs:
         raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
-    _conferir_externo(conn, ids, irmas)
+    protocolo.conferir_confirmacao(faltas_externo(conn, _conferir_externo(conn, ids, irmas)), pendencias_confirmadas)
     if eml:
         if len(eml[1]) > TETO_EML:
             raise ValueError("Arquivo .eml acima de 25 MB")
@@ -546,7 +559,7 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
             raise ValueError(NAO_E_EML)
     gravado: dict = {}
     try:
-        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado)
+        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado, pendencias_confirmadas)
     except BaseException:
         if gravado.get("novo"):
             _remover_eml_sem_registro(conn, gravado["rel"])
@@ -574,11 +587,12 @@ def _remover_eml_sem_registro(conn, rel: str) -> None:
 
 
 def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], data: datetime.date, obs: str,
-                       eml: tuple[str, bytes] | None, gravado: dict) -> None:
+                       eml: tuple[str, bytes] | None, gravado: dict, pendencias_confirmadas: list[str] | None) -> None:
     rel = sha = None
     with db.mutacao(conn):
         try:
             ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
+            confirmadas = protocolo.conferir_confirmacao(faltas_externo(conn, ms), pendencias_confirmadas)
             if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
                 # issue #180: anota se ESTE registro criou o arquivo; o que ja' existia (mesmo hash) nunca e' apagado
                 ja_existia = (arquivos.pasta("evidencias") / f"{arquivos.sha_de(eml[1])}.eml").exists()
@@ -598,7 +612,8 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
                     for p in _ativos(conn, etapa, m["id"]):
                         protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
             auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
-                                {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel})
+                                {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel,
+                                 **({"pendencias_confirmadas": confirmadas} if confirmadas else {})})
         except BaseException:
             # gate Sol S1 (PR #199): ainda sob o lock de escrita, antes do ROLLBACK. O arquivo que ESTE registro criou
             # ninguem mais cita (so' este caminho grava .eml em evidencias, sempre sob o lock): sai sem consultar o

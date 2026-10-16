@@ -28,6 +28,8 @@ class EnviarIn(BaseModel):
     assunto: str = Field(min_length=1, max_length=300)
     corpo: str = Field(max_length=20000)
     justificativa: str | None = Field(default=None, max_length=2000)
+    # issue #213: o que falta, confirmado na janela "ATENCAO: ... Deseja continuar com o envio?"
+    pendencias_confirmadas: list[str] | None = Field(default=None, max_length=200)
     # issue #100: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado.
     # Obrigatorio (revisor na PR #141): sem a lista nao ha' o que conferir, e o e-mail nao sai sem conferencia
     anexos: list[AnexoVistoIn] = Field(max_length=200)
@@ -76,13 +78,17 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
         eid = notas_envio.enviar(conn, {"id": usuario["id"], "email": usuario["email"]}, pid, _emails(dados.para),
                                  _emails(dados.copia), dados.assunto.strip(), dados.corpo, dados.justificativa,
                                  cco=_emails(dados.cco),
-                                 anexos_previa=[a.model_dump() for a in dados.anexos])
+                                 anexos_previa=[a.model_dump() for a in dados.anexos],
+                                 pendencias_confirmadas=dados.pendencias_confirmadas)
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None
     except protocolo.AnexosMudaram as e:
         conn.rollback()
         raise HTTPException(422, detail={"codigo": e.codigo, "mensagem": str(e)}) from None
+    except protocolo.PendenciasNaoConfirmadas as e:
+        conn.rollback()
+        raise HTTPException(422, detail=e.detalhe()) from None
     except protocolo.Bloqueio as e:
         conn.rollback()
         raise HTTPException(409, str(e)) from None
@@ -96,6 +102,8 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
 def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(..., max_length=10),
                   observacao: str = Form(..., max_length=2000), eml: UploadFile | None = File(None),
                   irma_ids: list[int] = Form(default=[]),       # issue #172: a irma marcada no formulario
+                  # issue #213: o que falta, confirmado na janela de aviso (vazio = nada confirmado)
+                  pendencias_confirmadas: list[str] = Form(default=[], max_length=200),
                   usuario: dict = Depends(exigir("editar_cadastros")), conn: sqlite3.Connection = Depends(conexao)):
     for mid in [*medicao_ids, *irma_ids]:
         _medicao_existe(conn, mid)
@@ -104,7 +112,10 @@ def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(...
         dados = eml.file.read(notas_envio.TETO_EML + 1)
         arquivo = (eml.filename, dados)
     try:
-        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids)
+        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids,
+                                  pendencias_confirmadas or None)
+    except protocolo.PendenciasNaoConfirmadas as e:
+        raise HTTPException(422, detail=e.detalhe()) from None
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return {"ok": True}
