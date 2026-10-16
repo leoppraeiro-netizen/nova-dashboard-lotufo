@@ -850,6 +850,165 @@ def test_bloqueio_continua_recusando_mesmo_com_confirmacao(api):
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
 
 
+# --- issue #230: o registro por fora tambem pede a confirmacao do que falta ---------------------------
+
+def _sem_nota(c, mid):
+    """A medicao fica sem a nota fiscal anexada: o item "Notas fiscais" do envio vira "falta"."""
+    c.execute("DELETE FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='nfs'", (mid,))
+    c.commit()
+
+
+def _fora(cl, mid, confirmadas=None, observacao="Pelo Outlook, ao fiscal do contrato", eml=None):
+    data = {"medicao_ids": [str(mid)], "enviado_em": "2026-09-15", "observacao": observacao}
+    if confirmadas is not None:
+        data["confirmadas"] = confirmadas
+    return cl.post("/api/notas/envio-externo", data=data,
+                   files={"eml": ("envio.eml", eml, "message/rfc822")} if eml else None)
+
+
+def _confirmacoes_fora(c) -> list[tuple]:
+    return [(r[0], int(r[1]), json.loads(r[2])["pendencias"]) for r in c.execute(
+        "SELECT usuario_id, entidade_id, depois FROM audit_log WHERE acao='protocolo.envio_confirmado' "
+        "AND entidade='medicao' ORDER BY id")]
+
+
+def test_registro_por_fora_com_documento_faltando_sem_confirmacao_e_recusado(api):
+    """Issue #230: falta a nota e a certidao venceu; sem a confirmacao do aviso nada e' registrado nem gravado."""
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    _validade(c, "federal", "2026-09-10")
+    antes = _evidencias()
+    r = _fora(cl, mid, eml=EML)
+    det = r.json()["detail"]
+    assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS", r.text
+    assert det["mensagem"].startswith("ATENÇÃO: falta documento neste envio")
+    assert det["mensagem"].endswith("Confirme para continuar com o registro do envio")
+    assert len(det["pendencias"]) == 2
+    assert any(p.startswith("Notas fiscais (0)") for p in det["pendencias"])
+    assert any("federal vencida em 10/09" in p for p in det["pendencias"])
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "nota_emitida"
+    _sem_registro(c, mid)
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao IN ('notas.envio_externo', "
+                     "'protocolo.envio_confirmado')").fetchone()[0] == 0
+    assert _evidencias() == antes
+
+
+def test_registro_por_fora_confirmado_grava_a_lista_e_junta_observacao_e_lista(api, monkeypatch):
+    """Issue #230: "Continuar com o registro" manda a lista (em qualquer ordem); a confirmacao vai na auditoria
+    (`protocolo.envio_confirmado`) e a ressalva e' "<observacao>; <lista>". Registro por fora nao ganha bloqueio novo:
+    a certidao vencida so' entra na lista."""
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    _validade(c, "federal", "2026-09-10")
+    lista = _fora(cl, mid).json()["detail"]["pendencias"]
+    original, recebidas = medicoes.registrar_protocolo, []
+
+    def espia(*a, **k):
+        recebidas.append(k.get("justificativa"))
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", espia)
+    r = _fora(cl, mid, confirmadas=list(reversed(lista)))
+    assert r.status_code == 200, r.text
+    assert c.execute("SELECT estado, envio_externo_obs FROM medicoes WHERE id=?", (mid,)).fetchone()[:] == \
+        ("protocolada", "Pelo Outlook, ao fiscal do contrato")
+    uid = c.execute("SELECT id FROM usuarios WHERE email='admin@lotufo.com'").fetchone()[0]
+    assert _confirmacoes_fora(c) == [(uid, mid, lista)]
+    assert recebidas == ["Envio feito por fora: Pelo Outlook, ao fiscal do contrato; "
+                         + protocolo.CONFIRMADO_COM_FALTA + "; ".join(lista)]
+    depois = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert depois["confirmadas"] == lista and depois["observacao"] == "Pelo Outlook, ao fiscal do contrato"
+
+
+def test_registro_por_fora_sem_nada_faltando_nao_pede_nem_grava_confirmacao(api, monkeypatch):
+    cl, c, ids = api
+    original, recebidas = medicoes.registrar_protocolo, []
+
+    def espia(*a, **k):
+        recebidas.append(k.get("justificativa"))
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", espia)
+    r = _fora(cl, ids["mtpar_exec"], confirmadas=["Notas fiscais (0): confirmada antes"])
+    assert r.status_code == 200, r.text
+    assert _confirmacoes_fora(c) == [] and recebidas == ["Envio feito por fora: Pelo Outlook, ao fiscal do contrato"]
+    depois = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert "confirmadas" not in depois
+
+
+def test_registro_por_fora_continua_exigindo_a_observacao_mesmo_confirmado(api):
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    lista = _fora(cl, mid).json()["detail"]["pendencias"]
+    r = _fora(cl, mid, confirmadas=lista, observacao="  ")
+    assert r.status_code == 422 and "observação" in r.json()["detail"]
+    _sem_registro(c, mid)
+
+
+def test_registro_por_fora_com_lista_diferente_da_confirmada_e_recusado(api):
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    lista = _fora(cl, mid).json()["detail"]["pendencias"]
+    for outra in ([*lista, "Certidões Lotufo (5): federal vencida em 10/09"], ["Outra coisa"]):
+        r = _fora(cl, mid, confirmadas=outra)
+        det = r.json()["detail"]
+        assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS", r.text
+        assert "mudou" in det["mensagem"] and det["pendencias"] == lista
+    _sem_registro(c, mid)
+    assert _confirmacoes_fora(c) == []
+
+
+def test_registro_por_fora_confere_a_lista_de_novo_sob_o_lock(api, monkeypatch):
+    """Issue #230: a lista e' lida de novo dentro da transacao. A que surgiu depois da confirmacao recusa sem gravar;
+    a que se resolveu nao entra na auditoria nem na ressalva (vale a lista lida sob o lock, nao a de antes)."""
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    lista = _fora(cl, mid).json()["detail"]["pendencias"]
+    original = notas_envio.faltas_externo
+    extra = {"codigo": "certidoes", "mensagem": "Certidões Lotufo (5): federal vencida em 10/09"}
+    registrar, recebidas = medicoes.registrar_protocolo, []
+
+    def espia(*a, **k):
+        recebidas.append(k.get("justificativa"))
+        return registrar(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", espia)
+    for troca in ("surge", "resolve"):
+        chamadas = []
+
+        def na_segunda(*a, **k):
+            chamadas.append(1)
+            out = original(*a, **k)
+            if len(chamadas) == 1:
+                return out
+            return [*out, extra] if troca == "surge" else []
+        monkeypatch.setattr(notas_envio, "faltas_externo", na_segunda)
+        r = _fora(cl, mid, confirmadas=lista)
+        assert len(chamadas) == 2
+        if troca == "surge":
+            det = r.json()["detail"]
+            assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS", r.text
+            assert extra["mensagem"] in det["pendencias"]
+            _sem_registro(c, mid)
+            assert _confirmacoes_fora(c) == []
+        else:
+            assert r.status_code == 200, r.text
+            assert _confirmacoes_fora(c) == []
+            depois = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+            assert "confirmadas" not in depois
+            assert recebidas == ["Envio feito por fora: Pelo Outlook, ao fiscal do contrato"]
+
+
+def test_registro_por_fora_limita_a_lista_confirmada(api):
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    assert _fora(cl, mid, confirmadas=["x" * 2001]).status_code == 422
+    assert _fora(cl, mid, confirmadas=[f"item {i}" for i in range(201)]).status_code == 422
+    _sem_registro(c, mid)
+
+
 # --- testes de quebra 10/10/2026: A-13 (link de qualquer site) e A-11 (qualquer arquivo como .eml) ---
 
 def test_link_so_do_onedrive_ou_sharepoint_da_lotufo(api, monkeypatch):

@@ -861,15 +861,16 @@ def _pendencias_envio(conn, ps: list[dict], hoje: datetime.date) -> list[dict]:
             if not (q["codigo"] == "irma_fora" and q["medicao_id"] in juntas)]
 
 
-def _conferir_confirmacao(pend: list[dict], confirmadas: list[str] | None) -> None:
+def _conferir_confirmacao(pend: list[dict], confirmadas: list[str] | None, acao: str = "o envio") -> None:
     """Issue #213: a lista confirmada no aviso tem de ser a de agora (os mesmos itens, em qualquer ordem). Nada
-    faltando agora passa, mesmo com uma confirmacao antiga: nao ha' o que confirmar (code-review da PR)."""
+    faltando agora passa, mesmo com uma confirmacao antiga: nao ha' o que confirmar (code-review da PR).
+    `acao` (issue #230): o que a confirmacao libera, no texto da recusa ("o registro do envio", no registro por fora)."""
     faltam = [x["mensagem"] for x in pend]
     if not faltam or sorted(confirmadas or []) == sorted(faltam):
         return
     if not confirmadas:
         raise ConfirmarPendencias("ATENÇÃO: falta documento neste envio (" + "; ".join(faltam) + "). Confirme para "
-                                  "continuar com o envio", pend)
+                                  f"continuar com {acao}", pend)
     raise ConfirmarPendencias("A lista do que falta mudou depois da sua confirmação: confira e confirme de novo",
                               pend)
 
