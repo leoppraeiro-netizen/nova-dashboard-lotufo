@@ -436,7 +436,7 @@ def test_pdf_corrompido_da_assinada_vira_frase_em_portugues(conn, usuario, conso
 
 
 def test_sem_espelho_a_assinada_feita_a_mao_e_recusada_e_o_envio_bloqueia(conn, usuario, consorcio14, _texto):  # noqa: F811
-    """Rodada 3 da PR #179 (S1, decisao do Leo de 15/10/2026): medicao de consorcio sem espelho vigente nao gera FRC
+    """Rodada 3 da PR #179 (S1, decisao de produto de 15/10/2026): medicao de consorcio sem espelho vigente nao gera FRC
     e a feita a' mao nao vale (a marca "sem formulario" nao existe no cadastro): o anexo e o envio ficam bloqueados."""
     cid, _ = consorcio14
     mid = medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
@@ -450,6 +450,11 @@ def test_sem_espelho_a_assinada_feita_a_mao_e_recusada_e_o_envio_bloqueia(conn, 
     item, faltas = _item_frc(conn, cid, mid)
     assert (item["estado"], item["bloqueia"], item["detalhe"]) == ("falta", True, frc.SEM_ESPELHO)
     assert not [f for f in faltas if "FRC" in f]           # nao e' pendencia justificavel: e' bloqueio
+    c = protocolo._contrato(conn, cid)
+    o = dict(conn.execute("SELECT * FROM orgaos WHERE id=?", (c["orgao_id"],)).fetchone())
+    m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    env = notas_envio._envio(conn, c, "sinfra", o, [m], None, __import__("datetime").date(2026, 10, 9))
+    assert env["situacao"] == "bloqueado" and "Sem espelho para a FRC" in env["aviso"]
     # anexada antes desta regra (sem vinculo) tambem nao vale nem vai no e-mail
     conn.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, arquivo) VALUES "
                  "(?, 'operacao', 'fatura', 'velha.pdf', 'velha', 'notas/velha.pdf')", (mid,))
@@ -498,6 +503,11 @@ def test_consorcio_sem_formulario_e_obra_propria(conn, usuario):  # noqa: F811
     assert frc.assinada(conn, mid) == {"controla": True, "documento": None, "recusa": frc.SEM_CADASTRO, "frc": None}
     item, faltas = _item_frc(conn, consorcio, mid)
     assert (item["estado"], item["bloqueia"]) == ("falta", True) and not [f for f in faltas if "FRC" in f]
+    c = protocolo._contrato(conn, consorcio)
+    o = dict(conn.execute("SELECT * FROM orgaos WHERE id=?", (c["orgao_id"],)).fetchone())
+    m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    env = notas_envio._envio(conn, c, "sinfra", o, [m], None, __import__("datetime").date(2026, 10, 9))
+    assert env["situacao"] == "bloqueado" and "FRC fora do cadastro" in env["aviso"]
     propria = conn.execute("SELECT id FROM contratos WHERE nome_curto='Obra Própria'").fetchone()[0]
     mid = medicoes.criar(conn, 1, {"contrato_id": propria, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
     assert frc.situacao(conn, mid)["disponivel"] is False and frc.situacao(conn, mid)["motivo"] is None

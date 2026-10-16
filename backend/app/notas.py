@@ -286,8 +286,9 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
     lida = (leitura_nfse.ler(leitura_pdf.texto_de_pdf_com_limite(pdf)) if tipo_doc == "nfs"
             else {"ok": False, "motivo": "fatura", "leiaute": None})
     # issue #169: a assinada fica ligada a' FRC vigente que ela assina (conferida pelo texto do PDF); sem FRC gerada,
-    # desatualizada ou PDF de outra versao, recusa. O texto e' lido aqui, fora da transacao; a conferencia, dentro.
-    assinada = frc.ler_assinada(pdf) if tipo_doc == "fatura" and frc.de_consorcio(conn, medicao_id) else None
+    # desatualizada ou PDF de outra versao, recusa. As recusas baratas e a leitura do texto ficam aqui, fora da
+    # transacao; a conferencia, dentro (rodada 3 da PR #179).
+    assinada = frc.ler_assinada(pdf) if tipo_doc == "fatura" and frc.precisa_ler(conn, medicao_id) else None
     caminho, sha = arquivos.gravar_bytes("notas", pdf, "pdf")      # disco ANTES do envelope (ver _gravar_documento)
     with db.mutacao(conn):
         m = medicoes.detalhe(conn, medicao_id)

@@ -228,7 +228,7 @@ def situacao(conn, medicao_id: int) -> dict:
                "desatualizada": atuais != antes}
     itens = [{k: v for k, v in i.items() if not k.startswith("_")} for i in ck["itens"]]
     bloqueio = _bloqueio(ck)
-    # Rodada 3 da PR #179 (decisao do Leo, 15/10/2026): sem espelho vigente com as notas esperadas e sem FRC gerada,
+    # Rodada 3 da PR #179 (decisao de produto de 15/10/2026): sem espelho vigente com as notas esperadas e sem FRC gerada,
     # a dashboard nao gera a FRC e a feita a' mao nao vale: o anexo e o envio ficam bloqueados (SEM_ESPELHO).
     doc, recusa = (None, SEM_ESPELHO) if vig is None and not itens else \
         _escolher_assinada(_faturas(conn, medicao_id), vig, bool(frc and frc["desatualizada"]))
@@ -245,7 +245,7 @@ def situacao(conn, medicao_id: int) -> dict:
 # o envio enquanto essa linha for a vigente e nao estiver desatualizada: a assinada de uma FRC substituida (notas
 # trocadas, FRC gerada de novo) nao sai ao orgao com os valores velhos.
 
-# Rodada 3 da PR #179 (decisao do Leo, 15/10/2026): FRC feita a' mao so' valeria em contrato marcado "sem formulario",
+# Rodada 3 da PR #179 (decisao de produto de 15/10/2026): FRC feita a' mao so' valeria em contrato marcado "sem formulario",
 # e essa marca nao existe no cadastro; entao obra de consorcio sem a FRC no cadastro, ou medicao sem espelho vigente,
 # bloqueia o anexo da assinada e o envio.
 SEM_CADASTRO = ("A FRC deste consórcio não está no cadastro: a FRC feita à mão não vale para o envio, que fica "
@@ -300,8 +300,26 @@ SEM_TEXTO = ("O PDF da FRC assinada não tem texto para conferir com a FRC gerad
              "não uma digitalização")
 
 
-def de_consorcio(conn, medicao_id: int) -> bool:
-    return _contexto(conn, medicao_id)[1] is not None
+def _recusa_sem_ler(s: dict) -> dict | None:
+    """A recusa que nao precisa do PDF (sem a FRC no cadastro, sem espelho, sem FRC gerada, desatualizada); devolve a
+    FRC vigente da situacao `s` quando o PDF tem que ser conferido, None em obra propria."""
+    if s["consorcio"] is None:
+        return None
+    if not s["disponivel"]:
+        raise ValueError(SEM_CADASTRO)
+    if s["frc"] is None:
+        raise ValueError(SEM_ESPELHO if not s["itens"] else
+                         "Gere a FRC na etapa 3 (Nota fiscal) antes de anexar a assinada")
+    if s["frc"]["desatualizada"]:
+        raise ValueError(f"As notas mudaram depois da FRC nº {s['frc']['numero']}: gere de novo na etapa 3 (Nota "
+                         "fiscal), assine no DocuSign e anexe a nova")
+    return s["frc"]
+
+
+def precisa_ler(conn, medicao_id: int) -> bool:
+    """Antes de ler o PDF e de gravar o arquivo: as recusas baratas sobem aqui (sem gastar uma vaga do leitor nem deixar
+    arquivo solto); True quando a assinada tem que ser conferida pelo texto (obra de consorcio)."""
+    return _recusa_sem_ler(situacao(conn, medicao_id)) is not None
 
 
 def ler_assinada(pdf: bytes) -> dict:
@@ -332,19 +350,10 @@ def para_assinar(conn, medicao_id: int, lida: dict | None) -> int | None:
     cadastro, recusa. Revisor adversarial na PR #179: a FRC gerada de novo pode manter o numero, entao o PDF tem que
     trazer, no TEXTO, o numero, o total bruto, o total liquido e o numero de cada nota da FRC vigente; a assinada da
     versao anterior (outra nota, outro valor) e' recusada. Obra propria: None (entra sem vinculo, como antes)."""
-    s = situacao(conn, medicao_id)
-    if s["consorcio"] is None:
+    atual = _recusa_sem_ler(situacao(conn, medicao_id))
+    if atual is None:
         return None
-    if not s["disponivel"]:
-        raise ValueError(SEM_CADASTRO)
-    if s["frc"] is None:
-        if s["assinada_recusa"] == SEM_ESPELHO:
-            raise ValueError(SEM_ESPELHO)
-        raise ValueError("Gere a FRC na etapa 3 (Nota fiscal) antes de anexar a assinada")
-    n = s["frc"]["numero"]
-    if s["frc"]["desatualizada"]:
-        raise ValueError(f"As notas mudaram depois da FRC nº {n}: gere de novo na etapa 3 (Nota fiscal), assine no "
-                         "DocuSign e anexe a nova")
+    n = atual["numero"]
     vig = _vigente(conn, medicao_id)
     # Falha de leitura sobe com a frase dela; SEM_TEXTO so' quando o PDF foi lido e nao tem texto (revisor adversarial
     # na PR #179, rodada 2).

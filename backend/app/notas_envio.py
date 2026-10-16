@@ -195,7 +195,9 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
                 # (as notas mudaram depois dela) nao se oferece: assinaria valores velhos
                 g = None if d else a["frc"]
                 if a["recusa"]:         # nao se justifica: o envio fica bloqueado (protocolo.frc_recusadas)
-                    curtos.append("FRC assinada não é a da FRC vigente")
+                    curtos.append("FRC fora do cadastro" if a["recusa"] == frc.SEM_CADASTRO
+                                  else "Sem espelho para a FRC" if a["recusa"] == frc.SEM_ESPELHO
+                                  else "FRC assinada não é a da FRC vigente")
                 detalhe = (f"Assinada anexada · {d['nome']}" if d else a["recusa"] if a["recusa"]
                            else "Falta a assinada: as notas mudaram depois da FRC gerada; gere de novo na etapa 3 "
                                 "(Nota fiscal), assine no DocuSign e anexe aqui" if g and g["desatualizada"]
