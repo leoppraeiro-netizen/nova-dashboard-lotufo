@@ -454,11 +454,13 @@ def montar(conn, usuario_id: int, protocolo_id: int, corpo: str | None = None,
                                            f"PERÍODO: {_periodo(conn, ms[0])}"], em))
     pecas = _pecas(conn, protocolo_id)
     config_pecas = _config_pecas(regras)
+    frcs_no_pacote: list[int] | None = None
     for parte in e.partes:
         if parte == "carta":
             partes.append(carta.gerar(_carta(conn, p, corpo, hoje)))
         elif parte == "notas":
             docs = _docs_nota(conn, [m["id"] for m in ms])
+            frcs_no_pacote = sorted(d["id"] for d in docs if d["tipo_doc"] == "fatura")   # issue #169 (041)
             if docs and e.divisorias:
                 partes.append(carta.pagina_titulo(["NOTA FISCAL"], em))
             partes += [_bytes(d["arquivo"]) for d in docs]
@@ -485,7 +487,8 @@ def montar(conn, usuario_id: int, protocolo_id: int, corpo: str | None = None,
     with db.mutacao(conn):
         conn.execute("UPDATE protocolos SET corpo_carta=?, montado_arquivo=?, montado_sha256=?, montado_paginas=?, "
                      "montado_em=datetime('now'), assinado_arquivo=NULL, assinado_sha256=NULL, conferencia=NULL, "
-                     "situacao='montado' WHERE id=?", (corpo, rel, sha, n, protocolo_id))
+                     "situacao='montado', montado_frcs=? WHERE id=?",
+                     (corpo, rel, sha, n, None if frcs_no_pacote is None else json.dumps(frcs_no_pacote), protocolo_id))
         auditoria.registrar(conn, usuario_id, "protocolo.montar", "protocolo", protocolo_id, None,
                             {"sha256": sha, "paginas": n, "tamanho": len(pdf)})
     return {"arquivo": rel, "sha256": sha, "paginas": n, "tamanho": len(pdf), "nome": nome_arquivo(conn, p)}
@@ -618,13 +621,29 @@ def certidoes_vencidas(conn, p: dict, hoje: datetime.date) -> list[str]:
     return out
 
 
+PACOTE_FRC_VELHA = ("O pacote foi montado antes da FRC assinada que vale agora e leva a anterior: monte o pacote de "
+                    "novo (e assine de novo, se já tinha assinado)")
+
+
 def frc_recusadas(conn, p: dict) -> list[str]:
     """Issue #169: obra de consorcio cuja FRC assinada anexada nao e' a da FRC vigente (ou a vigente ficou
     desatualizada). Nao se justifica: sairia ao orgao a FRC com os valores velhos."""
     _, _, e, c = _contexto(conn, p)
     if not c.get("entidade_id") or not ("notas" in e.partes or "notas" in e.soltos):
         return []
-    return [f"{titulo(m)}: {r}" for m in _medicoes(conn, p["id"]) if (r := frc.assinada(conn, m["id"])["recusa"])]
+    out, valem = [], []
+    for m in _medicoes(conn, p["id"]):
+        a = frc.assinada(conn, m["id"])
+        if a["recusa"]:
+            out.append(f"{titulo(m)}: {a['recusa']}")
+        elif a["controla"] and a["documento"]:
+            valem.append(a["documento"]["id"])
+    # Revisor adversarial na rodada 3 da PR #179: com as notas DENTRO do pacote, o pacote montado antes da assinada que
+    # vale agora (a da FRC gerada de novo) leva a velha; o envio espera montar de novo (migracao 041).
+    no_pacote = set(json.loads(p.get("montado_frcs") or "[]"))
+    if e.carta and "notas" in e.partes and p["montado_arquivo"] and not set(valem) <= no_pacote:
+        out.append(PACOTE_FRC_VELHA)
+    return out
 
 
 def bloqueio(conn, p: dict, hoje: datetime.date) -> str | None:
@@ -892,7 +911,17 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
         for x in ps:
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
     try:
-        anexos = [a for x in ps for a in _anexos(conn, x, hoje)]
+        # Revisor adversarial na rodada 3 da PR #179: a FRC assinada pode ter mudado entre a previa e a reserva (FRC
+        # gerada de novo, outra assinada anexada). Conferida de novo aqui, com os anexos que vao de fato no e-mail;
+        # a recusa cai no `except` abaixo, que destrava a reserva antes de qualquer e-mail.
+        agora = [r for x in ps for r in frc_recusadas(conn, _linha(conn, x["id"]))]
+        if agora:
+            raise Bloqueio(" · ".join(dict.fromkeys(agora)))
+        rotulados = [a for x in ps for a in _anexos_rotulados(conn, _linha(conn, x["id"]), hoje)]
+        if sorted((n, len(b)) for n, b, _ in rotulados) != sorted((a["nome"], a["tamanho"]) for a in pv["anexos"]):
+            raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para "
+                                "conferir o que vai no e-mail")
+        anexos = [(n, b) for n, b, _ in rotulados]
         envio_id = correio.enviar_e_registrar(conn, usuario, "protocolo", para,
                                               [x.strip() for x in copia if x.strip()], assunto, _html(corpo),
                                               anexos, cco=cco)

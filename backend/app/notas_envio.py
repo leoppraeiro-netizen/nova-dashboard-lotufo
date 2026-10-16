@@ -260,7 +260,8 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
 def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.date) -> list[dict]:
     """Issue #172: onde medicao e reajuste vao no mesmo e-mail (SINFRA, Pref. VG), a irma (mesmo numero, o outro tipo
     do par execucao x reajuste) com nota emitida que ficou fora deste envio, para o registro por fora leva-la junto.
-    Nao se oferece a irma bloqueada (certidao vencida da natureza dela: o registro por fora contornaria o bloqueio)
+    Nao se oferece a irma bloqueada (certidao vencida da natureza dela ou FRC assinada que nao vale: o registro por
+    fora contornaria o bloqueio)
     nem a que tem envio proprio ja' montado ou assinado (o registro descartaria esse protocolo); rascunho nao conta."""
     regras = json.loads(o.get("regras") or "{}")
     if not protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, _etapa(familia))):
@@ -275,7 +276,8 @@ def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.
                               "AND estado='nota_emitida' ORDER BY id", (c["id"], m["numero"], outro[m["tipo"]])):
             if r["id"] in dentro or any(p["situacao"] != "rascunho" for p in _ativos(conn, _etapa(familia), r["id"])):
                 continue
-            if any(i["estado"] == "vencida" for i in _itens(conn, c, familia, [dict(r)], hoje)[0]):
+            # rodada 3 da PR #179: nem a irma com item que bloqueia (FRC assinada recusada, sem espelho, sem cadastro)
+            if any(i["estado"] == "vencida" or i.get("bloqueia") for i in _itens(conn, c, familia, [dict(r)], hoje)[0]):
                 continue
             achadas[r["id"]] = {"medicao_id": r["id"], "titulo": medicoes.titulo(r), "tipo": r["tipo"]}
     return list(achadas.values())
