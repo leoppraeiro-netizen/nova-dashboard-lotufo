@@ -522,9 +522,27 @@ def _conferir_externo(conn, ids: list[int], irmas: set[int]) -> list[dict]:
     return ms
 
 
+REGISTRO_EXTERNO = "o registro do envio"      # issue #230: o que a confirmacao do que falta libera aqui
+
+
+def faltas_externo(conn, ms: list[dict], hoje: datetime.date | None = None) -> list[dict]:
+    """Issue #230: o que falta no registro por fora, na regra do envio (#213): os itens do envio em falta ou vencidos
+    e a FRC recusada, um por linha ("<item>: <detalhe>"). So' avisa: o registro por fora nao ganha bloqueio novo."""
+    c = protocolo._contrato(conn, ms[0]["contrato_id"])
+    if not c.get("orgao_id"):
+        return []
+    familia, _, _ = protocolo._orgao(conn, c)
+    itens = _itens(conn, c, familia, ms, hoje or tempo.hoje_local())[0]
+    return [{"codigo": i["chave"].split(":")[0], "mensagem": f"{i['rotulo']}: {i['detalhe']}"} for i in itens
+            if i["estado"] in ("falta", "vencida") or i.get("bloqueia")]
+
+
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
-                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None) -> None:
-    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`)."""
+                  eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None,
+                  confirmadas: list[str] | None = None) -> None:
+    """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`).
+    `confirmadas` (issue #230): o que falta, confirmado no aviso; sem ela ou diferente -> protocolo.ConfirmarPendencias.
+    Conferida aqui e de novo sob o lock; a observacao continua obrigatoria."""
     irmas = set(irma_ids or [])
     ids = sorted(set(medicao_ids or []) | irmas)
     if not set(medicao_ids or []):
@@ -540,15 +558,16 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     obs = (observacao or "").strip()
     if not obs:
         raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
-    _conferir_externo(conn, ids, irmas)
+    ms = _conferir_externo(conn, ids, irmas)
     if eml:
         if len(eml[1]) > TETO_EML:
             raise ValueError("Arquivo .eml acima de 25 MB")
         if not _e_email(eml[1]):
             raise ValueError(NAO_E_EML)
+    protocolo._conferir_confirmacao(faltas_externo(conn, ms), confirmadas, REGISTRO_EXTERNO)
     gravado: dict = {}
     try:
-        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado)
+        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado, confirmadas)
     except BaseException:
         if gravado.get("novo"):
             _remover_eml_sem_registro(conn, gravado["rel"])
@@ -576,11 +595,18 @@ def _remover_eml_sem_registro(conn, rel: str) -> None:
 
 
 def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], data: datetime.date, obs: str,
-                       eml: tuple[str, bytes] | None, gravado: dict) -> None:
+                       eml: tuple[str, bytes] | None, gravado: dict, confirmadas: list[str] | None = None) -> None:
     rel = sha = None
     with db.mutacao(conn):
         try:
             ms = _conferir_externo(conn, ids, irmas)        # de novo, sob o lock: a corrida perdida e' recusada
+            # issue #230: o que falta, de novo sob o lock; e' esta lista (nao a lida antes) que vai na auditoria e na
+            # ressalva, que junta a observacao e a lista
+            no_lock = faltas_externo(conn, ms)
+            protocolo._conferir_confirmacao(no_lock, confirmadas, REGISTRO_EXTERNO)
+            faltam = [x["mensagem"] for x in no_lock]
+            ressalva = f"Envio feito por fora: {obs}" + \
+                (f"; {protocolo.CONFIRMADO_COM_FALTA}{'; '.join(faltam)}" if faltam else "")
             if eml:     # gate Sol S2 (PR #178): depois das conferencias, para a recusa nao deixar arquivo solto
                 # issue #180: anota se ESTE registro criou o arquivo; o que ja' existia (mesmo hash) nunca e' apagado
                 ja_existia = (arquivos.pasta("evidencias") / f"{arquivos.sha_de(eml[1])}.eml").exists()
@@ -589,7 +615,10 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
             for m in ms:
                 medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
                                              protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
-                                             apesar_das_pendencias=True, justificativa=f"Envio feito por fora: {obs}")
+                                             apesar_das_pendencias=True, justificativa=ressalva)
+                if faltam:      # quem confirmou e quando: o usuario e o carimbo da propria linha da auditoria
+                    auditoria.registrar(conn, usuario_id, "protocolo.envio_confirmado", "medicao", m["id"], None,
+                                        {"pendencias": faltam})
                 conn.execute("UPDATE medicoes SET envio_origem='externo', envio_externo_em=?, envio_externo_obs=? "
                              "WHERE id=?", (data.isoformat(), obs, m["id"]))
                 if rel:
@@ -600,7 +629,11 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
                     for p in _ativos(conn, etapa, m["id"]):
                         protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
             auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
-                                {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel})
+                                {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel,
+                                 # revisor adversarial da PR #237: o registro do protocolo da medicao so' grava a
+                                 # justificativa com certidao pendente; a ressalva "<observacao>; <lista>" fica aqui
+                                 **({"confirmadas": faltam, "ressalva": f"{obs}; {protocolo.CONFIRMADO_COM_FALTA}"
+                                     + "; ".join(faltam)} if faltam else {})})
         except BaseException:
             # gate Sol S1 (PR #199): ainda sob o lock de escrita, antes do ROLLBACK. O arquivo que ESTE registro criou
             # ninguem mais cita (so' este caminho grava .eml em evidencias, sempre sob o lock): sai sem consultar o

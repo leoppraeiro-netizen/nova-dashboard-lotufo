@@ -3,7 +3,7 @@ pagamento. Regras em `notas_envio` e `protocolo`; aqui so' entrada e HTTP. Certi
 import sqlite3
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from app import envio_reserva, graph, notas_envio, protocolo
 from app.api_auth import conexao
@@ -101,7 +101,13 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
 def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(..., max_length=10),
                   observacao: str = Form(..., max_length=2000), eml: UploadFile | None = File(None),
                   irma_ids: list[int] = Form(default=[]),       # issue #172: a irma marcada no formulario
+                  # issue #230: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO" (um campo por item)
+                  confirmadas: list[str] = Form(default=[]),
                   usuario: dict = Depends(exigir("editar_cadastros")), conn: sqlite3.Connection = Depends(conexao)):
+    try:            # os mesmos limites do `Confirmadas` das rotas JSON (api_protocolos)
+        TypeAdapter(Confirmadas).validate_python(confirmadas)
+    except ValidationError:
+        raise HTTPException(422, "Lista do que falta grande demais: abra o registro de novo") from None
     for mid in [*medicao_ids, *irma_ids]:
         _medicao_existe(conn, mid)
     arquivo = None
@@ -109,7 +115,10 @@ def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(...
         dados = eml.file.read(notas_envio.TETO_EML + 1)
         arquivo = (eml.filename, dados)
     try:
-        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids)
+        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids,
+                                  confirmadas or None)
+    except protocolo.ConfirmarPendencias as e:
+        raise HTTPException(422, detail=e.detalhe()) from None
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return {"ok": True}

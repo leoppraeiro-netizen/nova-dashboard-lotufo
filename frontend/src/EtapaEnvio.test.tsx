@@ -235,6 +235,111 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     expect(p.aoMudar).not.toHaveBeenCalled();
   });
 
+  // issue #230: o registro por fora segue a regra do envio (#213): o que falta pede a confirmação, não bloqueia
+  const FALTA = ["FRC assinada: Falta a FRC assinada", "Certidões Lotufo (5): federal vencida em 10/09"];
+  const pedeConfirmacao = (pendencias = FALTA) => new ApiErro(422, "ATENÇÃO: falta documento neste envio",
+    { codigo: "CONFIRMAR_PENDENCIAS", mensagem: "ATENÇÃO: falta documento neste envio", pendencias });
+
+  it("com documento faltando, abre o “ATENÇÃO” com a lista; Cancelar não registra nada", async () => {
+    const p = await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao());
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    const aviso = await screen.findByRole("alertdialog");
+    expect(aviso.textContent).toContain("ATENÇÃO");
+    for (const x of FALTA) expect(within(aviso).getByText(x)).toBeTruthy();
+    expect(within(aviso).getByText("Deseja continuar com o registro do envio?")).toBeTruthy();
+    expect(within(aviso).queryByRole("button", { name: "Continuar com o envio" })).toBeNull();
+    fireEvent.click(within(aviso).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(apiForm).toHaveBeenCalledTimes(1);
+    expect(p.aoMudar).not.toHaveBeenCalled();
+    expect((screen.getByRole("button", { name: "Registrar" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Esc no aviso só fecha o aviso: a janela do registro (<dialog>) não recebe o Esc", async () => {
+    await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao());
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    const aviso = await screen.findByRole("alertdialog");
+    // sem o preventDefault, o navegador fecharia o <dialog> da janela junto (pedido de fechar do Esc)
+    expect(fireEvent.keyDown(aviso, { key: "Escape" })).toBe(false);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByText("Registrar envio feito fora do sistema", { selector: "h2" })).toBeTruthy();
+  });
+
+  it("“Continuar com o registro” manda a lista confirmada e registra", async () => {
+    const p = await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao());
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+    expect(apiForm).toHaveBeenCalledTimes(2);
+    const [primeiro, segundo] = apiForm.mock.calls.map(c => c[1] as FormData);
+    expect(primeiro.getAll("confirmadas")).toEqual([]);
+    expect(segundo.getAll("confirmadas")).toEqual(FALTA);
+    expect(String(segundo.get("observacao"))).toBe("Pelo Outlook");     // a observação continua indo
+  });
+
+  it("a lista mudou depois da confirmação: o aviso abre de novo com a lista de agora", async () => {
+    await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao()).mockRejectedValueOnce(pedeConfirmacao([FALTA[0]]));
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    await waitFor(() => expect(screen.getByText(/O que falta mudou desde a sua confirmação/)).toBeTruthy());
+    const aviso = screen.getByRole("alertdialog");
+    expect(within(aviso).getByText(FALTA[0])).toBeTruthy();
+    expect(within(aviso).queryByText(FALTA[1])).toBeNull();
+  });
+
+  it("dois envios e só o segundo com falta: confirmado, o primeiro não é registrado de novo", async () => {
+    const p = await abrir(dois());
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    apiForm.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(pedeConfirmacao());
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+    const medicoes = apiForm.mock.calls.map(c => (c[1] as FormData).getAll("medicao_ids"));
+    expect(medicoes).toEqual([["631"], ["632"], ["632"]]);
+    expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual(FALTA);
+    // os dois foram registrados: o aviso final fala dos envios, não só do último
+    expect(p.aoMudar).toHaveBeenCalledWith("Envios registrados: as notas foram para Aguardando pagamento.");
+  });
+
+  it("Cancelar depois de uma confirmação recusada: o próximo Registrar pergunta de novo, sem a lista antiga", async () => {
+    await abrir([envio()]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao()).mockRejectedValueOnce(pedeConfirmacao([FALTA[0]]))
+      .mockRejectedValueOnce(pedeConfirmacao([FALTA[0]]));
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    await waitFor(() => expect(screen.getByText(/O que falta mudou/)).toBeTruthy());
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancelar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(3));
+    expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual([]);
+    const aviso = await screen.findByRole("alertdialog");
+    expect(within(aviso).queryByText(/O que falta mudou/)).toBeNull();
+  });
+
+  it("mudar a irmã descarta a confirmação: a lista confirmada era de outra composição", async () => {
+    await abrir([envio({ irmas })]);
+    apiForm.mockRejectedValueOnce(pedeConfirmacao()).mockRejectedValueOnce(new ApiErro(0, "Sem conexão com o servidor."))
+      .mockResolvedValueOnce({ ok: true });
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Continuar com o registro" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Sem conexão");
+    fireEvent.click(screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)"));
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(3));
+    expect((apiForm.mock.calls[2][1] as FormData).getAll("confirmadas")).toEqual([]);
+  });
+
   it("envio bloqueado não oferece o registro", async () => {
     api.mockResolvedValue({ itens: [] });
     montar([envio({ situacao: "bloqueado", aviso: "Federal vencida" })]);
