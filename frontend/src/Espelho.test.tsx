@@ -175,7 +175,7 @@ describe("Espelho", () => {
     fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
     await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
     expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/2/documentos");
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("oficio.pdf anexado à 10ª Medição de Projeto como evidência do órgão."));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("oficio.pdf anexado como evidência do órgão em: 10ª Medição de Projeto."));
   });
 
   it("misto com o Projeto superado: na medição de execução, só leitura com o link para o Projeto e o anexo na execução", async () => {
@@ -192,6 +192,31 @@ describe("Espelho", () => {
     fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
     await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
     expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/1/documentos");
+  });
+
+  // rodada 1 do revisor da PR #236: "Reajuste da 10ª Medição" e' masculino; as frases nao levam artigo antes do titulo
+  it("misto com o reajuste superado: a nota nomeia o reajuste sem artigo de gênero", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "protocolada" },
+      { id: 3, tipo: "reajuste", estado: "espelho_gerado", superado: true }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 1, tipo: "execucao" }} />);
+    const nota = await screen.findByText(/só para leitura/);
+    expect(nota.textContent).toContain("Já existe espelho mais novo para: Reajuste da 10ª Medição.");
+    expect(nota.textContent).not.toMatch(/\b(a|à) Reajuste|dela\b/);
+  });
+
+  it("misto com a execução superada: na página do reajuste, o anexo vai para o reajuste e a mensagem o nomeia", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "espelho_gerado", superado: true },
+      { id: 3, tipo: "reajuste", estado: "protocolada" }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    apiForm.mockResolvedValueOnce({ documento_id: 52, repetido: false });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 3, tipo: "reajuste" }} />);
+    await screen.findByText(/só para leitura/);
+    const arquivo = new File(["%PDF"], "oficio.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
+    expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/3/documentos");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("oficio.pdf anexado como evidência do órgão em: Reajuste da 10ª Medição."));
   });
 
   it("misto com a execução superada, por etapa: nenhuma das duas partes oferece enviar ou gerar de novo", async () => {

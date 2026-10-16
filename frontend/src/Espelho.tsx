@@ -258,7 +258,7 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
       const r = await apiForm<{ documento_id: number; repetido: boolean }>(`/api/medicoes/${med.id}/documentos`, fd);
       // sem ponto final: a mensagem de `feito` ganha o ponto na hora de mostrar
       setFeito(r.repetido ? `${arquivo.name} já estava anexado a esta medição`
-        : `${arquivo.name} anexado à ${tituloMedicao({ numero: esp.numero, tipo: med.tipo })} como evidência do órgão`);
+        : `${arquivo.name} anexado como evidência do órgão em: ${tituloMedicao({ numero: esp.numero, tipo: med.tipo })}`);
       aoMudar();
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); input.value = ""; }
   };
@@ -503,9 +503,10 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
           )}
           {superadas.map(m => (
             <p className="campo__nota" key={m.id}>
-              Este espelho fica só para leitura: a{" "}
-              <Link para={{ tela: "medicao", obra: contratoId, id: m.id }} secao="espelho">{tituloMedicao({ numero: esp.numero, tipo: m.tipo })}</Link>{" "}
-              já tem espelho mais novo, e enviar ou gerar este de novo voltaria aos valores antigos dela.
+              {/* sem artigo antes do titulo: "Reajuste da 10ª Medicao" e' masculino, as outras femininas */}
+              Este espelho fica só para leitura. Já existe espelho mais novo para:{" "}
+              <Link para={{ tela: "medicao", obra: contratoId, id: m.id }} secao="espelho">{tituloMedicao({ numero: esp.numero, tipo: m.tipo })}</Link>.
+              Enviar ou gerar este de novo voltaria aos valores antigos.
             </p>
           ))}
           {podeEditar && (
