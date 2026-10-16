@@ -243,17 +243,18 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     } finally { setOcupado(false); }
   };
 
-  // Evidencia do orgao (spec §3 passo 1, opcional): o PDF que o orgao mandou vai para a
-  // medicao de EXECUCAO do espelho; aparece na linha da medicao, em Documentos.
+  // Evidencia do orgao (spec §3 passo 1, opcional): o PDF que o orgao mandou vai para a medicao
+  // da pagina; fora dela, para a casa do espelho (execucao viva). Nunca para uma medicao superada (#212).
   const anexarEvidencia = async (esp: EspelhoDetalhe, input: HTMLInputElement) => {
     const arquivo = input.files?.[0];
     if (!arquivo) return;
-    const med = esp.medicoes.find(m => m.tipo === "execucao") ?? esp.medicoes[0];
+    const alvo = medicao && esp.medicoes.some(m => m.id === medicao.id && !m.superado) ? medicao.id : larDoEspelho(esp);
+    if (alvo === null) { input.value = ""; return; }
     setErro(""); setFeito(""); setOcupado(true);
     try {
       const fd = new FormData();
       fd.append("arquivo", arquivo);
-      const r = await apiForm<{ documento_id: number; repetido: boolean }>(`/api/medicoes/${med.id}/documentos`, fd);
+      const r = await apiForm<{ documento_id: number; repetido: boolean }>(`/api/medicoes/${alvo}/documentos`, fd);
       setFeito(r.repetido ? `${arquivo.name} já estava anexado a esta medição.` : `${arquivo.name} anexado à medição ${esp.numero} como evidência do órgão.`);
       aoMudar();
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); input.value = ""; }
@@ -492,15 +493,24 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
           {parte === "faturamento" && esp.envio && (
             <p className="campo__nota">Enviado por {esp.envio.remetente} → {esp.envio.para.join(", ")}.</p>
           )}
+          {/* #212: com uma das medicoes ja' em espelho mais novo, este fica so' para leitura (o servidor recusa
+              o envio, e gerar de novo partiria dos valores antigos da superada) */}
+          {esp.medicoes.filter(m => m.superado).map(m => (
+            <p className="campo__nota" key={m.id}>
+              Este espelho fica só para leitura: a{" "}
+              <Link para={{ tela: "medicao", obra: contratoId, id: m.id }} secao="espelho">{tituloMedicao({ numero: esp.numero, tipo: m.tipo })}</Link>{" "}
+              já tem espelho mais novo. Para mudar valores ou enviar ao faturamento, use o espelho mais novo dela.
+            </p>
+          ))}
           {podeEditar && (
             <div className={parte ? "med-acoes" : "form-inline"}>
               {/* primario so' enquanto nao foi enviado: "Enviar de novo" nao e' o proximo passo */}
-              {so("faturamento") && (
+              {so("faturamento") && !esp.medicoes.some(m => m.superado) && (
                 <button type="button" className={`btn btn--pequeno${esp.envio ? "" : " btn--primario"}`} disabled={ocupado} onClick={() => abrirEnvio(esp)}>
                   {esp.envio ? "Enviar de novo" : "Enviar ao faturamento"}
                 </button>
               )}
-              {so("espelho") && <button type="button" className="btn btn--pequeno" onClick={() => abrirForm(esp)}>Gerar de novo</button>}
+              {so("espelho") && !esp.medicoes.some(m => m.superado) && <button type="button" className="btn btn--pequeno" onClick={() => abrirForm(esp)}>Gerar de novo</button>}
               {so("espelho") && (
                 <label className="btn btn--pequeno espelho__anexar">
                   Anexar o que o órgão mandou (PDF)

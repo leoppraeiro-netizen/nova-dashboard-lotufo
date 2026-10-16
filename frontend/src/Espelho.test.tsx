@@ -4,8 +4,8 @@ import { ApiErro } from "./api";
 import Espelho from "./Espelho";
 import { ir } from "./rota";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api }));
+const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 
 const REGRA = { situacao: "ativa", saidas: 4, entradas: [
   { chave: "medicao", rotulo: "Valor da medição", natureza: "medicao" },
@@ -27,7 +27,7 @@ const ESPELHO = { id: 7, numero: 10, competencia: "2026-05", versao: 1, situacao
   envio: null };
 
 describe("Espelho", () => {
-  afterEach(() => { cleanup(); api.mockReset(); });
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
 
   it("obra sem regra ativa mostra o aviso do fluxo antigo e nenhum botão", async () => {
     api.mockResolvedValueOnce({ regra: null, espelhos: [] });
@@ -159,6 +159,35 @@ describe("Espelho", () => {
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
     expect(await screen.findByRole("link", { name: /ESPELHO - MT-388/ })).toBeTruthy();
     expect(screen.queryByText(/mora/)).toBeNull();
+  });
+
+  // issue #212: o misto superado para a execucao fica so' para leitura na pagina do Projeto, e o anexo vai para o Projeto
+  it("misto com a execução superada: na medição de Projeto, sem enviar nem gerar de novo, e o anexo vai para o Projeto", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "espelho_gerado", superado: true },
+      { id: 2, tipo: "projeto", estado: "protocolada" }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    apiForm.mockResolvedValueOnce({ documento_id: 50, repetido: false });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
+    expect(await screen.findByText(/só para leitura/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Enviar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Gerar de novo" })).toBeNull();
+    const arquivo = new File(["%PDF"], "oficio.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
+    expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/2/documentos");
+  });
+
+  it("misto com a execução superada, por etapa: nenhuma das duas partes oferece enviar ou gerar de novo", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "espelho_gerado", superado: true },
+      { id: 2, tipo: "projeto", estado: "protocolada" }] };
+    api.mockResolvedValue({ regra: REGRA, espelhos: [misto] });
+    render(<>
+      <Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} parte="espelho" />
+      <Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} parte="faturamento" />
+    </>);
+    await waitFor(() => expect(screen.getAllByText(/só para leitura/)).toHaveLength(2));
+    expect(screen.queryByRole("button", { name: /Enviar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Gerar de novo" })).toBeNull();
   });
 
   it("versão já enviada: reenvio só com a confirmação marcada (S8)", async () => {
