@@ -21,7 +21,10 @@
   /* fundo estatico: e' o que fica se o 3D nao abrir */
   background: radial-gradient(120% 90% at 45% 40%, #25226A 0%, #17154A 45%, #0C0A2C 100%);
 }
-.entrar__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* mask: a pista sai pelas laterais sumindo aos poucos, como se fosse ao infinito */
+.entrar__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 80%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 14%, #000 80%, transparent 100%); }
 .entrar__canvas[hidden] { display: none; }
 .entrar__visual::before,
 .entrar__visual::after { content: ""; position: absolute; left: 0; right: 0; pointer-events: none; z-index: 1; }

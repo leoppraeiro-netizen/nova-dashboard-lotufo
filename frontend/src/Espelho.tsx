@@ -1,6 +1,8 @@
 import { useRascunho } from "./rascunho";
 import { useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
+import CampoCompetencia from "./CampoCompetencia";
+import CampoValor from "./CampoValor";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
 import { api, apiForm, ApiErro, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeBaixar, IconeMais } from "./icones";
@@ -33,7 +35,7 @@ type EspelhoDetalhe = {
   id: number; numero: number; competencia: string; versao: number; situacao: "vigente" | "substituido";
   entradas: Record<string, number>; periodo_inicio: string | null; periodo_fim: string | null;
   criado_em: string; criado_por_nome: string | null; motivo: string | null; saidas: Saida[];
-  medicoes: { id: number; tipo: string; estado: string }[]; arquivos: Arquivo[]; envio: Envio | null;
+  medicoes: { id: number; tipo: string; estado: string; superado?: boolean }[]; arquivos: Arquivo[]; envio: Envio | null;
 };
 type PreviaEnvio = { para: string[]; copia: string[]; assunto: string; corpo: string;
   anexos: { nome: string; tamanho: number }[]; total: number; limite: number; avisos: string[] };
@@ -232,7 +234,8 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); input.value = ""; }
   };
 
-  const daMedicao = medicao ? espelhos.filter(e => e.medicoes.some(x => x.id === medicao.id)) : espelhos;
+  // #208: espelho com versao mais nova para esta medicao (superado) nao aparece nela
+  const daMedicao = medicao ? espelhos.filter(e => e.medicoes.some(x => x.id === medicao.id && !x.superado)) : espelhos;
   // na medicao, o espelho mora na de execucao da competencia: as outras mostram o resumo com o link
   const deOutra = medicao ? daMedicao.filter(e => e.situacao === "vigente" && larDoEspelho(e) !== medicao.id) : [];
   const vigentes = daMedicao.filter(e => e.situacao === "vigente" && !deOutra.includes(e));
@@ -309,12 +312,12 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
             </div>
             <div className="campo">
               <label className="campo__rotulo" htmlFor="esp-competencia">Competência</label>
-              <input id="esp-competencia" name="competencia" autoComplete="off" type="month" className="entrada--media" required value={form.competencia}
-                onChange={e => {
+              <CampoCompetencia id="esp-competencia" name="competencia" className="entrada--media" value={form.competencia}
+                onChange={v => {
                   // trocar a competencia volta o periodo ao mes inteiro dela: um periodo proprio da
                   // competencia anterior nao pode seguir calado para a nova
-                  const [ni, nf] = mesCivil(e.target.value);
-                  setForm({ ...form, competencia: e.target.value, periodoInicio: ni, periodoFim: nf });
+                  const [ni, nf] = mesCivil(v);
+                  setForm({ ...form, competencia: v, periodoInicio: ni, periodoFim: nf });
                 }} />
             </div>
             <div className="campo">
@@ -330,14 +333,15 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
             {regra.entradas.map(en => (
               <div className="campo" key={en.chave}>
                 <label className="campo__rotulo" htmlFor={`esp-${en.chave}`}>{en.rotulo}</label>
-                <input id={`esp-${en.chave}`} name={en.chave} autoComplete="off" spellCheck={false} className="entrada--media num" inputMode="decimal" placeholder="Ex.: 50.000,00…"
-                  value={form.entradas[en.chave] ?? ""}
-                  onChange={e => setForm({ ...form, entradas: { ...form.entradas, [en.chave]: e.target.value } })} />
+                <CampoValor id={`esp-${en.chave}`} name={en.chave} className="entrada--media num"
+                  value={form.entradas[en.chave] ?? ""} ajudaId="esp-ajuda-valor"
+                  onChange={v => setForm({ ...form, entradas: { ...form.entradas, [en.chave]: v } })} />
               </div>
             ))}
           </div>
-          <p className="campo__nota">Campo vazio vale zero; nota com valor zero não é emitida. Valores em reais, com vírgula.
-            O período vem com o mês da competência; mude só quando o espelho cobrir outro intervalo (ex.: 05/02 a 28/02).</p>
+          <p className="campo__nota" id="esp-ajuda-valor">Digite só os números: os centavos e os pontos entram sozinhos.
+            Campo vazio vale zero; nota com valor zero não é emitida.</p>
+          <p className="campo__nota">O período vem com o mês da competência; mude só quando o espelho cobrir outro intervalo (ex.: 05/02 a 28/02).</p>
           <div className="painel__rodape form-inline">
             <button type="submit" className="btn btn--primario" disabled={ocupado}>{ocupado ? "Conferindo…" : "Conferir"}</button>
             <button type="button" className="btn" onClick={() => setPasso({ tipo: "lista" })}>Voltar</button>

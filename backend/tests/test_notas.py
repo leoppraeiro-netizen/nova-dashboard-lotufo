@@ -6,7 +6,7 @@ import pathlib
 import pytest
 
 from app import (auth, avisos, cadastro_aplicar, cadastro_arquivos, contratos, db, documentos, espelho,
-                 espelhos, medicoes, notas)
+                 espelhos, medicoes, notas, notas_envio)
 from tests import ficticios
 from tests.conftest import CADASTRO_EXEMPLO, _pdf_com_texto
 
@@ -137,6 +137,24 @@ def test_segunda_nota_fecha_nota_emitida_com_a_maior_emissao(conn, usuario, inte
     assert r["faltam"] == 0 and r["estado"] == "nota_emitida"
     assert medicoes.detalhe(conn, mid)["nota_emitida_em"] == "2026-07-16"
     assert [(d["campo"], d["grau"]) for d in r["conferencia"]] == [("iss", "arredondamento")]
+
+
+def test_execucao_fecha_sem_esperar_o_reajuste_da_mesma_competencia(conn, usuario, integra, _texto):
+    """Issue #188 (opcao A): cada medicao fecha com as notas dela e a data delas; a espera pelo reajuste fica no envio."""
+    cid, mid, saidas = integra
+    conn.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+                 "VALUES (?, 12, 'reajuste', '2026-06', 'espelho_enviado')", (cid,))
+    conn.commit()
+    reaj = conn.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]
+    _texto(_nota_como(saidas[0], 2221))
+    notas.anexar_pdf(conn, usuario, mid, PDF, "a.pdf")
+    _texto(_nota_como(saidas[1], 2222))
+    r = notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("outra"), "b.pdf")
+    assert r["faltam"] == 0 and r["estado"] == "nota_emitida"
+    assert medicoes.detalhe(conn, mid)["nota_emitida_em"] == "2026-07-15"
+    assert medicoes.detalhe(conn, reaj)["estado"] == "espelho_enviado"
+    # o orgao do exemplo (SINFRA) junta medicao e reajuste: a execucao pronta espera as notas do reajuste
+    assert notas_envio.espera(conn, medicoes.detalhe(conn, mid))["medicao_id"] == reaj
 
 
 def test_nota_repetida_nao_duplica(conn, usuario, integra, _texto):

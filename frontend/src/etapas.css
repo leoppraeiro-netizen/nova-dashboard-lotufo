@@ -11,6 +11,16 @@
 .etapas-barra__n svg { width: 14px; height: 14px; }
 .etapas-barra__item--feita .etapas-barra__n { background: var(--ok-ponto, #10B981); color: #fff; }
 .etapas-barra__item--feita a { color: var(--texto); }
+/* issue #188: a etapa da vez parada esperando a outra metade (execucao x reajuste no mesmo e-mail) */
+.etapas-barra__item--espera .etapas-barra__n { background: var(--atencao-ponto); color: #fff; }
+.etapas-barra__item--espera a { color: var(--atencao); font-weight: 600; }
+/* orgao que separa (MTPAR, SES): uma trilha por metade, o nome a esquerda */
+.etapas-barra--trilha { display: flex; align-items: center; gap: 12px; padding: 10px 20px; }
+.etapas-barra--trilha + .etapas-barra--trilha { margin-top: -8px; }
+.etapas-barra--trilha ol { flex: 1; }
+.etapas-barra__trilha { flex: 0 0 72px; color: var(--texto-2); font-size: 13px; font-weight: 600; }
+.notas-blocos { display: flex; flex-direction: column; gap: 20px; }
+.notas-bloco + .notas-bloco { border-top: 1px solid var(--linha); padding-top: 16px; }
 .etapas-barra__item--atual .etapas-barra__n { background: var(--acento); color: #fff; }
 .etapas-barra__item--atual a { color: var(--acento); font-weight: 600; }
 

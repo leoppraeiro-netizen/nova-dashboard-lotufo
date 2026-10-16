@@ -176,9 +176,9 @@
   background: var(--superficie); }
 .notas-v3 .ol-janela .ol-assunto input:focus { border: 1px solid var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 .notas-v3 .ol-janela .ol-anexo { border-color: var(--linha); border-radius: var(--raio); }
-.notas-v3 .ol-janela .ol-corpo textarea { padding: 8px; border: 1px solid var(--nota-campo); border-radius: var(--raio);
+.notas-v3 .ol-janela .ol-corpo .ol-editor { padding: 8px; border: 1px solid var(--nota-campo); border-radius: var(--raio);
   background: var(--superficie); font-family: inherit; font-size: 14px; line-height: 1.5; color: var(--texto); }
-.notas-v3 .ol-janela .ol-corpo textarea:focus { border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
+.notas-v3 .ol-janela .ol-corpo .ol-editor:focus { outline: 0; border-color: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 .notas-v3 .ol-janela + .campo__nota { margin: 0 0 0 76px; font-size: 13px; }
 @media (max-width: 640px) {
   .notas-v3 .ol-janela .ol-linha { grid-template-columns: minmax(0, 1fr); gap: 4px; }
@@ -186,6 +186,9 @@
   .notas-v3 .ol-janela .ol-assunto, .notas-v3 .ol-janela .ol-corpo, .notas-v3 .ol-janela .ol-anexos,
   .notas-v3 .ol-janela + .campo__nota { margin-left: 0; }
   .notas-v3 .nota-secao { padding: 16px; gap: 12px; }
+  /* issue #170: a etapa 4 e' estreita no celular (cartao dentro de cartao); o texto do botao quebra de linha em vez de estourar o cartao */
+  .notas-v3 .nota-secao__acoes { min-width: 0; max-width: 100%; }
+  .notas-v3 .nota-secao__acoes .btn { height: auto; min-height: 32px; padding-top: 4px; padding-bottom: 4px; max-width: 100%; white-space: normal; text-align: left; }
   /* aba Enviar nota no celular (09/10/2026, com o trilho de 64px sobram ~311px): o valor desce para baixo do texto
      em vez de espremer a descricao numa coluna de uma palavra, e o valor grande do painel pode quebrar */
   .notas-v3 button.nota-cartao { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -208,6 +211,3 @@
 /* etapa 4: a FRC assinada se arrasta no proprio item */
 .notas-v3 .nota-item--soltar { flex-direction: column; align-items: stretch; }
 .notas-v3 .nota-item--soltar .nota-complementares__soltar { min-height: 52px; }
-
-/* ------------------------------------------------------ aguardando pagamento */
-.notas-v3.nota-aguardando .cartao__titulo { font-size: 17px; line-height: 24px; font-weight: 600; }

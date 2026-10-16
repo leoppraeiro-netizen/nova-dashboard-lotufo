@@ -56,6 +56,18 @@ def test_pleito_de_reajuste_pela_api(api):
     assert ciclo["situacao"] == "apostilamento_pendente"
 
 
+def test_pecas_do_orgao_entram_como_anexo_pela_api(api):
+    """Issue #50: a API aceita as pecas que o orgao pede no pleito de reajuste (falencia, contrato social, ...)."""
+    cl, cid, _ = api
+    pid = cl.post(f"/api/contratos/{cid}/pleitos", json={"tipo": "reajuste", "numero_oficio": "122"}).json()["id"]
+    for tipo in ("falencia", "contrato_social", "documento_representante", "balanco"):
+        r = cl.post(f"/api/pleitos/{pid}/anexos", data={"tipo": tipo},
+                    files=_arquivo(f"{tipo}.pdf", b"%PDF-1.4 " + tipo.encode(), "application/pdf"))
+        assert r.status_code < 300, r.text
+    assert cl.post(f"/api/pleitos/{pid}/anexos", data={"tipo": "inventado"},
+                   files=_arquivo("x.pdf", b"%PDF-1.4 x", "application/pdf")).status_code == 422
+
+
 def test_medicao_final_pela_api_poe_o_contrato_em_encerramento(api):
     cl, cid, mid = api
     assert cl.post(f"/api/medicoes/{mid}/final", json={"data": "2026-09-10"}).json()["final"] == 1
@@ -261,3 +273,13 @@ def test_pleito_descartado_durante_o_envio_nao_sai(api, monkeypatch):
     assert r.status_code == 422 and "descartado" in r.json()["detail"], r.text
     assert falso.enviados == []
     assert _estado(pid) == ({"situacao": "descartado", "envio_id": None, "envio_reservado_em": None}, 0)
+
+
+def test_corpo_formatado_do_pleito_sai_sanitizado(api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada antes de ir ao orgao."""
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    cl, cid, _ = api
+    pid, corpo = _pronto(cl, cid)
+    r = cl.post(f"/api/pleitos/{pid}/enviar", json={**corpo, "corpo": PERIGOSO})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == LIMPO

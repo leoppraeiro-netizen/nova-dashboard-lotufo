@@ -106,7 +106,7 @@ def detalhe(pid: ID, _=Depends(exigir("ver_paineis", com_csrf=False)), conn: sql
 
 
 @router.post("/api/pleitos/{pid}/anexos")
-def anexo(pid: ID, tipo: Literal["planilha_calculo", "cronograma", "outro"] = Form(...),
+def anexo(pid: ID, tipo: Literal[pleitos.TIPOS_ANEXO] = Form(...),
           arquivo: UploadFile = File(...), usuario: dict = Depends(exigir("editar_cadastros")),
           conn: sqlite3.Connection = Depends(conexao)):
     _existe(conn, pid)

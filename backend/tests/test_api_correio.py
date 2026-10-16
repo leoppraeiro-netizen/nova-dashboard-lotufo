@@ -1,5 +1,9 @@
+import threading
+
 import pytest
 from app import api_correio, graph
+
+_THREAD = threading.Thread          # a fixture troca threading.Thread pela parada; o teste do clique duplo usa a real
 
 
 class _ThreadParada:
@@ -18,8 +22,10 @@ def _ambiente(tmp_path, monkeypatch):
     monkeypatch.setenv("DASH_GRAPH_CLIENT_ID", "cliente-teste")
     monkeypatch.setattr(api_correio.threading, "Thread", _ThreadParada)
     api_correio._LOGINS.clear()          # estado de login e' global do processo: zera entre testes
+    api_correio._CODIGO.clear()
     yield
     api_correio._LOGINS.clear()
+    api_correio._CODIGO.clear()
 
 
 def test_status_de_quem_nunca_conectou(client_admin):
@@ -33,6 +39,26 @@ def test_conectar_devolve_o_codigo_so_para_quem_pediu(client_admin, monkeypatch)
         "expires_in": 900, "interval": 5, "message": ""})
     r = client_admin.post("/api/correio/conectar").json()
     assert r["login"]["user_code"] == "ABCD-1234" and r["login"]["estado"] == "aguardando"
+
+
+def test_conectar_de_novo_enquanto_aguarda_devolve_o_mesmo_codigo_sem_travar(client_admin, monkeypatch):
+    # 14/10/2026: o segundo clique pegava a trava dentro da propria trava e o servidor parava de responder
+    # o estado da conta para todo mundo, ate' reiniciar.
+    pedidos = []
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: pedidos.append(1) or {
+        "device_code": "d", "user_code": "ABCD-1234", "verification_uri": "https://microsoft.com/devicelogin",
+        "expires_in": 900, "interval": 5, "message": ""})
+    client_admin.post("/api/correio/conectar")
+    resposta = {}
+    t = _THREAD(target=lambda: resposta.update(r=client_admin.post("/api/correio/conectar")), daemon=True)
+    t.start()
+    t.join(5)
+    if t.is_alive():
+        api_correio._LOCK.release()      # solta a trava presa para nao pendurar os outros testes
+        pytest.fail("o segundo clique em Conectar travou o servidor")
+    assert resposta["r"].status_code == 200 and resposta["r"].json()["login"]["user_code"] == "ABCD-1234"
+    assert len(pedidos) == 1                                     # nao pede outro codigo a' Microsoft
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "aguardando"
 
 
 def test_teste_envia_para_a_propria_pessoa_e_registra(client_admin, tmp_path, monkeypatch):
@@ -72,3 +98,83 @@ def test_assinatura_png_cortada_ao_meio_da_422_em_portugues(client_admin):
     assert client_admin.get("/api/correio/status").json()["assinatura"] is False
     r = client_admin.post("/api/correio/assinatura", files={"arquivo": ("a.png", png, "image/png")})
     assert r.status_code == 200 and r.json()["assinatura"] is True
+
+
+def test_dois_cliques_simultaneos_pedem_um_codigo_so(client_admin, monkeypatch):
+    pedidos, liberar = [], threading.Event()
+
+    def devagar(tenant, cid, escopos):
+        pedidos.append(1)
+        liberar.wait(5)
+        return {"device_code": "d", "user_code": "ABCD-1234", "verification_uri": "https://microsoft.com/devicelogin",
+                "expires_in": 900, "interval": 5, "message": ""}
+    monkeypatch.setattr(graph, "iniciar_device_code", devagar)
+    respostas = []
+    ts = [_THREAD(target=lambda: respostas.append(client_admin.post("/api/correio/conectar")), daemon=True)
+          for _ in range(2)]
+    for t in ts:
+        t.start()
+    for _ in range(50):                  # o segundo responde logo, com o "aguardando" reservado pelo primeiro
+        if respostas:
+            break
+        api_correio.time.sleep(0.1)
+    # Contrato: enquanto o primeiro espera a Microsoft, o segundo recebe "aguardando" SEM codigo (a tela nao mostra
+    # codigo nenhum e consulta de novo a cada 5 s); quando o primeiro termina, o codigo e' o mesmo para os dois.
+    assert len(respostas) == 1 and respostas[0].json()["login"] == {
+        "estado": "aguardando", "user_code": None, "verification_uri": None}
+    liberar.set()
+    for t in ts:
+        t.join(5)
+    assert len(pedidos) == 1 and len(respostas) == 2 and all(r.status_code == 200 for r in respostas)
+    assert respostas[1].json()["login"]["user_code"] == "ABCD-1234"
+    assert client_admin.get("/api/correio/status").json()["login"]["user_code"] == "ABCD-1234"
+
+
+def test_falha_da_microsoft_ao_pedir_codigo_desfaz_a_reserva(client_admin, monkeypatch):
+    def fora_do_ar(*a):
+        raise graph.ErroGraph("Microsoft fora do ar")
+    monkeypatch.setattr(graph, "iniciar_device_code", fora_do_ar)
+    assert client_admin.post("/api/correio/conectar").status_code == 502
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+
+
+def test_resposta_incompleta_ou_thread_que_nao_sobe_desfaz_a_reserva(client_admin, monkeypatch):
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: {"user_code": "X"})
+    r = client_admin.post("/api/correio/conectar")
+    assert r.status_code == 502 and r.json()["detail"] == "Não foi possível pedir o código à Microsoft; tente de novo"
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+
+    class _ThreadQueFalha(_ThreadParada):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(api_correio.threading, "Thread", _ThreadQueFalha)
+    monkeypatch.setattr(graph, "iniciar_device_code", lambda tenant, cid, escopos: {
+        "device_code": "d", "user_code": "ABCD-1234", "verification_uri": "u", "expires_in": 900, "interval": 5})
+    assert client_admin.post("/api/correio/conectar").status_code == 502
+    assert client_admin.get("/api/correio/status").json()["login"]["estado"] == "nenhum"
+    assert not api_correio._CODIGO
+
+
+def test_acompanhamento_de_codigo_velho_nao_apaga_o_conectado_do_novo(monkeypatch):
+    monkeypatch.setattr(api_correio.time, "sleep", lambda s: None)
+    monkeypatch.setattr(graph, "concluir_device_code", lambda tenant, cid, codigo, arquivo:
+                        "ok" if codigo == "novo" else "pendente")
+    api_correio._CODIGO[7] = "novo"
+    cfg = {"tenant": "t", "client_id": "c"}
+    api_correio._acompanhar(7, cfg, "novo", 0, api_correio.time.time() + 60)
+    assert api_correio._LOGINS[7]["estado"] == "ok"
+    api_correio._acompanhar(7, cfg, "velho", 0, api_correio.time.time() - 1)     # o velho expira depois
+    assert api_correio._LOGINS[7]["estado"] == "ok"
+
+
+def test_falha_inesperada_no_acompanhamento_vira_erro_em_portugues(monkeypatch):
+    monkeypatch.setattr(api_correio.time, "sleep", lambda s: None)
+
+    def disco_cheio(*a):
+        raise OSError("sem espaco em disco")
+    monkeypatch.setattr(graph, "concluir_device_code", disco_cheio)
+    api_correio._CODIGO[7] = "c1"
+    api_correio._LOGINS[7] = {"estado": "aguardando", "user_code": "X", "verification_uri": "u"}
+    api_correio._acompanhar(7, {"tenant": "t", "client_id": "c"}, "c1", 0, api_correio.time.time() + 60)
+    assert api_correio._LOGINS[7]["estado"] == "erro"
+    assert api_correio._LOGINS[7]["erro"] == "Não foi possível concluir a conexão; tente de novo"

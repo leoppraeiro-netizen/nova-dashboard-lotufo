@@ -31,7 +31,7 @@ describe("administração", () => {
     const desf = (id: number, numero_instrumento: string) => ({ id, medicao_id: id, desfeita_em: "2026-09-01 10:00:00", motivo_desfazer: "x",
       numero: String(id), serie: null, numero_instrumento, numero_medicao: 1, estado: "recebida" });
     const rec: Reconciliacao = { nfs_sem_medicao: [nf(9), nf(4)], medicoes_sem_nf: [], divergencias: [],
-      alocacoes_desfeitas: [desf(5, "161/2022")], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 },
+      alocacoes_desfeitas: [desf(5, "161/2022")], recebidas_sem_baixa: [], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 },
       ha_mais: { nfs_sem_medicao: true, alocacoes_desfeitas: true } };
     expect(contaRec(rec, rec, "nfs", false)).toEqual({ n: 3, piso: false, haMais: true });
     expect(contaRec(rec, rec, "divergencias", false)).toEqual({ n: 0, piso: false, haMais: false });
@@ -44,7 +44,7 @@ describe("administração", () => {
     expect(contaRec(rec, daObra, "nfs", true)).toEqual({ n: 0, piso: false, haMais: false });
     // a página seguinte das NFs: junta só elas; total e "há mais" passam a ser os dela
     const pagina: Reconciliacao = { nfs_sem_medicao: [nf(2)], medicoes_sem_nf: [], divergencias: [],
-      alocacoes_desfeitas: [desf(9, "200/2023")], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 },
+      alocacoes_desfeitas: [desf(9, "200/2023")], recebidas_sem_baixa: [], totais: { nfs_sem_medicao: 3, alocacoes_desfeitas: 2 },
       ha_mais: { nfs_sem_medicao: false, alocacoes_desfeitas: true } };
     const junta = juntarPaginaRec(rec, "nfs", pagina);
     expect(junta.nfs_sem_medicao.map(n => n.id)).toEqual([9, 4, 2]);
@@ -70,7 +70,7 @@ describe("administração", () => {
         { medicao_id: 5, contrato_id: 7, numero_instrumento: "161/2022", numero: 1, tipo: "execucao", competencia: "2026-08", estado: "recebida", valor_centavos: 1 },
         { medicao_id: 6, contrato_id: 8, numero_instrumento: "200/2023", numero: 1, tipo: "execucao", competencia: "2026-08", estado: "recebida", valor_centavos: 1 },
       ],
-      divergencias: [],
+      divergencias: [], recebidas_sem_baixa: [],
       alocacoes_desfeitas: [{ id: 1, medicao_id: 5, desfeita_em: "2026-09-01 10:00:00", motivo_desfazer: "x", numero: "11", serie: null,
                               numero_instrumento: "161/2022", numero_medicao: 1, estado: "recebida" }],
     };
@@ -79,6 +79,21 @@ describe("administração", () => {
     expect(r.medicoes_sem_nf.map(m => m.medicao_id)).toEqual([5]);
     expect(r.alocacoes_desfeitas).toHaveLength(1);
     expect(reconciliacaoDaObra(rec, null)).toBe(rec);
+  });
+
+  // Issue #203: o recebimento à mão vale; a Saúde avisa enquanto o RM não tiver a baixa do título
+  it("recebidas à mão com título aberto no RM: rótulo, contagem e filtro pela obra", () => {
+    const linha = (medicao_id: number, contrato_id: number) => ({ medicao_id, contrato_id, numero_instrumento: "161/2022", numero: 1,
+      tipo: "execucao", competencia: "2026-08", recebida_em: "2026-09-20", nota_id: medicao_id, numero_nf: "100", serie: "1",
+      falta_centavos: 924_01 });
+    const rec: Reconciliacao = { nfs_sem_medicao: [], medicoes_sem_nf: [], divergencias: [], alocacoes_desfeitas: [],
+      recebidas_sem_baixa: [linha(5, 7), linha(6, 8)],
+      totais: { nfs_sem_medicao: 0, alocacoes_desfeitas: 0 }, ha_mais: { nfs_sem_medicao: false, alocacoes_desfeitas: false } };
+    expect(contagemRec("recebidas", 1)).toBe("1 nota de recebimento à mão sem baixa no RM");
+    expect(contagemRec("recebidas", 2)).toBe("2 notas de recebimentos à mão sem baixa no RM");
+    expect(contaRec(rec, rec, "recebidas", false)).toEqual({ n: 2, piso: false, haMais: false });
+    const daObra = reconciliacaoDaObra(rec, { id: 7, numero_instrumento: "161/2022" });
+    expect(daObra.recebidas_sem_baixa.map(x => x.medicao_id)).toEqual([5]);
   });
 
   it("auditoria: toda ação que o servidor grava tem rótulo; a desconhecida fica legível (B-11, 10/10/2026)", () => {

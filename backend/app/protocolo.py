@@ -17,6 +17,7 @@ from html import escape
 
 from app import (arquivos, assinatura, auditoria, carta, cadastro_arquivos, certidoes, checklist, correio, db,
                  documentos, envio_reserva, espelhos, frc, leitura_pdf, medicoes, oficios, pdfs, tempo)
+from app import html_email
 
 TIPOS_PECA = cadastro_arquivos.TIPOS_PECA
 ROTULO_NATUREZA = {"execucao": "Medição", "projeto": "Projeto", "reajuste": "Reajuste"}
@@ -769,13 +770,16 @@ def _destinatarios(conn, regras: dict, e: Etapa, c: dict, hoje: datetime.date) -
     chave = "protocolo_assinados_para" if e.chave == "nota" and regras.get("protocolo_assinados_para") \
         else "protocolo_para"
     para = [str(x).lower() for x in (regras.get(chave) or [])]
+    # copia do orgao + a da obra (engenheiro da obra, 14/10/2026), sem repetir quem ja' esta' no Para
+    copia = [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    copia = list(dict.fromkeys(copia + json.loads(c.get("copia_extras") or "[]")))
     if chave == "protocolo_assinados_para":     # nota da SINFRA (SUEF I/II, SUPU): so' o protocolo, sem fiscal
-        return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+        return para, [x for x in copia if x not in para]
     f = carta.fiscal_vigente(conn, c["id"], hoje.isoformat())
     if f and f["email"] not in para:
         para.append(f["email"])
     para += [x for x in json.loads(c.get("destinatarios_extras") or "[]") if x not in para]
-    return para, [str(x).lower() for x in (regras.get("protocolo_copia") or [])]
+    return para, [x for x in copia if x not in para]
 
 
 def previa_envio(conn, protocolo_ids: list[int], remetente: str | None = None,
@@ -826,6 +830,8 @@ _URL = re.compile(r"https://[^\s<>\"]+")
 
 
 def _html(corpo: str) -> str:
+    if html_email.eh_html(corpo):           # corpo formatado no editor (issue #191): so' a lista fechada passa
+        return html_email.sanitizar(corpo, links=True)
     # link (OneDrive) clicavel: o texto ja' escapado so' tem &amp; no lugar de &, que o href aceita
     def par(texto: str) -> str:
         t = escape(texto)
@@ -875,6 +881,14 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     # Reserva atomica antes do e-mail (A-02, 10/10/2026): dois cliques simultaneos nao mandam dois e-mails.
     # Todos os protocolos do e-mail numa transacao so': se um ja' esta' em envio, nenhum fica reservado.
     with db.mutacao(conn):
+        if e.chave in ("nota", "unico"):
+            # Issue #188: onde o orgao junta medicao e reajuste, a metade pronta espera a outra. Conferido aqui, sob o
+            # lock da reserva, para valer em toda rota de envio (Notas a enviar e a de protocolos).
+            from app import notas_envio      # import local: notas_envio importa este modulo
+            for x in ps:
+                for m in _medicoes(conn, x["id"]):
+                    if m["estado"] == "nota_emitida":
+                        notas_envio.recusar_se_espera(conn, m)
         for x in ps:
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
     try:

@@ -272,6 +272,27 @@ def test_remetente_fora_da_copia_pela_conta_do_outlook(svc, monkeypatch):
     assert copia == ["josi@l.com"]
 
 
+def test_copia_da_obra_soma_a_do_orgao_so_naquele_contrato(tmp_path, monkeypatch):
+    monkeypatch.setenv("DASH_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setattr(tempo, "hoje_local", lambda: HOJE)
+    c = db.get_conn(); db.migrate(c)
+    uid = auth.criar_usuario(c, "Leo", "leo@exemplo.com.br", "senha-forte-123", "admin")
+    ids = _cadastro(c, uid, assinados_para=["fiscal@orgao-a.exemplo.com.br"])
+    for obra in ("mtpar", "sinfra"):        # o engenheiro de cada obra; repetido e quem ja' esta' no Para nao duplicam
+        c.execute("UPDATE contratos SET copia_extras=? WHERE id=?",
+                  (json.dumps([f"eng.{obra}@l.com", "josi@l.com", "fiscal@orgao-a.exemplo.com.br"]), ids[obra]))
+    c.commit()
+    p_mt = notas_envio.iniciar(c, uid, ids["mtpar"], [ids["mtpar_exec"]], "254")
+    assert protocolo.previa_envio(c, [p_mt], hoje=HOJE)["copia"] == ["josi@l.com", "eng.mtpar@l.com",
+                                                                      "fiscal@orgao-a.exemplo.com.br"]
+    p_si = notas_envio.iniciar(c, uid, ids["sinfra"], [ids["sinfra_exec"]])
+    assert protocolo.previa_envio(c, [p_si], hoje=HOJE)["copia"] == ["josi@l.com", "leo.outlook@exemplo.com.br",
+                                                                      "eng.sinfra@l.com"]
+    p_vg = notas_envio.iniciar(c, uid, ids["vg"], [ids["vg_exec"]], "255")
+    assert protocolo.previa_envio(c, [p_vg], hoje=HOJE)["copia"] == []
+    c.close()
+
+
 # --- API: bloqueio, envio, por fora, aguardando pagamento ------------------------------------------
 
 def test_certidao_vencida_bloqueia_com_409(api):
@@ -334,6 +355,207 @@ def test_envio_feito_por_fora_e_numero_do_siga(api):
     r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
                                                  "observacao": "de novo"})
     assert r.status_code == 422                                         # ja' protocolada
+
+
+EML = (b"From: Engenharia <engenharia@exemplo.com.br>\r\nTo: sinfra@orgao-a.exemplo.com.br\r\n"
+       b"Date: Tue, 15 Sep 2026 10:00:00 -0400\r\nSubject: 23 medicao e reajuste\r\n\r\ncorpo")
+
+
+def test_envio_por_fora_da_medicao_e_do_reajuste_juntos(api):
+    """Issue #172: medicao e reajuste no mesmo e-mail viram um registro so': as duas com o mesmo .eml e uma auditoria."""
+    cl, c, ids = api
+    par = [ids["sinfra_exec"], ids["sinfra_reaj"]]
+    r = cl.post("/api/notas/envio-externo",
+                data={"medicao_ids": [str(x) for x in par], "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"},
+                files={"eml": ("envio.eml", EML, "message/rfc822")})
+    assert r.status_code == 200, r.text
+    linhas = c.execute("SELECT estado, envio_origem, envio_externo_em FROM medicoes WHERE id IN (?,?)", par).fetchall()
+    assert {tuple(x) for x in linhas} == {("protocolada", "externo", "2026-09-15")}
+    emls = c.execute("SELECT medicao_id, arquivo FROM medicao_documentos WHERE tipo_doc='evidencia_orgao'").fetchall()
+    assert sorted(x[0] for x in emls) == par and len({x[1] for x in emls}) == 1
+    aud = c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchall()
+    assert len(aud) == 1 and json.loads(aud[0][0])["medicoes"] == par
+
+
+def test_envio_por_fora_com_a_irma_fora_de_nota_emitida_nao_registra_nenhuma(api):
+    cl, c, ids = api
+    c.execute("UPDATE medicoes SET estado='espelho_enviado' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    r = cl.post("/api/notas/envio-externo",
+                data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])], "enviado_em": "2026-09-15",
+                      "observacao": "Pelo Outlook"}, files={"eml": ("envio.eml", EML, "message/rfc822")})
+    assert r.status_code == 422 and "não está com a nota emitida" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM medicao_documentos WHERE tipo_doc='evidencia_orgao'").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_lista_traz_a_irma_em_outro_envio_so_onde_medicao_e_reajuste_vao_juntos(svc):
+    """Issue #172: a irma (mesmo numero, outro tipo, nota emitida) fora do envio aparece para o registro por fora."""
+    c, ids = svc
+    for obra in ("sinfra", "vg", "mtpar"):           # competencias diferentes: a lista nao as junta sozinha
+        c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids[f"{obra}_reaj"],))
+    c.commit()
+    lista = notas_envio.a_enviar(c, HOJE)
+    for obra in ("sinfra", "vg"):
+        por_medicao = {x["medicao_ids"][0]: x for x in _por_contrato(lista, ids[obra])}
+        assert por_medicao[ids[f"{obra}_exec"]]["irmas"] == [
+            {"medicao_id": ids[f"{obra}_reaj"], "titulo": "Reajuste da 23ª Medição", "tipo": "reajuste"}]
+        assert por_medicao[ids[f"{obra}_reaj"]]["irmas"] == [
+            {"medicao_id": ids[f"{obra}_exec"], "titulo": "23ª Medição", "tipo": "execucao"}]
+    assert all(x["irmas"] == [] for x in _por_contrato(lista, ids["mtpar"]))       # MTPAR tramita separado
+    # irma que nao esta' em nota emitida nao e' oferecida
+    c.execute("UPDATE medicoes SET estado='espelho_enviado' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["irmas"] == []
+
+
+def test_irma_bloqueada_ou_com_envio_montado_nao_e_oferecida(svc):
+    """/code-review da PR do #172: o registro por fora nao pode contornar o bloqueio da irma nem descartar o envio
+    montado dela; rascunho continua permitindo."""
+    c, ids = svc
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_reaj"]])
+    irmas = lambda: next(x for x in _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+                         if x["medicao_ids"] == [ids["sinfra_exec"]])["irmas"]
+    assert [i["medicao_id"] for i in irmas()] == [ids["sinfra_reaj"]]               # rascunho: oferece
+    c.execute("UPDATE protocolos SET situacao='montado' WHERE id=?", (pid,)); c.commit()
+    assert irmas() == []
+    c.execute("UPDATE protocolos SET situacao='descartado' WHERE id=?", (pid,)); c.commit()
+    _validade(c, "federal", "2026-09-10")                    # vencida: bloqueia a irma (e o envio dela)
+    assert irmas() == []
+
+
+def test_envio_por_fora_recusa_medicoes_de_contratos_diferentes(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["vg_exec"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and r.json()["detail"] == "Medição de outro contrato"
+    assert c.execute("SELECT COUNT(*) FROM medicoes WHERE estado='protocolada'").fetchone()[0] == 0
+
+
+def _sem_registro(c, mid):
+    assert c.execute("SELECT COUNT(*) FROM medicao_protocolos WHERE medicao_id=?", (mid,)).fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='evidencia_orgao'",
+                     (mid,)).fetchone()[0] == 0
+
+
+def test_registro_por_fora_que_perde_a_corrida_nao_grava_nada(api, monkeypatch):
+    """Revisor da PR #178 (aviso 1): o estado e' conferido de novo dentro da transacao. Aqui outro registro protocola
+    o reajuste enquanto o .eml e' conferido; sem a nova conferencia, sairia um segundo protocolo e uma segunda
+    auditoria. Gate Sol S2: a recusa tambem nao deixa o .eml gravado."""
+    cl, c, ids = api
+    conferir, antes = notas_envio._e_email, _evidencias()
+
+    def conferir_e_perder(dados):
+        c.execute("UPDATE medicoes SET estado='protocolada' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+        return conferir(dados)
+    monkeypatch.setattr(notas_envio, "_e_email", conferir_e_perder)
+    r = cl.post("/api/notas/envio-externo",
+                data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])], "enviado_em": "2026-09-15",
+                      "observacao": "Pelo Outlook"}, files={"eml": ("envio.eml", EML, "message/rfc822")})
+    assert r.status_code == 422 and "não está com a nota emitida (protocolada)" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    _sem_registro(c, ids["sinfra_exec"]); _sem_registro(c, ids["sinfra_reaj"])
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+    assert _evidencias() == antes
+
+
+def test_dois_registros_por_fora_simultaneos_da_mesma_irma_um_passa(api, monkeypatch):
+    """Regra da casa para envio: dois POST simultaneos = 1x200 e 1x422. Os dois passam da primeira conferencia (a
+    barreira segura os dois na conferencia do .eml, antes da transacao); so' um protocola a irma."""
+    import threading
+    cl, c, ids = api
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    conferir, largada = notas_envio._e_email, threading.Barrier(2)
+
+    def conferir_junto(dados):
+        largada.wait(timeout=10)
+        return conferir(dados)
+    monkeypatch.setattr(notas_envio, "_e_email", conferir_junto)
+    pedidos = [{"medicao_ids": [str(ids["sinfra_exec"])], "irma_ids": [str(ids["sinfra_reaj"])]},
+               {"medicao_ids": [str(ids["sinfra_reaj"])]}]
+    respostas = []
+
+    def dispara(dados):
+        respostas.append(cl.post("/api/notas/envio-externo",
+                                 data={**dados, "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"},
+                                 files={"eml": ("envio.eml", EML, "message/rfc822")}))
+    ts = [threading.Thread(target=dispara, args=(p,)) for p in pedidos]
+    [t.start() for t in ts]; [t.join() for t in ts]
+    assert sorted(r.status_code for r in respostas) == [200, 422], [r.text for r in respostas]
+    assert c.execute("SELECT COUNT(*) FROM medicao_protocolos WHERE medicao_id=?",
+                     (ids["sinfra_reaj"],)).fetchone()[0] == 1
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 1
+
+
+def test_registro_por_fora_recusa_protocolo_com_envio_reservado(api):
+    """Revisor da PR #178 (aviso 2): o e-mail esta' saindo pelo sistema; descartar o protocolo reservado faria o
+    orgao receber duas vezes."""
+    cl, c, ids = api
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, 1, ids["sinfra"], [ids["sinfra_reaj"]])
+    c.execute("UPDATE protocolos SET envio_reservado_em=datetime('now'), envio_reservado_por=1 WHERE id=?", (pid,))
+    c.commit()
+    for dados in ({"medicao_ids": [str(ids["sinfra_exec"])], "irma_ids": [str(ids["sinfra_reaj"])]},
+                  {"medicao_ids": [str(ids["sinfra_reaj"])]}):
+        r = cl.post("/api/notas/envio-externo", data={**dados, "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+        assert r.status_code == 422 and "está sendo enviada pelo sistema agora" in r.json()["detail"], r.text
+    assert c.execute("SELECT situacao FROM protocolos WHERE id=?", (pid,)).fetchone()[0] == "rascunho"
+    _sem_registro(c, ids["sinfra_exec"])
+
+
+def test_registro_por_fora_recusa_irma_com_envio_montado_mas_aceita_a_medicao_da_pagina(api):
+    """Revisor da PR #178 (aviso 2): o servidor reaplica o criterio da lista para a irma marcada; a medicao da propria
+    pagina com envio montado continua podendo ser registrada por fora (como antes)."""
+    cl, c, ids = api
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, 1, ids["sinfra"], [ids["sinfra_reaj"]])
+    c.execute("UPDATE protocolos SET situacao='montado' WHERE id=?", (pid,)); c.commit()
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"])],
+                                                 "irma_ids": [str(ids["sinfra_reaj"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "registre-a no envio dela" in r.json()["detail"]
+    _sem_registro(c, ids["sinfra_exec"])
+    assert c.execute("SELECT situacao FROM protocolos WHERE id=?", (pid,)).fetchone()[0] == "montado"
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_reaj"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 200, r.text
+
+
+def test_registro_por_fora_recusa_irma_na_mtpar(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])],
+                                                 "irma_ids": [str(ids["mtpar_reaj"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "registre-a no envio dela" in r.json()["detail"]
+    _sem_registro(c, ids["mtpar_exec"])
+
+
+def test_registro_por_fora_so_aceita_varias_medicoes_que_formam_um_envio(api):
+    """Gate Sol S1 (PR #178): o cliente nao contorna a conferencia da irma pondo-a entre as medicoes do envio."""
+    cl, c, ids = api
+    mt = [str(ids["mtpar_exec"]), str(ids["mtpar_reaj"])]
+    for dados in ({"medicao_ids": mt},                              # MTPAR tramita separado: nunca um envio so'
+                  {"medicao_ids": mt, "irma_ids": [mt[1]]}):        # nas duas listas
+        r = cl.post("/api/notas/envio-externo", data={**dados, "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"},
+                    files={"eml": ("envio.eml", EML, "message/rfc822")})
+        assert r.status_code == 422, r.text
+    assert c.execute("SELECT COUNT(*) FROM medicoes WHERE estado='protocolada'").fetchone()[0] == 0
+    # SINFRA com o reajuste em envio proprio montado: medicao e reajuste ja' nao sao um envio
+    c.execute("UPDATE medicoes SET competencia='2026-08' WHERE id=?", (ids["sinfra_reaj"],)); c.commit()
+    pid = notas_envio.iniciar(c, 1, ids["sinfra"], [ids["sinfra_reaj"]])
+    c.execute("UPDATE protocolos SET situacao='montado' WHERE id=?", (pid,)); c.commit()
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"]), str(ids["sinfra_reaj"])],
+                                                 "enviado_em": "2026-09-15", "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "não vão no mesmo envio" in r.json()["detail"]
+    _sem_registro(c, ids["sinfra_exec"]); _sem_registro(c, ids["sinfra_reaj"])
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_irma_no_mesmo_envio_nao_e_oferecida_de_novo(svc):
+    c, ids = svc
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert len(sinfra["medicao_ids"]) == 2 and sinfra["irmas"] == []
 
 
 # --- cobranca de certidoes por e-mail --------------------------------------------------------------
@@ -531,6 +753,140 @@ def test_envio_por_fora_recusa_texto_com_from_e_date_escritos_a_mao(api):
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["mtpar_exec"],)).fetchone()[0] == "nota_emitida"
 
 
+# --- issue #180: falha depois de gravar o .eml nao deixa arquivo orfao em evidencias ---
+
+class _ConexaoQueFalhaNoCommit:
+    """Repassa tudo para a conexao de verdade, mas o COMMIT falha (disco cheio, fsync travado)."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def commit(self):
+        raise OSError("disco cheio")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def _par_sinfra(ids):
+    return [ids["sinfra_exec"], ids["sinfra_reaj"]]
+
+
+def _falhar_no_segundo_protocolo(monkeypatch):
+    from app import medicoes
+    original, chamadas = medicoes.registrar_protocolo, []
+
+    def registrar(*a, **k):
+        chamadas.append(1)
+        if len(chamadas) == 2:
+            raise OSError("erro de disco no segundo protocolo")
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", registrar)
+
+
+def _nada_registrado(c, ids):
+    for mid in _par_sinfra(ids):
+        _sem_registro(c, mid)
+        assert c.execute("SELECT estado FROM medicoes WHERE id=?", (mid,)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
+def test_falha_no_segundo_protocolo_nao_deixa_eml_orfao(svc, monkeypatch):
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_no_commit_nao_deixa_eml_orfao(svc):
+    c, ids = svc
+    antes = _evidencias()
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(_ConexaoQueFalhaNoCommit(c), ids["uid"], _par_sinfra(ids), "2026-09-15",
+                                  "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_falha_depois_da_gravacao_nao_apaga_eml_que_ja_existia(svc, monkeypatch):
+    """O mesmo .eml (mesmo hash) ja' estava guardado: a falha desfaz o banco e o arquivo continua no lugar."""
+    c, ids = svc
+    rel, _ = arquivos.gravar_bytes("evidencias", EML, "eml")
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    with pytest.raises(OSError):
+        notas_envio.envio_externo(c, ids["uid"], _par_sinfra(ids), "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes and arquivos.caminho_seguro(rel).read_bytes() == EML
+
+
+class _ConexaoQuePerdeOLockNoRollback:
+    """Gate Sol S1 (PR #199): logo depois do ROLLBACK, outro escritor pega o lock e o segura alem do busy_timeout."""
+
+    def __init__(self, conn, outro):
+        self._conn, self._outro = conn, outro
+
+    def rollback(self):
+        self._conn.rollback()
+        if not self._outro.in_transaction:
+            self._outro.execute("BEGIN IMMEDIATE")
+
+    def __getattr__(self, nome):
+        return getattr(self._conn, nome)
+
+
+def test_falha_no_registro_limpa_o_eml_ainda_sob_o_lock(svc, monkeypatch):
+    """Gate Sol S1 (PR #199): a limpeza nao depende de pegar o lock de novo; outro escritor segurando o banco depois
+    do ROLLBACK nao deixa o .eml orfao."""
+    c, ids = svc
+    antes = _evidencias()
+    _falhar_no_segundo_protocolo(monkeypatch)
+    outro = db.get_conn()
+    c.execute("PRAGMA busy_timeout=50")
+    try:
+        with pytest.raises(OSError):
+            notas_envio.envio_externo(_ConexaoQuePerdeOLockNoRollback(c, outro), ids["uid"], _par_sinfra(ids),
+                                      "2026-09-15", "Pelo Outlook", ("envio.eml", EML))
+        assert outro.in_transaction                     # o lock ficou mesmo com o outro escritor
+    finally:
+        outro.rollback(); outro.close()
+        c.execute("PRAGMA busy_timeout=5000")
+    _nada_registrado(c, ids)
+    assert _evidencias() == antes
+
+
+def test_limpeza_do_eml_nao_apaga_arquivo_que_outro_registro_cita(svc):
+    """Outro registro com o mesmo .eml entrou entre o ROLLBACK e a limpeza: a linha dele cita o arquivo, que fica.
+    Chamada dentro de um envelope de fora, a limpeza nao fecha a transacao dele."""
+    c, ids = svc
+    rel, sha = arquivos.gravar_bytes("evidencias", EML, "eml")
+    with db.mutacao(c):
+        c.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, arquivo, sha256, tamanho) "
+                  "VALUES (?,'operacao','evidencia_orgao','envio.eml',?,?,?,?)", (ids["vg_exec"], sha, rel, sha, len(EML)))
+        notas_envio._remover_eml_sem_registro(c, rel)
+        assert c.in_transaction
+    assert arquivos.caminho_seguro(rel).exists()
+    c.execute("DELETE FROM medicao_documentos WHERE arquivo=?", (rel,)); c.commit()
+    notas_envio._remover_eml_sem_registro(c, rel)
+    assert not arquivos.caminho_seguro(rel).exists()
+
+
+def test_gravar_bytes_que_falha_nao_deixa_temporario(svc, monkeypatch):
+    """Disco cheio no meio da gravacao: nem o .eml nem o temporario ficam em evidencias."""
+    import os
+
+    def falhar(*a):
+        raise OSError("disco cheio")
+    antes = _evidencias()
+    monkeypatch.setattr(os, "replace", falhar)
+    with pytest.raises(OSError):
+        arquivos.gravar_bytes("evidencias", EML, "eml")
+    assert _evidencias() == antes
+
+
 # --- testes de quebra 10/10/2026, A-15: numero do orgao vazio nao apaga o gravado ---
 
 def _numero(cl, mid):
@@ -700,6 +1056,179 @@ def test_envio_da_nota_por_dentro_exige_os_anexos_da_previa(svc):
     p = c.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_corpo_formatado_da_nota_sai_sanitizado(api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada antes de ir ao orgao."""
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"], ids["sinfra_reaj"]]}
+                  ).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json={**_corpo(d), "corpo": PERIGOSO})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == LIMPO
+
+
+# --- issue #188: medicao e reajuste da mesma competencia, a espera fica na tela e no envio (opcao A) ---------------
+
+def _sem_notas(c, mid, estado="espelho_enviado"):
+    c.execute("UPDATE medicoes SET estado=?, nota_emitida_em=NULL WHERE id=?", (estado, mid))
+    c.commit()
+
+
+def test_sinfra_execucao_espera_as_notas_do_reajuste_e_depois_sai_com_as_duas(svc):
+    c, ids = svc
+    _sem_notas(c, ids["sinfra_reaj"])
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["medicao_ids"] == [ids["sinfra_exec"]]
+    assert sinfra["situacao"] == "esperando" and sinfra["aviso"].startswith("Esperando as notas do reajuste")
+    assert sinfra["espera"] == {"medicao_id": ids["sinfra_reaj"], "titulo": "Reajuste da 23ª Medição",
+                                "tipo": "reajuste", "texto": "esperando as notas do reajuste"}
+    with pytest.raises(ValueError, match="23ª Medição está esperando as notas do reajuste: na SINFRA"):
+        notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
+    # o estado gravado nao muda (opcao A): a execucao segue em nota emitida, com a data das notas dela
+    assert tuple(c.execute("SELECT estado, nota_emitida_em FROM medicoes WHERE id=?", (ids["sinfra_exec"],)
+                           ).fetchone()) == ("nota_emitida", "2026-09-15")
+    # chegaram as notas do reajuste: um envio com as duas
+    c.execute("UPDATE medicoes SET estado='nota_emitida', nota_emitida_em='2026-09-16' WHERE id=?", (ids["sinfra_reaj"],))
+    c.commit()
+    sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+    assert sinfra["medicao_ids"] == [ids["sinfra_exec"], ids["sinfra_reaj"]]
+    assert sinfra["situacao"] == "pronto" and sinfra["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["sinfra"], sinfra["medicao_ids"])
+
+
+def test_reajuste_pronto_espera_as_notas_da_medicao_na_vg(svc):
+    c, ids = svc
+    _sem_notas(c, ids["vg_exec"], "prevista")
+    vg, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["vg"])
+    assert vg["situacao"] == "esperando" and vg["espera"]["texto"] == "esperando as notas da medição"
+    with pytest.raises(ValueError, match="na Pref. VG"):
+        notas_envio.iniciar(c, ids["uid"], ids["vg"], [ids["vg_reaj"]], "254")
+
+
+def test_outra_metade_cancelada_ou_desistida_libera_sem_justificativa(svc):
+    c, ids = svc
+    for estado in ("cancelada", "desistida"):
+        _sem_notas(c, ids["sinfra_reaj"], estado)
+        sinfra, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["sinfra"])
+        assert sinfra["situacao"] == "pronto" and sinfra["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
+
+
+def test_orgao_que_separa_nao_espera(svc):
+    c, ids = svc
+    _sem_notas(c, ids["mtpar_reaj"])
+    mtpar, = _por_contrato(notas_envio.a_enviar(c, HOJE), ids["mtpar"])
+    assert mtpar["medicao_ids"] == [ids["mtpar_exec"]] and mtpar["situacao"] == "pronto" and mtpar["espera"] is None
+    assert notas_envio.iniciar(c, ids["uid"], ids["mtpar"], [ids["mtpar_exec"]], "361")
+    p = notas_envio.par(c, ids["mtpar_exec"])
+    assert p["junta"] is False and [x["tipo"] for x in p["metades"]] == ["execucao", "reajuste"]
+
+
+def test_saida_de_emergencia_pede_justificativa_e_libera_so_a_medicao_pronta(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    rota = f"/api/medicoes/{ids['sinfra_exec']}/envio-sem-a-outra"
+    r = cl.post(rota, json={"justificativa": "urgente"})
+    assert r.status_code == 422 and "ao menos 10 caracteres" in r.json()["detail"]
+    r = cl.post(f"/api/medicoes/{ids['sinfra_reaj']}/envio-sem-a-outra",
+                json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 422 and r.json()["detail"] == ("Reajuste da 23ª Medição não está com a nota emitida "
+                                                           "(está com espelho enviado)")
+    r = cl.post(rota, json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 200, r.text
+    assert cl.post(rota, json={"justificativa": "de novo, outra justificativa"}).status_code == 422   # ja' liberada
+    aud = c.execute("SELECT entidade, entidade_id, depois FROM audit_log WHERE acao='notas.envio_sem_a_outra_metade'"
+                    ).fetchall()
+    assert len(aud) == 1 and aud[0][0] == "medicao" and aud[0][1] == str(ids["sinfra_exec"])
+    assert json.loads(aud[0][2]) == {"justificativa": "notas do reajuste presas no faturamento",
+                                     "outra_medicao_id": ids["sinfra_reaj"]}
+    sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
+    assert sinfra["situacao"] == "pronto" and sinfra["medicao_ids"] == [ids["sinfra_exec"]]
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    assert cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d)).status_code == 200
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "protocolada"
+    # a outra metade segue depois, num envio proprio
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_reaj"],)).fetchone()[0] == "espelho_enviado"
+
+
+def test_saida_de_emergencia_so_para_quem_espera(api):
+    cl, c, ids = api
+    r = cl.post(f"/api/medicoes/{ids['mtpar_exec']}/envio-sem-a-outra",
+                json={"justificativa": "notas do reajuste presas no faturamento"})
+    assert r.status_code == 422 and "não está esperando" in r.json()["detail"]
+
+
+def test_registro_por_fora_tambem_espera(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook"})
+    assert r.status_code == 422 and "esperando as notas do reajuste" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+
+
+def test_protocolo_registrado_a_mao_tambem_espera(api):
+    """Revisor R2 / Sol S1 (rodada 1 da #188): POST /api/medicoes/{id}/protocolo nao contorna a espera."""
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    corpo = {"data": "2026-09-15", "numero_oficio": "LT 1/2026", "apesar_das_pendencias": True,
+             "justificativa": "protocolado no balcão do órgão"}
+    r = cl.post(f"/api/medicoes/{ids['sinfra_exec']}/protocolo", json=corpo)
+    assert r.status_code == 422 and "esperando as notas do reajuste" in r.json()["detail"]
+    assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_exec"],)).fetchone()[0] == "nota_emitida"
+    assert c.execute("SELECT COUNT(*) FROM medicao_protocolos WHERE medicao_id=?", (ids["sinfra_exec"],)).fetchone()[0] == 0
+    # orgao que separa: o registro a mao segue como antes
+    _sem_notas(c, ids["mtpar_reaj"])
+    assert cl.post(f"/api/medicoes/{ids['mtpar_exec']}/protocolo", json=corpo).status_code == 201
+
+
+def test_rascunho_montado_antes_da_espera_nao_envia(svc):
+    """O protocolo criado antes (ou por outro caminho) tambem espera: o envio recusa antes de reservar."""
+    c, ids = svc
+    _sem_notas(c, ids["sinfra_reaj"])
+    pid = protocolo.criar(c, ids["uid"], ids["sinfra"], "nota", [ids["sinfra_exec"]], None)
+    pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
+    with pytest.raises(ValueError, match="esperando as notas do reajuste"):
+        notas_envio.enviar(c, ids["usuario"], pid, pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                           "reajuste vai no próximo e-mail", anexos_previa=pv["anexos"])
+    # a rota generica de protocolos (POST /api/protocolos/envio) passa pelo mesmo protocolo.enviar
+    with pytest.raises(ValueError, match="esperando as notas do reajuste"):
+        protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
+                         "reajuste vai no próximo e-mail")
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    p = c.execute("SELECT situacao, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None)                       # nada reservado: a recusa desfez a transacao
+
+
+def test_par_da_pagina_traz_a_outra_metade_e_a_liberacao(api):
+    cl, c, ids = api
+    _sem_notas(c, ids["sinfra_reaj"])
+    p = cl.get(f"/api/medicoes/{ids['sinfra_reaj']}/par").json()
+    assert (p["junta"], p["orgao"]) == (True, "SINFRA")
+    exe, rea = p["metades"]
+    assert (exe["medicao_id"], exe["tipo"], exe["titulo"], exe["completa"]) == (ids["sinfra_exec"], "execucao",
+                                                                                "23ª Medição", True)
+    assert (rea["medicao_id"], rea["completa"], rea["espera"], rea["liberacao"]) == (ids["sinfra_reaj"], False, None, None)
+    assert rea["esperadas"] == [] and rea["faltam"] == 1      # sem espelho nesta obra: uma nota, nenhuma lida
+    assert exe["espera"]["texto"] == "esperando as notas do reajuste" and exe["liberacao"] is None
+    cl.post(f"/api/medicoes/{ids['sinfra_exec']}/envio-sem-a-outra",
+            json={"justificativa": "notas do reajuste presas no faturamento"})
+    exe, _ = cl.get(f"/api/medicoes/{ids['sinfra_exec']}/par").json()["metades"]
+    assert exe["espera"] is None and exe["liberacao"]["justificativa"] == "notas do reajuste presas no faturamento"
+    assert exe["liberacao"]["por"] and exe["liberacao"]["em"]
+    # medicao sem reajuste (nem projeto): a pagina fica com um bloco so'
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) VALUES (?, 24, 'execucao', "
+              "'2026-10', 'prevista')", (ids["sinfra"],))
+    c.commit()
+    sozinha = c.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]
+    assert cl.get(f"/api/medicoes/{sozinha}/par").json()["metades"] == []
+    assert cl.get("/api/medicoes/999999/par").status_code == 404
 
 
 # --- issue #169: a FRC assinada do envio e' a da FRC vigente ----------------------------------------

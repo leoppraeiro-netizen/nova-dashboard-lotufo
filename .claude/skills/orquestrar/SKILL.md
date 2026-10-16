@@ -78,9 +78,15 @@ Modelos: trabalhadora em `sonnet` (padrão do agente) ou `opus` quando a issue t
      tiver, não ligar o auto-merge, pôr `precisa-do-leo` na issue e dizer no resumo que a PR espera o Leo;
    - a CI existe e está rodando ou verde (`gh pr checks <M>`): CI ausente é recusa, não aprovação.
    Passou em tudo: `gh pr merge <M> --auto --merge` e comentar na issue "PR #M com auto-merge ligado".
+   O `master` tem fila de merge (ruleset, desde 15/10/2026): com a CI da PR verde, o GitHub põe a PR na fila,
+   junta com o `master` atual e roda a CI de novo nessa mistura (evento `merge_group`) antes de mergear.
    Falhou em alguma: comentar na **issue** qual trava segurou, pôr `precisa-do-leo` na issue e seguir.
-9. **Esperar a CI** das PRs com auto-merge: `gh pr checks <M> --watch` em segundo plano (Bash com
-   `run_in_background: true`); a CI leva 20 a 30 min. **Enquanto espera**, a cada 5 min reconsultar
+9. **Esperar a CI e a fila** das PRs com auto-merge: `gh pr checks <M> --watch` em segundo plano (Bash com
+   `run_in_background: true`); a CI leva 20 a 30 min, e a fila roda a CI outra vez antes do merge. A PR só
+   terminou quando `gh pr view <M> --json state` der `MERGED`. **Fila vermelha:** o GitHub tira a PR da fila e
+   desliga o auto-merge sozinho; o log está em `gh run list --event merge_group --limit 5` (branch
+   `gh-readonly-queue/master/pr-<M>-...`). Em geral é choque com outra PR que entrou antes: tratar como CI
+   vermelha (abaixo), pedindo à trabalhadora `git merge origin/master` junto da correção. **Enquanto espera**, a cada 5 min reconsultar
    `gh pr view <M> --json comments,reviews`: apareceu comentário ou review, é o Leo; desarmar na hora
    (`gh pr merge <M> --disable-auto`), pôr `precisa-do-leo` na issue e seguir.
    **CI vermelha:** primeiro desarmar (`gh pr merge <M> --disable-auto`), senão a correção mergeia sem

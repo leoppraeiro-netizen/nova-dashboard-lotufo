@@ -16,7 +16,7 @@ import sqlite3
 import zipfile
 from pathlib import Path
 
-from app import (arquivos, auditoria, certidoes, contratos, db, entidades, feriados, leitura_certidao,
+from app import (arquivos, auditoria, certidoes, contratos, db, entidades, feriados, garantias, leitura_certidao,
                  leitura_pdf, tempo)
 
 TIPOS = leitura_certidao.TIPOS
@@ -346,7 +346,11 @@ def painel(conn, hoje: datetime.date | None = None) -> dict:
                          "certidoes": linhas, "regularidade_exigida": e["id"] in regs,
                          "regularidade": situacao_regularidade(conn, e["id"], hoje) if tem_reg else None,
                          "obras": obras})
-    return {"hoje": hoje.isoformat(), "empresas": empresas}
+    # Issue #65: garantia (com validade) e ART (sem validade) por contrato ativo, junto das certidoes.
+    obras = [{"contrato_id": r["id"], "obra": nomes[r["id"]], "garantia": garantias.garantia(conn, r["id"], hoje),
+              "art": garantias.art(conn, r["id"])}
+             for r in conn.execute("SELECT id FROM contratos WHERE estado='ativo' ORDER BY nome_curto, id")]
+    return {"hoje": hoje.isoformat(), "empresas": empresas, "contratos": obras}
 
 
 def avisos(conn, hoje: datetime.date | None = None) -> list[dict]:

@@ -1,7 +1,7 @@
 """Espelho de NF como ato de operacao (spec §3 passos 1-2, §4): a medicao nasce aqui.
 
-Uma linha em `espelhos` por (contrato, numero, competencia, versao) cobre execucao, reajuste e
-projeto do mesmo numero. Gerar de novo = versao nova (a anterior vira `substituido`, com motivo);
+Uma linha em `espelhos` por (contrato, numero, versao) cobre as medicoes geradas juntas (espelho_medicoes; o
+Projeto tem numeracao propria, #208). Gerar de novo = versao nova (a anterior das mesmas medicoes vira `substituido`);
 nada e' sobrescrito. Arquivos .docx gravados pelo sha256 em <dados>/espelhos. O envio ao
 faturamento sai pela conta de quem clica (correio.py) e liga o envio as medicoes.
 """
@@ -11,6 +11,7 @@ import json
 import re
 
 from app import arquivos, auditoria, contratos, correio, db, envio_reserva, espelho, espelho_docx, medicoes, tempo
+from app import html_email
 
 
 def regra_do_contrato(conn, contrato_id: int) -> dict | None:
@@ -105,9 +106,46 @@ def _medicoes_existentes(conn, contrato_id, numero, tipos) -> dict[str, dict]:
         (contrato_id, numero, *tipos))}
 
 
+def _medicoes_por_espelho(conn, contrato_id, numero) -> dict[int, list[dict]]:
+    """{espelho_id: [{tipo, estado}]} dos espelhos VIGENTES deste numero, numa consulta so'."""
+    por_espelho: dict[int, list[dict]] = {}
+    for r in conn.execute(
+            "SELECT e.id, m.tipo, m.estado FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+            "JOIN medicoes m ON m.id=em.medicao_id WHERE e.contrato_id=? AND e.numero=? AND e.situacao='vigente'",
+            (contrato_id, numero)):
+        por_espelho.setdefault(r["id"], []).append({"tipo": r["tipo"], "estado": r["estado"]})
+    return por_espelho
+
+
+def _espelhos_anteriores(conn, contrato_id, numero, tipos) -> list[int]:
+    """Espelhos vigentes que a geracao destes tipos substitui (#208). Decide pelas medicoes ligadas
+    (espelho_medicoes), nao so' pelo numero: a 3a de Projeto e a 3a de execucao sao medicoes diferentes.
+    - todas as medicoes do espelho estao sendo geradas: substitui;
+    - sobra medicao ja' protocolada (fora de ESTADOS_ESPELHO): o espelho fica vigente para ela, intocado, e o
+      novo cobre so' as geradas (o protocolado e' congelado);
+    - sobra medicao ainda em espelho: recusa, para nao deixa-la sem espelho vigente (gere junto)."""
+    tipos = set(tipos)
+    ids = []
+    for eid, meds in sorted(_medicoes_por_espelho(conn, contrato_id, numero).items()):
+        if not any(m["tipo"] in tipos for m in meds):
+            continue
+        resto = [m for m in meds if m["tipo"] not in tipos]
+        if not resto:
+            ids.append(eid)
+            continue
+        abertas = sorted(m["tipo"] for m in resto if m["estado"] in medicoes.ESTADOS_ESPELHO)
+        if abertas:
+            nomes = " e ".join(medicoes.nome_medicao(numero, t) for t in abertas)
+            verbo = "estão" if len(abertas) > 1 else "está"
+            ainda = "ainda não foram protocoladas" if len(abertas) > 1 else "ainda não foi protocolada"
+            raise ValueError(f"{nomes} {verbo} no mesmo espelho e {ainda}: gere junto para fazer uma versão nova")
+    return ids
+
+
 def previa(conn, contrato_id: int, numero: int, competencia: str, entradas: dict[str, int],
            periodo: tuple[str, str] | None = None) -> dict:
     _, _, saidas, por_tipo = _calcular(conn, contrato_id, numero, competencia, entradas)
+    _espelhos_anteriores(conn, contrato_id, numero, list(por_tipo))
     existentes = _medicoes_existentes(conn, contrato_id, numero, list(por_tipo))
     avisos, meds = [], []
     for tipo, valor in por_tipo.items():
@@ -139,17 +177,17 @@ def gerar(conn, usuario: dict, contrato_id: int, numero: int, competencia: str,
                for s in saidas]
     regra_sha = conn.execute("SELECT sha256 FROM espelho_regras WHERE contrato_id=?", (contrato_id,)).fetchone()[0]
     with db.mutacao(conn):
+        # A versao anterior e' a vigente das MESMAS medicoes (#208; a medicao e' unica por
+        # contrato+numero+tipo): trocar a competencia e' correcao, nao espelho novo -- substitui, nao duplica.
+        anteriores = _espelhos_anteriores(conn, contrato_id, numero, list(por_tipo))
         ids = {tipo: medicoes.criar_para_espelho(conn, usuario["id"], contrato_id, numero, tipo, competencia, valor)
                for tipo, valor in por_tipo.items()}
-        # A versao anterior e' a vigente do mesmo NUMERO (a medicao e' unica por contrato+numero+tipo):
-        # trocar a competencia e' correcao, nao espelho novo -- substitui, nao duplica.
-        anterior = conn.execute("SELECT id, versao FROM espelhos WHERE contrato_id=? AND numero=? "
-                                "AND situacao='vigente'", (contrato_id, numero)).fetchone()
+        # UNIQUE (contrato_id, numero, versao) da 020: a versao segue a sequencia do numero, de todos os tipos
         versao = 1 + (conn.execute("SELECT COALESCE(MAX(versao), 0) FROM espelhos WHERE contrato_id=? AND numero=?",
                                    (contrato_id, numero)).fetchone()[0])
-        if anterior is not None:
+        for aid in anteriores:
             conn.execute("UPDATE espelhos SET situacao='substituido', substituido_em=datetime('now'), motivo=? "
-                         "WHERE id=?", (motivo, anterior["id"]))
+                         "WHERE id=?", (motivo, aid))
         cur = conn.execute(
             "INSERT INTO espelhos (contrato_id, numero, competencia, versao, situacao, entradas, saidas, "
             "regra_sha256, criado_por, periodo_inicio, periodo_fim) VALUES (?,?,?,?,'vigente',?,?,?,?,?,?)",
@@ -172,7 +210,8 @@ def gerar(conn, usuario: dict, contrato_id: int, numero: int, competencia: str,
         auditoria.registrar(conn, usuario["id"], "espelho.gerar", "espelho", eid, None,
                             {"contrato_id": contrato_id, "numero": numero, "competencia": competencia,
                              "versao": versao, "entradas": entradas, "periodo": periodo,
-                             "substitui": anterior["id"] if anterior else None, "motivo": motivo,
+                             "substitui": anteriores[0] if anteriores else None, "substituidos": anteriores,
+                             "motivo": motivo,
                              "arquivos": resumo})
     return eid
 
@@ -189,9 +228,14 @@ def detalhe(conn, espelho_id: int) -> dict | None:
         return None
     d = dict(r)
     d["entradas"], d["saidas"] = json.loads(d["entradas"]), json.loads(d["saidas"])
-    d["medicoes"] = [dict(m) for m in conn.execute(
-        "SELECT m.id, m.tipo, m.estado, m.valor_protocolado_centavos FROM espelho_medicoes em "
-        "JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=? ORDER BY m.tipo", (espelho_id,))]
+    # `superado` (#208): espelho misto que ficou vigente para a medicao protocolada, mas outra das medicoes dele
+    # ja' tem espelho vigente mais novo -- para essa medicao ele nao vale (nem na tela, nem no envio).
+    d["medicoes"] = [{**dict(m), "superado": bool(m["superado"])} for m in conn.execute(
+        "SELECT m.id, m.tipo, m.estado, m.valor_protocolado_centavos, "
+        "(? = 'vigente' AND EXISTS (SELECT 1 FROM espelho_medicoes em2 JOIN espelhos e2 ON e2.id=em2.espelho_id "
+        " WHERE em2.medicao_id=m.id AND e2.situacao='vigente' AND e2.versao > ?)) AS superado "
+        "FROM espelho_medicoes em JOIN medicoes m ON m.id=em.medicao_id WHERE em.espelho_id=? ORDER BY m.tipo",
+        (d["situacao"], d["versao"], espelho_id))]
     d["arquivos"] = _arquivos(conn, espelho_id)
     d["criado_por_nome"] = (conn.execute("SELECT nome FROM usuarios WHERE id=?", (d["criado_por"],)).fetchone()
                             or [None])[0]
@@ -204,8 +248,10 @@ def detalhe(conn, espelho_id: int) -> dict | None:
 
 
 def listar(conn, contrato_id: int) -> list[dict]:
+    # versao antes da competencia (#208): no mesmo numero a versao cresce a cada geracao, entao o mais novo vem
+    # primeiro mesmo quando a versao nova tem competencia anterior
     ids = [r[0] for r in conn.execute("SELECT id FROM espelhos WHERE contrato_id=? "
-                                      "ORDER BY numero DESC, competencia DESC, versao DESC", (contrato_id,))]
+                                      "ORDER BY numero DESC, versao DESC", (contrato_id,))]
     return [detalhe(conn, i) for i in ids]
 
 
@@ -231,12 +277,24 @@ def saudacao() -> str:
     return "Bom dia." if tempo.para_local(tempo.agora_utc()).hour < 12 else "Boa tarde."
 
 
+def _recusar_superado(conn, d: dict) -> None:
+    """Espelho misto com uma medicao que ja' tem espelho mais novo (#208) nao se envia: mandaria ao faturamento
+    o valor velho dela. A versao mais nova e' a que vale para essa medicao."""
+    for m in d["medicoes"]:
+        if m["superado"]:
+            v = conn.execute("SELECT MAX(e.versao) FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+                             "WHERE em.medicao_id=? AND e.situacao='vigente'", (m["id"],)).fetchone()[0]
+            raise ValueError(f"{medicoes.nome_medicao(d['numero'], m['tipo'])} tem espelho mais novo "
+                             f"(versão {v}): envie aquela versão")
+
+
 def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
     d = detalhe(conn, espelho_id)
     if d is None:
         raise ValueError("espelho não encontrado")
     if d["situacao"] != "vigente":
         raise ValueError("esta versão do espelho foi substituída; envie a versão vigente")
+    _recusar_superado(conn, d)
     g = _geral(conn)
     c = contratos.vigente(conn, d["contrato_id"])
     emissores = {s["emissor"] for s in d["saidas"]}
@@ -246,7 +304,9 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
         if e["chave"] in emissores and e["emails_faturamento"]:
             extras += json.loads(e["emails_faturamento"])
     para = list(dict.fromkeys(g["para"] + extras))
-    copia = [e for e in g["copia"] if e not in para and e != (remetente or "").lower()]
+    # o e-mail de login e a conta do Outlook podem ser diferentes; nenhum dos dois vai em copia de si mesmo
+    fora = {(remetente or "").lower()} | correio.contas_do_usuario(conn, remetente or "")
+    copia = [e for e in g["copia"] if e not in para and e.lower() not in fora]
     assunto = g["assunto"].format(medicao=rotulo_medicao(d["numero"], d["saidas"]),
                                   competencia=f"{d['competencia'][5:7]}/{d['competencia'][:4]}",
                                   obra=_obra(c), instrumento=c["numero_instrumento"])
@@ -257,16 +317,21 @@ def previa_envio(conn, espelho_id: int, remetente: str | None = None) -> dict:
     if total > correio.MAX_TOTAL:
         avisos.append(f"anexos somam {total // 1024 // 1024} MB; o limite do e-mail é "
                       f"{correio.MAX_TOTAL // 1024 // 1024} MB")
-    ja = conn.execute("SELECT versao FROM espelhos WHERE contrato_id=? AND numero=? "
-                      "AND envio_id IS NOT NULL ORDER BY versao DESC LIMIT 1",
-                      (d["contrato_id"], d["numero"])).fetchone()
+    # so' o envio que cobre uma destas medicoes (#208): o da 3a de execucao nao e' substituido pelo da 3a de Projeto
+    mids = [m["id"] for m in d["medicoes"]]
+    ja = conn.execute(
+        "SELECT MAX(e.versao) FROM espelhos e JOIN espelho_medicoes em ON em.espelho_id=e.id "
+        f"WHERE e.envio_id IS NOT NULL AND em.medicao_id IN ({','.join('?' * len(mids))})",
+        mids).fetchone()[0] if mids else None
     if ja is not None:
-        avisos.append(f"a versão {ja['versao']} deste espelho já foi enviada ao faturamento; este envio substitui")
+        avisos.append(f"a versão {ja} deste espelho já foi enviada ao faturamento; este envio substitui")
     return {"para": para, "copia": copia, "assunto": assunto, "corpo": corpo,
             "anexos": anexos, "total": total, "limite": correio.MAX_TOTAL, "avisos": avisos}
 
 
 def _html(texto: str) -> str:
+    if html_email.eh_html(texto):           # corpo formatado no editor (issue #191): so' a lista fechada passa
+        return html_email.sanitizar(texto)
     return "".join(f"<p>{html.escape(linha) or '&nbsp;'}</p>" for linha in texto.strip().splitlines())
 
 
@@ -275,6 +340,7 @@ def enviar(conn, usuario: dict, espelho_id: int, para: list[str], copia: list[st
     d = detalhe(conn, espelho_id)
     if d is None or d["situacao"] != "vigente":
         raise ValueError("esta versão do espelho foi substituída; envie a versão vigente")
+    _recusar_superado(conn, d)
     if not para:
         raise ValueError("informe ao menos um destinatário")
     # Antes de mandar o e-mail (que nao se desfaz): medicao encerrada nesse meio-tempo nao

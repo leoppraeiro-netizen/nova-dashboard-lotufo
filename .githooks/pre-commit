@@ -14,6 +14,7 @@ status=0
 
 if [ -n "$py" ]; then
     ruff="backend/.venv/Scripts/ruff.exe"
+    [ -x "$ruff" ] || ruff="backend/.venv/bin/ruff"
     [ -x "$ruff" ] || ruff="ruff"
     # shellcheck disable=SC2086
     if ! "$ruff" check $py; then
@@ -24,7 +25,7 @@ fi
 
 if [ -n "$ts" ]; then
     if [ ! -d frontend/node_modules ]; then
-        echo "pre-commit: falta frontend/node_modules (rode .claude/hooks/preparar-worktree.ps1)" >&2
+        echo "pre-commit: falta frontend/node_modules (rode .claude/hooks/preparar-worktree.ps1, ou .sh no Mac)" >&2
         status=1
     elif ! (cd frontend && npx tsc -b --force); then
         echo "pre-commit: tsc falhou" >&2
@@ -33,11 +34,18 @@ if [ -n "$ts" ]; then
 fi
 
 # Dado real (CNPJ/CPF validos, e-mail de dominio real, chave de NFS-e, nome da maquina, nomes da lista local).
-py_exe="backend/.venv/Scripts/python.exe"
+py_exe="backend/.venv/Scripts/python.exe"               # Windows
+[ -x "$py_exe" ] || py_exe="backend/.venv/bin/python"   # Mac/Linux
 [ -x "$py_exe" ] || py_exe="python"
-# Nome da maquina para a checagem de vazamento: DASH_SERVIDOR, ou o nome desta maquina.
+command -v "$py_exe" >/dev/null 2>&1 || py_exe="python3"
+# Nome da maquina para a checagem de vazamento: DASH_SERVIDOR, ou o nome desta maquina (no Windows). No Mac
+# nao ha COMPUTERNAME: sem DASH_SERVIDOR no ~/.zshrc o hook para (o repositorio e' publico).
 DASH_SERVIDOR="${DASH_SERVIDOR:-$COMPUTERNAME}"
 export DASH_SERVIDOR
+if [ -z "$DASH_SERVIDOR" ]; then
+    echo "pre-commit: falta DASH_SERVIDOR (nome do servidor de producao; no Mac, export no ~/.zshrc)" >&2
+    exit 1
+fi
 "$py_exe" scripts/vazamento.py --staged
 rc=$?
 if [ "$rc" -eq 1 ]; then

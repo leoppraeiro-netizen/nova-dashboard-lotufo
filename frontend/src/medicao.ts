@@ -14,7 +14,7 @@ export type MedicaoBase = {
   edicoes_valor?: { data: string; texto: string }[];   // B-02 (10/10/2026): da auditoria, texto pronto do servidor
 };
 export type EspelhoResumo = { id: number; numero: number; versao: number; situacao: string; criado_em: string;
-  criado_por_nome: string | null; medicoes: { id: number; tipo: string }[];
+  criado_por_nome: string | null; medicoes: { id: number; tipo: string; superado?: boolean }[];
   envio: { enviado_em: string; remetente: string } | null };
 export type ProtocoloResumo = { id: number; etapa_rotulo: string; numero_oficio: string | null; situacao: string;
   criado_em: string; enviado_em?: string | null; enviado_por?: string | null;
@@ -65,6 +65,35 @@ export function tituloMedicao(m: { numero: number; tipo: string }): string {
   return `${m.numero}ª Medição${m.tipo === "projeto" ? " de Projeto" : ""}`;
 }
 
+// Issue #188: a execucao e o reajuste da mesma competencia, lado a lado na pagina da medicao. O servidor diz se o
+// orgao junta os dois no mesmo e-mail (SINFRA, Pref. VG) e qual metade espera a outra; aqui so' o texto.
+export type Liberacao = { justificativa: string | null; em: string; por: string | null };
+export type Espera = { medicao_id: number; titulo: string; tipo: string; texto: string };
+export type Metade = { medicao_id: number; tipo: string; titulo: string; estado: string; faltam: number;
+  esperadas: unknown[]; completa: boolean; espera: Espera | null; liberacao: Liberacao | null };
+export type ParDaMedicao = { junta: boolean; orgao: string | null; metades: Metade[] };
+
+/** Cabeca do bloco: "Execução · 14ª Medição" / "Reajuste da 14ª Medição". */
+export function rotuloDoBloco(m: { numero: number; tipo: string }): string {
+  return m.tipo === "execucao" ? `Execução · ${tituloMedicao(m)}` : tituloMedicao(m);
+}
+
+const faltamNotas = (n: number) => n === 1 ? "falta 1 nota" : n > 1 ? `faltam ${n} notas` : "sem notas";
+
+/** O que falta, por bloco: "execução completa · reajuste: faltam 2 notas"; com as duas completas, "notas completas". */
+export function resumoDoPar(metades: Metade[]): string {
+  if (metades.every(x => x.completa)) return "notas completas";
+  return metades.map(x => {
+    const nome = x.tipo === "execucao" ? "execução" : "reajuste";
+    return x.completa ? `${nome} completa` : `${nome}: ${faltamNotas(x.faltam)}`;
+  }).join(" · ");
+}
+
+/** A metade pronta que espera a outra (so' onde o orgao junta), ou null. */
+export function metadeQueEspera(par: ParDaMedicao | null): Metade | null {
+  return par?.junta ? par.metades.find(x => x.espera) ?? null : null;
+}
+
 // O proximo passo vem do servidor (`medicoes.PROXIMO_PASSO`); aqui so' o rotulo do mapa e a secao da
 // pagina da medicao onde ele se resolve.
 const PASSOS: Record<string, { rotulo: string; secao: string }> = {
@@ -96,9 +125,11 @@ export function notasDivergentes(m: MedicaoBase): { nota: NotaDaMedicao; diferen
     .filter(x => x.diferencas.length > 0);
 }
 
-/** A medicao que mora o espelho da competencia: a de execucao dele (NAVEGACAO.md: um lar so'). */
-export function larDoEspelho(e: { medicoes: { id: number; tipo: string }[] }): number | null {
-  return (e.medicoes.find(x => x.tipo === "execucao") ?? e.medicoes[0])?.id ?? null;
+/** A medicao que mora o espelho da competencia: a de execucao dele (NAVEGACAO.md: um lar so').
+ *  Medicao para a qual o espelho ja foi superado nao e' lar: la ele nao aparece (#208). */
+export function larDoEspelho(e: { medicoes: { id: number; tipo: string; superado?: boolean }[] }): number | null {
+  const vivas = e.medicoes.filter(x => !x.superado);
+  return (vivas.find(x => x.tipo === "execucao") ?? vivas[0])?.id ?? null;
 }
 
 /** Protocolos que tocam a medicao. Com varias medicoes, o protocolo mora na primeira; nas outras, resumo. */

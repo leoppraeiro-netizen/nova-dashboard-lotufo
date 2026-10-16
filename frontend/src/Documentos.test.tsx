@@ -20,6 +20,11 @@ vi.mock("./api", async (original) => ({
             exigida: false, situacao: "faltando", dias: null, certidao: null },
         ],
       }],
+      contratos: [
+        { contrato_id: 5, obra: "Obra Alfa", art: { numero: "1234567", anexada: true, exigida: true },
+          garantia: { apolice: "AP-9", vigencia_fim: "2026-10-05", dias: 12, origem: "endosso", situacao: "vencendo" } },
+        { contrato_id: 6, obra: "Obra Beta", art: { numero: null, anexada: false, exigida: true }, garantia: null },
+      ],
     };
     return {};
   }),
@@ -79,4 +84,34 @@ test("datas lidas implausíveis abrem a digitação já preenchida com o que foi
 test("competência pelo nome do arquivo do DP", () => {
   expect(competenciaDoNome("042026 - LOTUFO ENGENHARIA.pdf")).toBe("2026-04");
   expect(competenciaDoNome("Documentos Lotufo.pdf")).toBe("");
+});
+
+test("regularidade: digitar 06/2026 envia a competência como AAAA-MM", async () => {
+  Element.prototype.scrollIntoView = vi.fn();   // o jsdom não tem; o foco devolvido ao botão rola a tela
+  vi.mocked(apiForm).mockResolvedValueOnce({});
+  render(<Documentos usuario={usuario} />);
+  await waitFor(() => screen.getByRole("rowheader", { name: /Lotufo/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Anexar regularidade de Lotufo/ }));
+  const campo = screen.getByLabelText("Competência") as HTMLInputElement;
+  expect(campo.value).toBe("07/2026");              // a esperada vem da API como 2026-07
+  fireEvent.change(screen.getByLabelText(/da regularidade de Lotufo/), { target: { files: [new File(["%PDF"], "x.pdf", { type: "application/pdf" })] } });
+  fireEvent.change(campo, { target: { value: "062026" } });
+  expect(campo.value).toBe("06/2026");
+  fireEvent.click(screen.getByRole("button", { name: /Gravar regularidade/ }));
+  await waitFor(() => expect(apiForm).toHaveBeenCalled());
+  const fd = vi.mocked(apiForm).mock.calls.at(-1)![1] as FormData;
+  expect(fd.get("competencia")).toBe("2026-06");
+});
+
+test("garantia com validade e ART sem validade aparecem por obra (issue #65)", async () => {
+  render(<Documentos usuario={usuario} />);
+  await waitFor(() => screen.getByRole("heading", { name: /Garantia e ART por obra/ }));
+  const alfa = screen.getByRole("rowheader", { name: "Obra Alfa" }).closest("tr")!;
+  expect(alfa.textContent).toContain("vence em 12 dias");
+  expect(alfa.textContent).toContain("até 05/10/2026 (endosso) · apólice AP-9");
+  expect(alfa.textContent).toContain("Anexada");
+  expect(alfa.textContent).toContain("nº 1234567");
+  const beta = screen.getByRole("rowheader", { name: "Obra Beta" }).closest("tr")!;
+  expect(beta.textContent).toContain("sem vigência no cadastro");
+  expect(beta.textContent).toContain("não anexada");
 });

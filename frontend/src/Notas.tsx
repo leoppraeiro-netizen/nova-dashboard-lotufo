@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { brl } from "./formato";
 import { api, apiForm, mensagemDeErro } from "./api";
+import CampoValor from "./CampoValor";
 import { IconeAlerta } from "./icones";
 import { tituloMedicao } from "./medicao";
 import type { Medicao } from "./Medicoes";
@@ -19,7 +20,7 @@ type Esperada = {
 };
 type Diferenca = { campo: string; espelho: number | string | null; nota: number | string | null; grau: string };
 type NotaVinculada = {
-  nota_id: number; coligada: number; numero: string; serie: string | null; emissao: string | null;
+  alocacao_id: number; nota_id: number; coligada: number; numero: string; serie: string | null; emissao: string | null;
   valor_centavos: number; valor_pdf_centavos: number | null; origem_nota: string; confirmacao: string;
   documento_id: number | null; conferencia: Diferenca[]; justificativa: string | null; leitura: string | null;
   municipio: string | null; regra: string | null; recebido_centavos: number;
@@ -60,20 +61,23 @@ const NATUREZA: Record<string, string> = {
 };
 const naturezaNome = (n: string, rotulo?: string | null) => rotulo || NATUREZA[n] || emissorNome(n);
 
-export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
+export function Notas({ medicao, podeEditar, podeDesfazer = false, aoMudar, aoFechar, rotulo }: {
   medicao: Medicao; podeEditar: boolean; aoMudar: () => void; aoFechar?: () => void;
+  podeDesfazer?: boolean;   // issue #71: so' o admin desfaz o vinculo de uma nota com a medicao
+  rotulo?: string;   // issue #188: o bloco da execucao ou do reajuste na pagina da medicao
 }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   // Qual acao roda: so' o botao dela troca o rotulo; os demais apenas ficam desabilitados.
-  const [acao, setAcao] = useState<"manual" | "justificar" | "declarar" | null>(null);
+  const [acao, setAcao] = useState<"manual" | "justificar" | "declarar" | "desfazer" | null>(null);
   const [linhas, setLinhas] = useState<string[]>([]);
   const [frc, setFrc] = useState(false);
   // Upload que voltou sem leitura: a pessoa digita numero, data e valor (spec §7.1).
   const [manual, setManual] = useState<{ documento_id: number; nome: string; numero: string; emissao: string; valor: string } | null>(null);
   const [justificar, setJustificar] = useState<{ nota_id: number; texto: string } | null>(null);
   const [declarar, setDeclarar] = useState("");
+  const [desfazer, setDesfazer] = useState<{ alocacao_id: number; numero: string; motivo: string } | null>(null);
   const geracao = useRef(0);
 
   const carregar = async () => {
@@ -85,14 +89,14 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
   useEffect(() => {
     geracao.current += 1;
     const g = geracao.current;
-    setDados(null); setErro(""); setLinhas([]); setManual(null); setJustificar(null); setDeclarar("");
+    setDados(null); setErro(""); setLinhas([]); setManual(null); setJustificar(null); setDeclarar(""); setDesfazer(null);
     carregar().catch(e => { if (g === geracao.current) setErro(mensagem(e)); });
     return () => { geracao.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [medicao.id]);
 
   // Toda acao com sucesso recarrega o painel e avisa a lista (o estado da linha pode ter mudado).
-  const agir = async (qual: "manual" | "justificar" | "declarar", fn: () => Promise<void>) => {
+  const agir = async (qual: "manual" | "justificar" | "declarar" | "desfazer", fn: () => Promise<void>) => {
     setErro(""); setOcupado(true); setAcao(qual);
     try {
       await fn();
@@ -168,6 +172,25 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
     });
   };
 
+  const enviarDesfazer = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!desfazer) return;
+    const d = desfazer;
+    await agir("desfazer", async () => {
+      await api(`/api/medicoes/${medicao.id}/notas/alocacoes/${d.alocacao_id}/desfazer`,
+        { method: "POST", body: JSON.stringify({ motivo: d.motivo }) });
+      setLinhas(l => [...l, `Vínculo da nota ${Number(d.numero) || d.numero} desfeito.`]);
+      setDesfazer(null);
+    });
+  };
+
+  // o PDF anexado na medicao seguiria no envio ao orgao: o servidor recusa, entao o botao nem aparece
+  const botaoDesfazer = (n: NotaVinculada) => podeDesfazer && n.documento_id === null && desfazer?.alocacao_id !== n.alocacao_id && (
+    <>{" "}<button type="button" className="btn btn--pequeno" disabled={ocupado}
+      aria-label={`Desfazer vínculo da nota ${Number(n.numero) || n.numero}`}
+      onClick={() => setDesfazer({ alocacao_id: n.alocacao_id, numero: n.numero, motivo: "" })}>Desfazer vínculo</button></>
+  );
+
   const enviarDeclaracao = async (ev: React.FormEvent) => {
     ev.preventDefault();
     await agir("declarar", async () => {
@@ -214,7 +237,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
     <div className="notas" onKeyDown={ev => ev.key === "Escape" && aoFechar?.()}>
       <p className="painel__titulo">
         {/* o nome inteiro da medicao: "Reajuste da 23ª Medição" nao e' a 23ª de execucao */}
-        {tituloMedicao(medicao)}
+        {rotulo ?? tituloMedicao(medicao)}
         {dados && (dados.esperadas.length > 0
           ? (dados.faltam > 0 ? ` — falta${dados.faltam === 1 ? "" : "m"} ${dados.faltam} nota${dados.faltam === 1 ? "" : "s"}` : " — notas completas")
           : (dados.notas.length > 0 ? ` — ${dados.notas.length} nota${dados.notas.length === 1 ? "" : "s"} vinculada${dados.notas.length === 1 ? "" : "s"}` : " — nenhuma nota ainda"))}
@@ -225,7 +248,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
 
       {dados && dados.esperadas.length > 0 && (
         <Rolagem rotulo="Notas esperadas da medição">
-          <table className="tabela tabela--densa notas__tabela">
+          <table className="tabela tabela--densa notas__tabela" aria-label={rotulo ? `Notas esperadas: ${rotulo}` : undefined}>
             <thead>
               <tr>
                 <th scope="col">Saída</th><th scope="col" className="col-num num">Valor</th><th scope="col" className="col-num num">INSS</th>
@@ -264,7 +287,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
                     {celula("iss", e.iss)}{celula("irrf", e.irrf)}
                     {temIbsCbs && <>{celula("ibs", e.ibs)}{celula("cbs", e.cbs)}</>}
                     {celula("liquido", e.liquido)}
-                    <td>{n ? <><span className="num">{situacaoNota(n)}</span>{" \u00b7\u00a0"}{conferencia(n)}</> : <span className="campo__nota">aguardando</span>}</td>
+                    <td>{n ? <><span className="num">{situacaoNota(n)}</span>{" \u00b7\u00a0"}{conferencia(n)}{botaoDesfazer(n)}</> : <span className="campo__nota">aguardando</span>}</td>
                   </tr>
                 );
               })}
@@ -277,7 +300,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
         <ul className="lista-simples">
           {soltas.map(n => (
             <li key={n.nota_id}>
-              <span className="num">NF {situacaoNota(n)} · {brl(n.valor_centavos)}</span>{" \u00b7\u00a0"}{dados && dados.esperadas.length > 0 ? conferencia(n) : conferencia(n)}
+              <span className="num">NF {situacaoNota(n)} · {brl(n.valor_centavos)}</span>{" \u00b7\u00a0"}{dados && dados.esperadas.length > 0 ? conferencia(n) : conferencia(n)}{botaoDesfazer(n)}
             </li>
           ))}
         </ul>
@@ -286,12 +309,27 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
       {justificar && (
         <form className="form-inline" onSubmit={enviarJustificativa}>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-justificativa">Justificativa da divergência</label>
-            <input id="nota-justificativa" name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
+            <label className="campo__rotulo" htmlFor={`nota-justificativa-${medicao.id}`}>Justificativa da divergência</label>
+            <input id={`nota-justificativa-${medicao.id}`} name="justificativa" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
               value={justificar.texto} onChange={ev => setJustificar({ ...justificar, texto: ev.target.value })} />
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "justificar" ? "Gravando…" : "Gravar justificativa"}</button>
           <button type="button" className="btn" onClick={() => setJustificar(null)}>Voltar</button>
+        </form>
+      )}
+
+      {desfazer && (
+        <form className="form-inline" onSubmit={enviarDesfazer}>
+          <div className="campo">
+            <label className="campo__rotulo" htmlFor={`nota-desfazer-${medicao.id}`}>
+              Motivo para desfazer o vínculo da nota {Number(desfazer.numero) || desfazer.numero}
+            </label>
+            <input id={`nota-desfazer-${medicao.id}`} name="motivo" autoComplete="off" className="entrada--larga" required maxLength={1000} autoFocus
+              value={desfazer.motivo} onChange={ev => setDesfazer({ ...desfazer, motivo: ev.target.value })} />
+          </div>
+          <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "desfazer" ? "Desfazendo…" : "Desfazer o vínculo"}</button>
+          <button type="button" className="btn" onClick={() => setDesfazer(null)}>Voltar</button>
+          <span className="campo__nota">A medição não muda de estado; a nota não volta a casar sozinha pelo RM.</span>
         </form>
       )}
 
@@ -321,19 +359,19 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
         <form className="form-inline" onSubmit={enviarManual}>
           <span className="campo__nota">{manual.nome}: informe os dados da nota</span>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-numero">Número da nota</label>
-            <input id="nota-numero" name="numero" autoComplete="off" spellCheck={false} className="entrada--curta entrada--num num" required inputMode="numeric" pattern="[0-9]{1,9}"
+            <label className="campo__rotulo" htmlFor={`nota-numero-${medicao.id}`}>Número da nota</label>
+            <input id={`nota-numero-${medicao.id}`} name="numero" autoComplete="off" spellCheck={false} className="entrada--curta entrada--num num" required inputMode="numeric" pattern="[0-9]{1,9}"
               value={manual.numero} onChange={ev => setManual({ ...manual, numero: ev.target.value })} />
           </div>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-emissao">Emissão</label>
-            <input id="nota-emissao" name="emissao" autoComplete="off" type="date" className="entrada--media" required
+            <label className="campo__rotulo" htmlFor={`nota-emissao-${medicao.id}`}>Emissão</label>
+            <input id={`nota-emissao-${medicao.id}`} name="emissao" autoComplete="off" type="date" className="entrada--media" required
               value={manual.emissao} onChange={ev => setManual({ ...manual, emissao: ev.target.value })} />
           </div>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-valor">Valor bruto (R$)</label>
-            <input id="nota-valor" name="valor" autoComplete="off" spellCheck={false} className="entrada--media entrada--num num" required inputMode="decimal" placeholder="Ex.: 50.000,00…"
-              value={manual.valor} onChange={ev => setManual({ ...manual, valor: ev.target.value })} />
+            <label className="campo__rotulo" htmlFor={`nota-valor-${medicao.id}`}>Valor bruto (R$)</label>
+            <CampoValor id={`nota-valor-${medicao.id}`} name="valor" required
+              value={manual.valor} onChange={v => setManual({ ...manual, valor: v })} />
           </div>
           <button type="submit" className="btn btn--primario" disabled={ocupado}>{acao === "manual" ? "Registrando…" : "Registrar nota"}</button>
           <button type="button" className="btn" onClick={() => setManual(null)}>Deixar só o arquivo</button>
@@ -345,7 +383,7 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
           <label className="btn btn--pequeno espelho__anexar">
             Anexar notas (PDF)
             <input type="file" name="notas" accept="application/pdf" multiple className="espelho__arquivo" disabled={ocupado}
-              aria-label={`Anexar notas à medição ${medicao.numero}`} onChange={ev => anexar(ev.currentTarget)} />
+              aria-label={rotulo ? `Anexar notas: ${rotulo}` : `Anexar notas à medição ${medicao.numero}`} onChange={ev => anexar(ev.currentTarget)} />
           </label>
           <label className="marcar">
             <input type="checkbox" name="frc" checked={frc} onChange={ev => setFrc(ev.target.checked)} />
@@ -360,8 +398,8 @@ export function Notas({ medicao, podeEditar, aoMudar, aoFechar }: {
       {podeEditar && dados && dados.pode_declarar && dados.faltam > 0 && dados.notas.length > 0 && (
         <form className="form-inline" onSubmit={enviarDeclaracao}>
           <div className="campo">
-            <label className="campo__rotulo" htmlFor="nota-declarar">Declarar as notas completas — justificativa</label>
-            <input id="nota-declarar" name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
+            <label className="campo__rotulo" htmlFor={`nota-declarar-${medicao.id}`}>Declarar as notas completas — justificativa</label>
+            <input id={`nota-declarar-${medicao.id}`} name="declaracao" autoComplete="off" className="entrada--larga" required maxLength={1000} placeholder="Ex.: Cuiabá não teve serviço neste mês…"
               value={declarar} onChange={ev => setDeclarar(ev.target.value)} />
           </div>
           <button type="submit" className="btn btn--pequeno" disabled={ocupado}>{acao === "declarar" ? "Gravando…" : "Declarar completas"}</button>

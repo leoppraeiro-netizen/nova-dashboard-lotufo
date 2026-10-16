@@ -324,6 +324,14 @@ portaria), `objeto_completo` e comprovante do CNO (`cno_pdf`): YAML do contrato.
 `fundo` do emitente em `cartas.yaml`. Depois: `cadastro validar` → `aplicar --ensaio` → `aplicar`.
 Levantamento das cartas reais: `docs/levantamento-protocolo-2026-09-24.md`.
 
+**Garantia e ART do contrato** (issue #65, decisão de 15/10/2026). No YAML do contrato: `garantia: {apolice, vigencia_fim, arquivo}` e
+`art: {numero, arquivo}` (`art: 123456` em texto continua valendo; `arquivo` é o PDF, dentro da pasta do
+cadastro, copiado por `aplicar`). Cada instrumento `endosso_garantia` com `vigencia_fim` e `apolice` (a do contrato; sem `apolice` o `cadastro validar` recusa) substitui a vigência
+da garantia (vale o de data mais recente; instrumento aplicado não muda, correção é instrumento novo). A garantia
+avisa aos 30 dias (ação aos 15, crítico vencida) para operação e diretoria, na tela Documentos e em Avisos, até
+o marco `baixa_garantia`; contrato sem `garantia` no cadastro não avisa. A ART não vence: o aviso é só "ART não
+anexada" (contrato ativo, fora de encerramento, sem PDF).
+
 **Receita de deploy do bloco 5**: `deploy.ps1` com frontend (a migração 025 aplica na subida; `fpdf2` entra no
 venv pelo `requirements.lock`) → `cadastro aplicar --ensaio` e real (9 órgãos e `geral.cartas`) → `/api/health`.
 
@@ -382,7 +390,7 @@ fim da execução que prorroga é marcado "retroativo" e nunca recusado.
 protocolo (ofício gerado, anexos, montar, assinar no DocuSign, arrastar o assinado, prévia, enviar). Anexos
 exigidos: memória de cálculo e cronograma no reajuste, cronograma no prazo. Justificativa de prazo que fala em
 chuva sem paralisação cadastrada vira pendência. Destinatários: `protocolo_para` do órgão, fiscal vigente e
-`destinatarios_extras`; cópia `protocolo_copia`. Textos em `cartas.yaml` (`pleito_reajuste`, `prazo`,
+`destinatarios_extras`; cópia `protocolo_copia` do órgão mais `copia_extras` do contrato. Textos em `cartas.yaml` (`pleito_reajuste`, `prazo`,
 `conclusao`; `<campo>_<família>` vence o comum: o reajuste da SINFRA cita a IN 001/2024).
 
 **Medição final** (tabela de medições, "Medição final"): põe o contrato em encerramento (se ainda não estava).

@@ -474,6 +474,7 @@ def _contatos_locais(conn, usuario_id: int) -> dict[str, str | None]:
     textos = [r[0] for r in conn.execute("SELECT regras FROM orgaos WHERE regras IS NOT NULL")]
     textos += [r[0] for r in conn.execute("SELECT emails_faturamento FROM entidades WHERE emails_faturamento IS NOT NULL")]
     textos += [r[0] for r in conn.execute("SELECT destinatarios_extras FROM contratos WHERE destinatarios_extras IS NOT NULL")]
+    textos += [r[0] for r in conn.execute("SELECT copia_extras FROM contratos WHERE copia_extras IS NOT NULL")]
     textos += [x for r in conn.execute("SELECT para, copia FROM envios") for x in r if x]
     textos += [r[0] for r in conn.execute("SELECT cco FROM envios WHERE usuario_id=? AND cco IS NOT NULL",
                                           (usuario_id,))]          # copia oculta de outra pessoa nao vaza

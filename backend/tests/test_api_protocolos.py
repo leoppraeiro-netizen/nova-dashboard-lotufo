@@ -339,3 +339,16 @@ def test_justificativa_curta_sem_pendencia_na_previa_nao_impede_marcar_depois_do
     assert r.status_code == 200, r.text
     assert len(recebidas) == 1 and len(recebidas[0]) >= protocolo.MIN_JUSTIFICATIVA
     assert cl.get(f"/api/medicoes/{mid}").json()["estado"] == "protocolada"
+
+
+def test_corpo_formatado_do_protocolo_sai_sanitizado_e_com_link(api, tmp_path):
+    """Issue #191: o HTML do editor passa pela lista fechada; o endereco https continua virando link."""
+    from tests.test_html_email import LIMPO, PERIGOSO, corpo_enviado
+    cl, cid, mid = api
+    pid, corpo = _pronto(cl, cid, mid)
+    html = PERIGOSO + "<div>Arquivo: https://arquivos.exemplo.com.br/a?b=1&c=2</div>"
+    r = cl.post("/api/protocolos/envio", json={**corpo, "corpo": html})
+    assert r.status_code == 200, r.text
+    assert corpo_enviado(tmp_path / "sim") == (
+        LIMPO + '<br>Arquivo: <a href="https://arquivos.exemplo.com.br/a?b=1&amp;c=2">'
+                'https://arquivos.exemplo.com.br/a?b=1&amp;c=2</a>')
