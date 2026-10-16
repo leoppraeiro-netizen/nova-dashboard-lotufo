@@ -52,6 +52,7 @@ export function itemDe(r: Rota): ItemMenu | "conta" | null {
   switch (r.tela) {
     case "raiz": return null;
     case "obra": return "obras";
+    case "documentos-empresa": return "documentos";
     case "medicao": case "nova-medicao": case "notas-envio": return "medicoes";
     default: return r.tela;
   }
@@ -62,6 +63,7 @@ export function tituloDe(tela: Rota["tela"]): string {
   switch (tela) {
     case "raiz": return "grupolotufo";
     case "obra": return "Obra";
+    case "documentos-empresa": return "Documentos";
     case "medicao": return "Medição";
     case "nova-medicao": return "Nova medição";
     case "inicio": return "Início";

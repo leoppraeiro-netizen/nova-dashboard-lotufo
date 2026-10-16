@@ -15,11 +15,23 @@ describe("rota", () => {
       { tela: "a-receber" }, { tela: "carteira", aba: "qdop" }, { tela: "carteira", aba: "producao" },
       { tela: "admin", aba: "reconciliacao" }, { tela: "admin", aba: "usuarios" }, { tela: "admin", aba: "auditoria" },
       { tela: "notas-envio", id: 55 },
+      { tela: "documentos-empresa", id: 3 }, { tela: "documentos-empresa", id: 3, aba: "regularidade" },
+      { tela: "documentos-empresa", id: 3, aba: "garantia" },
       { tela: "medicoes", aba: "sem-medicao" }, { tela: "medicoes", aba: "faturamento" },
       { tela: "medicoes", aba: "aguardando-nota" }, { tela: "medicoes", aba: "enviar-nota" },
       { tela: "medicoes", aba: "aguardando-pagamento" },
     ];
     for (const r of rotas) expect(parseRota(caminhoDe(r))).toEqual(r);
+  });
+
+  it("a empresa em Documentos tem endereço e cada aba tem o seu; a aba padrão não entra na URL (#161)", () => {
+    expect(caminhoDe({ tela: "documentos-empresa", id: 3 })).toBe("/documentos/3");
+    expect(caminhoDe({ tela: "documentos-empresa", id: 3, aba: "certidoes" })).toBe("/documentos/3");
+    expect(caminhoDe({ tela: "documentos-empresa", id: 3, aba: "garantia" })).toBe("/documentos/3/garantia");
+    expect(parseRota("/documentos/3/certidoes")).toEqual({ tela: "documentos-empresa", id: 3 });
+    expect(parseRota("/documentos/abc")).toEqual({ tela: "raiz" });
+    expect(parseRota("/documentos/3/outra")).toEqual({ tela: "raiz" });
+    expect(parseRota("/documentos/3/garantia/x")).toEqual({ tela: "raiz" });
   });
 
   it("os caminhos antigos abrem a tela nova (o App troca a URL pela canônica)", () => {

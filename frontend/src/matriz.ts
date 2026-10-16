@@ -9,10 +9,16 @@ export type LinhaCertidao = {
   certidao: CertidaoDoc | null;
 };
 export type RegularidadeDoc = { situacao: "ok" | "atrasada" | "faltando"; competencia: string | null; esperada: string };
+export type Garantia = { apolice: string | null; vigencia_fim: string; dias: number; origem: "contrato" | "endosso";
+  situacao: "ok" | "vencendo" | "vencida" | "baixada" };
+export type ObraDoc = { contrato_id: number; obra: string; entidade_id?: number; garantia: Garantia | null;
+  art: { numero: string | null; anexada: boolean; exigida: boolean } };
 export type EmpresaDoc = {
   entidade_id: number; entidade: string; cnpj: string; papel: string; certidoes: LinhaCertidao[];
   regularidade_exigida: boolean; regularidade: RegularidadeDoc | null;
   obras?: { contrato_id: number; obra: string }[];      // A7: as obras ativas que exigem a empresa
+  consorciadas?: number[]; consorcios?: number[];       // #161: quem compoe o consorcio / de quais consorcios participa
+  regularidades_anexadas?: { id: number; competencia: string; anexada_em: string }[];   // #161: a mais recente primeiro
 };
 
 // Decisao 5 do mapa: "antes do proximo protocolo" vira "vence em ate' 30 dias".
@@ -57,4 +63,92 @@ export function matriz(empresas: EmpresaDoc[], soPendentes: boolean): EmpresaDoc
 export function colunas(empresas: EmpresaDoc[], ordem: string[]): string[] {
   const tem = new Set(empresas.flatMap(e => e.certidoes.map(l => l.chave)));
   return [...ordem.filter(c => tem.has(c)), ...[...tem].filter(c => !ordem.includes(c))];
+}
+
+/* ---------------------------------------------------------------- redesenho de Documentos (#161) */
+
+export type Nivel = "ok" | "atencao" | "acao" | "neutro";
+
+/** A ordem das certidoes nos cartoes e na tabela da empresa (a do desenho aprovado); tipo novo vai para o fim. */
+export const ORDEM_CERTIDOES = ["federal", "estadual", "municipal", "fgts", "trabalhista", "falencia"];
+export const NOME_CURTO: Record<string, string> = {
+  federal: "Federal", estadual: "Estadual", municipal: "Municipal", fgts: "FGTS", trabalhista: "Trabalhista", falencia: "Falência",
+};
+
+/** As certidoes da empresa na ordem do desenho. */
+export function certidoesOrdenadas(e: EmpresaDoc): LinhaCertidao[] {
+  const pos = (c: string) => { const i = ORDEM_CERTIDOES.indexOf(c); return i < 0 ? 99 : i; };
+  return [...e.certidoes].sort((a, b) => pos(a.chave) - pos(b.chave));
+}
+
+function venceEm(d: number): string {
+  return d <= 0 ? "vence hoje" : d === 1 ? "vence amanhã" : `vence em ${d} dias`;
+}
+
+/** A situacao de UMA certidao como a tela a diz: o texto do selo, a nota embaixo (a data) e o nivel. O selo segue a
+ *  janela da pendencia (decisao 5): certidao exigida que vence em ate' 30 dias diz "vence em N dias", mesmo que o
+ *  servidor ainda a chame de em dia. A que nao e' exigida fica neutra. `validade` ja' vem em dd/mm/aaaa. */
+export function situacaoCertidao(l: LinhaCertidao, validade: string): { texto: string; data?: string; nivel: Nivel } {
+  if (l.situacao === "nao_se_aplica") return { texto: "não se aplica", data: "declarado", nivel: "neutro" };
+  if (!l.exigida) {
+    return { texto: "não exigida", nivel: "neutro",
+             data: !l.certidao ? undefined : l.situacao === "vencida" ? `vencida em ${validade}` : `até ${validade}` };
+  }
+  switch (l.situacao) {
+    case "ok":
+      return l.dias !== null && l.dias <= JANELA_DIAS ? { texto: venceEm(l.dias), data: `até ${validade}`, nivel: "atencao" }
+        : { texto: "em dia", data: `até ${validade}`, nivel: "ok" };
+    case "vencendo": return { texto: venceEm(l.dias ?? 0), data: `até ${validade}`, nivel: "atencao" };
+    case "vencida": return { texto: "vencida", data: `em ${validade}`, nivel: "acao" };
+    default: return { texto: "falta", nivel: "acao" };
+  }
+}
+
+/** A situacao geral da empresa (a pilula do cartao e do cabecalho): o que ja' trava, o que vence e a regularidade
+ *  fora do dia, em uma frase; "Em dia" quando nada pende. */
+export function resumoEmpresa(e: EmpresaDoc): { texto: string; nivel: Nivel; pendencias: number } {
+  const exigidas = e.certidoes.filter(l => l.exigida);
+  const vencidas = exigidas.filter(l => l.situacao === "vencida").length;
+  const faltas = exigidas.filter(l => l.situacao === "faltando").length;
+  const vencendo = exigidas.filter(l => (l.situacao === "ok" || l.situacao === "vencendo") && certidaoPendente(l));
+  const regFora = e.regularidade !== null && e.regularidade.situacao !== "ok";
+  const partes: string[] = [];
+  if (vencidas) partes.push(vencidas === 1 ? "1 vencida" : `${vencidas} vencidas`);
+  if (faltas) partes.push(faltas === 1 ? "1 falta" : `${faltas} faltam`);
+  if (vencendo.length === 1) partes.push(`1 ${venceEm(vencendo[0].dias ?? 0)}`);
+  else if (vencendo.length > 1) partes.push(`${vencendo.length} vencem em até ${Math.max(...vencendo.map(l => l.dias ?? 0))} dias`);
+  if (regFora) partes.push(`regularidade ${e.regularidade!.situacao === "faltando" ? "não anexada" : "atrasada"}`);
+  const texto = partes.length ? partes.join(" · ") : "em dia";
+  return { texto: texto.charAt(0).toUpperCase() + texto.slice(1),
+    nivel: vencidas || faltas ? "acao" : partes.length ? "atencao" : "ok", pendencias: pendenciasDa(e) };
+}
+
+/** A certidao exigida e vigente que vence primeiro (o "Proxima a vencer" do cartao), ou null. */
+export function proximaAVencer(e: EmpresaDoc): LinhaCertidao | null {
+  const vigentes = e.certidoes.filter(l => l.exigida && l.certidao !== null && l.dias !== null && l.dias >= 0
+    && (l.situacao === "ok" || l.situacao === "vencendo"));
+  return vigentes.sort((a, b) => a.dias! - b.dias!)[0] ?? null;
+}
+
+/** A pendencia mais urgente da tabela da empresa: a unica que leva o botao principal ("Emitir"). Sem dias (vencida
+ *  ou faltando) vem antes de quem ainda vigora. */
+export function pendenciaMaisUrgente(e: EmpresaDoc): LinhaCertidao | null {
+  return certidoesOrdenadas(e).filter(certidaoPendente).sort((a, b) => (a.dias ?? -999) - (b.dias ?? -999))[0] ?? null;
+}
+
+/** A garantia de uma obra como a tela a diz (texto do selo, nota embaixo e nivel). `ate` ja' vem em dd/mm/aaaa. */
+export function situacaoGarantia(g: Garantia | null, ate: string): { texto: string; nota: string; nivel: Nivel; forte?: boolean } {
+  if (!g) return { texto: "sem vigência no cadastro", nota: "", nivel: "neutro" };
+  const nota = `${g.dias < 0 ? `venceu em ${ate}` : `até ${ate}`}${g.origem === "endosso" ? " (endosso)" : ""}${g.apolice ? ` · apólice ${g.apolice}` : ""}`;
+  if (g.situacao === "baixada") return { texto: "baixada", nota, nivel: "neutro" };
+  if (g.situacao === "vencida") return { texto: "vencida", nota, nivel: "acao", forte: true };
+  if (g.situacao === "vencendo") return { texto: venceEm(g.dias), nota, nivel: g.dias <= 15 ? "acao" : "atencao" };
+  return { texto: "em dia", nota, nivel: "ok" };
+}
+
+/** A ART: anexada (com o numero), exigida e faltando, ou nao exigida. */
+export function situacaoArt(a: ObraDoc["art"]): { texto: string; nota: string; nivel: Nivel } {
+  const nota = a.numero ? `nº ${a.numero}` : "";
+  if (a.anexada) return { texto: "anexada", nota, nivel: "ok" };
+  return { texto: a.exigida ? "não anexada" : "não exigida", nota, nivel: a.exigida ? "atencao" : "neutro" };
 }

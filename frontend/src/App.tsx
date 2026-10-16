@@ -7,6 +7,7 @@ import { ABAS_ADMIN } from "./administracao";
 import { ABAS_CARTEIRA } from "./carteira";
 import { BarraSuperior, Trilho } from "./Casca";
 import Documentos from "./Documentos";
+import DocumentosEmpresa from "./DocumentosEmpresa";
 import EnviarNota from "./EnviarNota";
 import ContratoPagina from "./ContratoPagina";
 import Contratos from "./Contratos";
@@ -55,7 +56,7 @@ export default function App() {
 
   useEffect(() => {
     // A obra e a medicao poem o proprio titulo ("MT-388 · Prazos"), quando o cabecalho delas chega.
-    if (rota.tela === "obra" || rota.tela === "medicao") return;
+    if (rota.tela === "obra" || rota.tela === "medicao" || rota.tela === "documentos-empresa") return;
     // a aba da Carteira, da Administracao e de Medicoes entram no titulo ("Carteira · QDOP"), como a da obra
     // ("MT-388 · Prazos")
     const aba = rota.tela === "carteira" && rota.aba && rota.aba !== "resumo" ? ABAS_CARTEIRA.find(a => a.id === rota.aba)?.rotulo
@@ -123,13 +124,10 @@ export default function App() {
             <MedicaoPagina key={`${rota.obra}-${rota.id}`} contratoId={rota.obra} medicaoId={rota.id} usuario={usuario} origem={origem} />
           )}
           {rota.tela === "nova-medicao" && <NovaMedicao key={rota.obra} contratoId={rota.obra} usuario={usuario} />}
-          {rota.tela === "documentos" && (
-            <div className="pagina">
-              <p className="pagina__descricao">
-                De protocolo: certidões e regularidade do mês, que precisam estar válidas no dia do protocolo
-              </p>
-              <Documentos usuario={usuario} busca={busca} />
-            </div>
+          {rota.tela === "documentos" && <Documentos usuario={usuario} busca={busca} />}
+          {rota.tela === "documentos-empresa" && (
+            // `key` na empresa: trocar de empresa (pelo link de consorciada) remonta a pagina e o formulario da regularidade.
+            <DocumentosEmpresa key={rota.id} usuario={usuario} id={rota.id} aba={rota.aba ?? "certidoes"} origem={origem} />
           )}
           {rota.tela === "conta" && <div className="pagina"><MinhaConta usuario={usuario} /></div>}
           {rota.tela === "admin" && usuario.perfil === "admin" && (

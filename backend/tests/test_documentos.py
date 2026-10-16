@@ -204,3 +204,25 @@ def test_zip_com_arquivo_ausente_e_erro_de_dominio(conn):
     _cert(conn, 1, "fgts", "2026-08-31", "2026-09-29")          # linha sem PDF na pasta
     with pytest.raises(ValueError, match="não está na pasta"):
         documentos.zip_vigentes(conn, 1, "2026-09-23")
+
+
+def test_painel_diz_a_composicao_do_consorcio_o_dono_de_cada_obra_e_as_regularidades_anexadas(conn):
+    # redesenho de Documentos (#161): a pagina da empresa precisa saber as consorciadas, de quem e' a garantia
+    # de cada obra e o que ja' foi anexado da regularidade (so' leitura)
+    _consorcio(conn)
+    oid = _orgao(conn, ["fgts", "regularidade"], [])
+    c_consorcio = _contrato(conn, oid, entidade_id=2)
+    c_lotufo = _contrato(conn, oid, entidade_id=1)
+    for comp in ("2026-06", "2026-07"):
+        conn.execute("INSERT INTO regularidades (entidade_id, competencia, arquivo, sha256, tamanho) "
+                     "VALUES (1, ?, ?, ?, 1)", (comp, f"regularidades/{comp}.pdf", comp[-2:] * 32))
+    conn.commit()
+    p = documentos.painel(conn)
+    por_id = {e["entidade_id"]: e for e in p["empresas"]}
+    assert por_id[2]["consorciadas"] == [1, 3] and por_id[2]["consorcios"] == []
+    assert por_id[3]["consorcios"] == [2] and por_id[3]["consorciadas"] == []
+    assert {o["contrato_id"]: o["entidade_id"] for o in p["contratos"]} == {c_consorcio: 2, c_lotufo: 1}
+    anexadas = por_id[1]["regularidades_anexadas"]
+    assert [a["competencia"] for a in anexadas] == ["2026-07", "2026-06"]
+    assert set(anexadas[0]) == {"id", "competencia", "anexada_em"} and len(anexadas[0]["anexada_em"]) == 10
+    assert por_id[3]["regularidades_anexadas"] == []

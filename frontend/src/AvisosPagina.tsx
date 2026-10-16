@@ -102,7 +102,7 @@ function TabelaPorObra({ grupos, comValor }: { grupos: Grupo[]; comValor: boolea
                     {g.contratoId !== null
                       ? <Link para={{ tela: "obra", id: g.contratoId, aba: "medicoes" }}>{g.rotulo}</Link>
                       : g.entidadeId != null
-                      ? <Link para={{ tela: "documentos" }} busca={{ empresa: String(g.entidadeId) }} secao={`emp-${g.entidadeId}`}>{g.rotulo}</Link>
+                      ? <Link para={{ tela: "documentos-empresa", id: g.entidadeId }}>{g.rotulo}</Link>
                       : g.rotulo}
                     <span className="grupo__conta num">{contagem(g.itens)}</span>
                   </th>
@@ -138,8 +138,7 @@ function CartaoGrupo({ g, abrirTudo, porObraSim, comValor, unico = false }: { g:
         )}
         {g.entidadeId != null && (
           <div className="cartao__acoes">
-            <Link className="btn btn--pequeno" para={{ tela: "documentos" }} busca={{ empresa: String(g.entidadeId) }}
-              secao={`emp-${g.entidadeId}`}>Abrir em Documentos</Link>
+            <Link className="btn btn--pequeno" para={{ tela: "documentos-empresa", id: g.entidadeId }}>Abrir em Documentos</Link>
           </div>
         )}
       </div>
