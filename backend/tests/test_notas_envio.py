@@ -317,7 +317,7 @@ def test_envio_pelo_simulador_vira_aguardando_pagamento(api, tmp_path):
     pid = r.json()["protocolo_id"]
     assert _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])[0]["protocolo_id"] == pid
     d = cl.get(f"/api/notas/envio/{pid}").json()
-    assert d["etapa"] == "nota" and d["justificativa_obrigatoria"] is False
+    assert d["etapa"] == "nota" and d["pendencias"] == []         # issue #213: nada falta, nada a confirmar
     r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
     assert r.status_code == 200, r.text
     enviado = json.loads(sorted((tmp_path / "sim" / "enviados").glob("*.json"))[0].read_text(encoding="utf-8"))
@@ -625,7 +625,7 @@ def test_sinfra_medicao_sem_o_reajuste_irmao_vira_pendencia(svc):
     pid = notas_envio.iniciar(c, ids["uid"], ids["sinfra"], [ids["sinfra_exec"]])
     pend = notas_envio.detalhe_envio(c, pid, hoje=HOJE)["pendencias"]
     assert [p for p in pend if p.startswith(IRMA)] == [
-        IRMA + ": junte pela opção 'Juntar outra nota desta obra' ou justifique"]
+        IRMA + ": junte pela opção 'Juntar outra nota desta obra' ou confirme o envio sem ela"]
     assert "irma_fora" in [p["codigo"] for p in protocolo.previa_envio(c, [pid], hoje=HOJE)["pendencias"]]
     # VG tambem junta (D9); a MTPAR nao junta: cada nota no seu e-mail, sem pendencia
     p_vg = notas_envio.iniciar(c, ids["uid"], ids["vg"], [ids["vg_exec"]], "254")
@@ -642,7 +642,7 @@ def test_reajuste_irmao_em_outro_envio_separado_tambem_cobra(svc):
     assert notas_envio.detalhe_envio(c, pid, hoje=HOJE)["pendencias"] == [
         "Reajuste da 23ª Medição (mesma competência) está em outro envio separado: na SINFRA e na Pref. VG medição "
         "e reajuste vão no mesmo e-mail — junte pela opção 'Juntar outra nota desta obra' (o outro rascunho é "
-        "descartado) ou justifique"]
+        "descartado) ou confirme o envio sem ela"]
     assert [p.split(" (")[0] for p in notas_envio.detalhe_envio(c, p_reaj, hoje=HOJE)["pendencias"]] == ["23ª Medição"]
     # os dois protocolos no MESMO e-mail: a irma vai junto, nao ha' o que cobrar
     assert "irma_fora" not in [p["codigo"] for p in protocolo.previa_envio(c, [pid, p_reaj], hoje=HOJE)["pendencias"]]
@@ -656,7 +656,7 @@ def test_protocolo_ja_enviado_nao_lista_mais_a_irma_fora(svc):
     assert "irma_fora" in cods()                                          # rascunho: como hoje
     pv = protocolo.previa_envio(c, [pid], hoje=HOJE)
     protocolo.enviar(c, ids["usuario"], [pid], pv["para"], pv["copia"], pv["assunto"], pv["corpo"],
-                     justificativa="reajuste vai no próximo e-mail")
+                     confirmadas=[x["mensagem"] for x in pv["pendencias"]])
     assert protocolo.detalhe(c, pid, hoje=HOJE)["situacao"] == "enviado"
     assert c.execute("SELECT estado FROM medicoes WHERE id=?", (ids["sinfra_reaj"],)).fetchone()[0] == "nota_emitida"
     assert "irma_fora" not in cods()
@@ -678,17 +678,114 @@ def test_projeto_e_reajuste_do_mesmo_numero_nao_sao_irmas(svc):
     assert [m.split(" (")[0] for m in irmas] == ["23ª Medição"]                  # so' a execucao, nao o projeto
 
 
-def test_envio_sem_o_reajuste_irmao_exige_justificativa(api):
+def _confirmacoes(c) -> list[tuple]:
+    return [(r[0], json.loads(r[1])["pendencias"]) for r in c.execute(
+        "SELECT usuario_id, depois FROM audit_log WHERE acao='protocolo.envio_confirmado' ORDER BY id")]
+
+
+def test_envio_com_documento_faltando_sem_confirmacao_e_recusado(api):
+    """Issue #213: falta documento nao bloqueia, mas sem a confirmacao do aviso nada sai e nada e' gravado."""
     cl, c, ids = api
     pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
                                                     "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
     d = cl.get(f"/api/notas/envio/{pid}").json()
-    assert d["justificativa_obrigatoria"] is True and any(p.startswith(IRMA) for p in d["pendencias"])
+    assert d["bloqueio"] is None and any(p.startswith(IRMA) for p in d["pendencias"])
     r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d))
-    assert r.status_code == 422 and "justificativa" in r.json()["detail"]
-    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
-    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, justificativa="reajuste vai no próximo e-mail"))
+    det = r.json()["detail"]
+    assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS" and det["pendencias"] == d["pendencias"]
+    assert det["mensagem"].startswith("ATENÇÃO: falta documento neste envio")
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
+    assert c.execute("SELECT envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()[0] is None
+
+
+def test_envio_confirmado_sai_e_grava_quem_quando_e_a_lista(api, monkeypatch):
+    """Issue #213: "Continuar com o envio" manda a lista; a confirmacao (quem, quando, o que faltava) e' gravada na
+    transacao da reserva, ANTES do e-mail; a justificativa escrita nao e' mais exigida."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    original, vistas = correio.enviar_e_registrar, []
+
+    def espia(*a, **k):               # na hora do e-mail, outra conexao ja' le a confirmacao gravada
+        outra = db.get_conn()
+        try:
+            vistas.extend(_confirmacoes(outra))
+        finally:
+            outra.close()
+        return original(*a, **k)
+    monkeypatch.setattr(correio, "enviar_e_registrar", espia)
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=list(reversed(d["pendencias"]))))
     assert r.status_code == 200, r.text
+    uid = c.execute("SELECT id FROM usuarios WHERE email='admin@lotufo.com'").fetchone()[0]
+    assert vistas == [(uid, d["pendencias"])] and _confirmacoes(c) == vistas
+    em = c.execute("SELECT criado_em FROM audit_log WHERE acao='protocolo.envio_confirmado'").fetchone()[0]
+    assert em
+    p = c.execute("SELECT situacao, justificativa FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert p["situacao"] == "enviado" and p["justificativa"] == protocolo.CONFIRMADO_COM_FALTA + d["pendencias"][0]
+    depois = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='protocolo.enviar'").fetchone()[0])
+    assert depois["confirmadas"] == d["pendencias"]
+
+
+def test_envio_sem_nada_faltando_nao_grava_confirmacao(api):
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    assert d["pendencias"] == []
+    assert cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d)).status_code == 200
+    assert _confirmacoes(c) == []
+    assert c.execute("SELECT justificativa FROM protocolos WHERE id=?", (pid,)).fetchone()[0] is None
+
+
+def test_lista_diferente_da_confirmada_e_recusada(api):
+    """Issue #213: a lista mudou entre o aviso e o envio (outro item faltando, ou um a menos): pede nova confirmacao."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    for lista in ([*d["pendencias"], "Falta a certidão federal"], ["Outra coisa"]):
+        r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=lista))
+        det = r.json()["detail"]
+        assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS", r.text
+        assert "mudou" in det["mensagem"] and det["pendencias"] == d["pendencias"]
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
+
+
+def test_lista_que_muda_ate_a_reserva_e_recusada_sob_o_lock(api, monkeypatch):
+    """Issue #213: a conferencia se repete sob o lock da reserva; o que mudou depois da primeira leitura recusa sem
+    reservar nem gravar a confirmacao."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    original, chamadas = protocolo._pendencias_envio, []
+
+    def muda_na_segunda(*a, **k):
+        chamadas.append(1)
+        out = original(*a, **k)
+        return out if len(chamadas) == 1 else [*out, {"protocolo_id": pid, "codigo": "certidao",
+                                                      "mensagem": "Lotufo: CND Federal sem validade hoje"}]
+    monkeypatch.setattr(protocolo, "_pendencias_envio", muda_na_segunda)
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=d["pendencias"]))
+    det = r.json()["detail"]
+    assert r.status_code == 422 and det["codigo"] == "CONFIRMAR_PENDENCIAS" and len(chamadas) == 2
+    assert "Lotufo: CND Federal sem validade hoje" in det["pendencias"]
+    assert c.execute("SELECT envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()[0] is None
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
+
+
+def test_bloqueio_continua_recusando_mesmo_com_confirmacao(api):
+    """Issue #213: bloqueio (certidao vencida, FRC recusada...) nao vira aviso: confirmar nao o contorna."""
+    cl, c, ids = api
+    _validade(c, "federal", "2026-09-10")
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    assert d["bloqueio"]
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=d["pendencias"]))
+    assert r.status_code == 409, r.text
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
 
 
 # --- testes de quebra 10/10/2026: A-13 (link de qualquer site) e A-11 (qualquer arquivo como .eml) ---

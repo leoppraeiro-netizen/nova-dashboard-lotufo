@@ -47,6 +47,8 @@ class EnvioIn(PreviaIn):
     justificativa: str | None = Field(default=None, max_length=2000)
     # issue #10: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado
     anexos: list[AnexoVistoIn] | None = Field(default=None, max_length=200)
+    # issue #213: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO"
+    confirmadas: list[str] | None = Field(default=None, max_length=200)
 
 
 class DescartarIn(BaseModel):
@@ -225,10 +227,14 @@ def enviar(dados: EnvioIn, usuario: dict = Depends(exigir("editar_cadastros")),
         eid = protocolo.enviar(conn, {"id": usuario["id"], "email": usuario["email"]}, dados.protocolo_ids,
                                _emails(dados.para), _emails(dados.copia), dados.assunto.strip(), dados.corpo,
                                dados.justificativa, cco=_emails(dados.cco),
-                               anexos_previa=None if dados.anexos is None else [a.model_dump() for a in dados.anexos])
+                               anexos_previa=None if dados.anexos is None else [a.model_dump() for a in dados.anexos],
+                               confirmadas=dados.confirmadas)
     except envio_reserva.EnvioEmAndamento as e:
         conn.rollback()
         raise HTTPException(409, detail=e.detalhe()) from None
+    except protocolo.ConfirmarPendencias as e:
+        conn.rollback()
+        raise HTTPException(422, detail=e.detalhe()) from None
     except (ValueError, graph.ErroGraph) as e:
         conn.rollback()
         raise HTTPException(422, str(e)) from None
