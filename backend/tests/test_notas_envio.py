@@ -764,6 +764,45 @@ def test_confirmacao_antiga_sem_nada_faltando_agora_envia(api):
     assert _confirmacoes(c) == []
 
 
+def test_auditoria_e_ressalva_usam_a_lista_lida_sob_o_lock(api, monkeypatch):
+    """Revisor adversarial da PR #227: confirmou o que faltava e tudo se resolveu ate' a reserva; a lista que vale e' a
+    lida sob o lock (vazia): nada de confirmacao gravada nem ressalva com o que ja' nao faltava."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    original, chamadas = protocolo._pendencias_envio, []
+
+    def resolve_na_segunda(*a, **k):
+        chamadas.append(1)
+        return original(*a, **k) if len(chamadas) == 1 else []
+    monkeypatch.setattr(protocolo, "_pendencias_envio", resolve_na_segunda)
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=d["pendencias"]))
+    assert r.status_code == 200, r.text
+    assert _confirmacoes(c) == []
+    assert c.execute("SELECT justificativa FROM protocolos WHERE id=?", (pid,)).fetchone()[0] is None
+
+
+def test_justificativa_curta_com_confirmacao_nao_vira_pendencia_surgida_depois(api, monkeypatch):
+    """Revisor adversarial da PR #227: pela API, justificativa curta junto da confirmacao nao pode apagar a lista nem
+    marcar a medicao com o texto de pendencia surgida depois do e-mail."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    original, recebidas = medicoes.registrar_protocolo, []
+
+    def espia(*a, **k):
+        recebidas.append(k.get("justificativa"))
+        return original(*a, **k)
+    monkeypatch.setattr(medicoes, "registrar_protocolo", espia)
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=d["pendencias"], justificativa="ok"))
+    assert r.status_code == 200, r.text
+    esperado = "ok; " + protocolo.CONFIRMADO_COM_FALTA + d["pendencias"][0]
+    assert c.execute("SELECT justificativa FROM protocolos WHERE id=?", (pid,)).fetchone()[0] == esperado
+    assert recebidas == [esperado] and protocolo.JUSTIFICATIVA_POS_ENVIO not in recebidas
+
+
 def test_recusa_traz_o_codigo_de_cada_item_e_limita_o_tamanho(api):
     cl, c, ids = api
     pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],

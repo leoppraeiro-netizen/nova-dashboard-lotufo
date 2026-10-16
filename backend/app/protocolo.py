@@ -975,7 +975,6 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     if anexos_previa is not None:
         _conferir_anexos(anexos_previa, pv["anexos"])
     justificativa = (justificativa or "").strip() or None
-    faltam = [x["mensagem"] for x in pv["pendencias"]]
     _conferir_confirmacao(pv["pendencias"], confirmadas)
     # Reserva atomica antes do e-mail (A-02, 10/10/2026): dois cliques simultaneos nao mandam dois e-mails.
     # Todos os protocolos do e-mail numa transacao so': se um ja' esta' em envio, nenhum fica reservado.
@@ -989,7 +988,10 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
                     if m["estado"] == "nota_emitida":
                         notas_envio.recusar_se_espera(conn, m)
         # Issue #213: a lista do que falta, de novo sob o lock; mudou desde o aviso, recusa e pede nova confirmacao
-        _conferir_confirmacao(_pendencias_envio(conn, [_linha(conn, x["id"]) for x in ps], hoje), confirmadas)
+        # A lista lida aqui e' a que vale: e' ela que vai na auditoria e na ressalva (revisor adversarial da PR #227)
+        no_lock = _pendencias_envio(conn, [_linha(conn, x["id"]) for x in ps], hoje)
+        _conferir_confirmacao(no_lock, confirmadas)
+        faltam = [q["mensagem"] for q in no_lock]
         for x in ps:
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
             if faltam:      # quem confirmou e quando: o usuario e o carimbo da propria linha da auditoria
@@ -1019,8 +1021,10 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
     # O e-mail ja' saiu: daqui para baixo nada pode recusar (gate Sol do bloco 5). Certidao que venceu entre a
     # previa e o envio, ou medicao encerrada por outra pessoa no meio, nao desfazem o registro do envio: a
     # medicao que nao pode ser marcada fica anotada na auditoria do protocolo.
-    # Issue #213: sem justificativa escrita, a ressalva do envio confirmado e' a propria lista do que faltava
-    ressalva = justificativa or (CONFIRMADO_COM_FALTA + "; ".join(faltam) if faltam else None)
+    # Issue #213: a ressalva do envio confirmado e' a propria lista do que faltava, com a justificativa (se veio) antes;
+    # justificativa curta nao a substitui (revisor adversarial da PR #227: viraria o texto "pendencia surgida...")
+    ressalva = "; ".join(x for x in (justificativa, CONFIRMADO_COM_FALTA + "; ".join(faltam)) if x) if faltam \
+        else justificativa
     with correio.depois_do_envio(assunto, para, envio_id), db.mutacao(conn):
         for x in ps:
             envio_reserva.liberar(conn, "protocolos", x["id"])
