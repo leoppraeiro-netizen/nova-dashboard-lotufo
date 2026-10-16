@@ -59,7 +59,7 @@ function Parada({ i }: { i: Item }) {
   );
 }
 
-function Painel({ l }: { l: Item }) {
+function Painel({ l, podeEditar }: { l: Item; podeEditar: boolean }) {
   const mtpar = l.familia === "mtpar";
   const rotulo = mtpar ? "Nº do protocolo no SIGA" : "Nº do protocolo no órgão";
   const etapa4 = { tela: "medicao" as const, obra: l.contrato_id, id: l.medicao_id };
@@ -74,8 +74,10 @@ function Painel({ l }: { l: Item }) {
         <span className="ap__rotulo">{rotulo}</span>
         {l.numero_orgao ? <div>{l.numero_orgao}</div> : (
           <div className="ap__sem-numero">
-            {mtpar && <Link para={etapa4} secao="etapa-4" title="Registrar o número na etapa 4 da medição"><Selo classe="selo--atencao">sem protocolo SIGA</Selo></Link>}
-            <Link className="ap__link" para={etapa4} secao="etapa-4">Registrar o número na etapa 4 da medição →</Link>
+            {mtpar && (podeEditar
+              ? <Link para={etapa4} secao="etapa-4" title="Registrar o número na etapa 4 da medição"><Selo classe="selo--atencao">sem protocolo SIGA</Selo></Link>
+              : <Selo classe="selo--atencao">sem protocolo SIGA</Selo>)}
+            {podeEditar && <Link className="ap__link" para={etapa4} secao="etapa-4">Registrar o número na etapa 4 da medição →</Link>}
           </div>
         )}
       </div>
@@ -92,7 +94,7 @@ function irAoPainel() {
   if (window.matchMedia?.("(max-width: 1180px)").matches) document.getElementById("painel-nota")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
 }
 
-export default function AguardandoPagamento({ hoje }: { hoje?: string }) {
+export default function AguardandoPagamento({ hoje, podeEditar = true }: { hoje?: string; podeEditar?: boolean }) {
   const [linhas, setLinhas] = useState<Linha[] | null>(null);
   const [erro, setErro] = useState("");
   const [escolhida, setEscolhida] = useState<number | null>(null);
@@ -158,9 +160,11 @@ export default function AguardandoPagamento({ hoje }: { hoje?: string }) {
                       onKeyDown={ev => { if (ev.target === ev.currentTarget && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); setEscolhida(i.medicao_id); irAoPainel(); } }}>
                       <td><span className="ap__obra">{i.obra}</span> · {i.descricao}</td>
                       <td>{i.orgao}{semSiga(i) && (
-                        <> <span onClick={ev => ev.stopPropagation()} onKeyDown={ev => ev.stopPropagation()}>
-                          <Link para={{ tela: "medicao", obra: i.contrato_id, id: i.medicao_id }} secao="etapa-4"
-                            title="Registrar o número na etapa 4 da medição"><Selo classe="selo--atencao">sem protocolo SIGA</Selo></Link></span></>
+                        <> {podeEditar ? (
+                          <span onClick={ev => ev.stopPropagation()} onKeyDown={ev => ev.stopPropagation()}>
+                            <Link para={{ tela: "medicao", obra: i.contrato_id, id: i.medicao_id }} secao="etapa-4"
+                              title="Registrar o número na etapa 4 da medição"><Selo classe="selo--atencao">sem protocolo SIGA</Selo></Link></span>
+                        ) : <Selo classe="selo--atencao">sem protocolo SIGA</Selo>}</>
                       )}</td>
                       <td className="col-num dinheiro" data-rotulo="Valor">{brl(i.valor_centavos)}</td>
                       <td className="num" data-rotulo="Enviada em">{data(i.enviada_em)}{i.origem === "externo" && <span className="ap__origem">por fora</span>}</td>
@@ -172,7 +176,7 @@ export default function AguardandoPagamento({ hoje }: { hoje?: string }) {
             ))}
           </table>
         </section>
-        <Painel key={atual.medicao_id} l={atual} />
+        <Painel key={atual.medicao_id} l={atual} podeEditar={podeEditar} />
       </div>
     </>
   );

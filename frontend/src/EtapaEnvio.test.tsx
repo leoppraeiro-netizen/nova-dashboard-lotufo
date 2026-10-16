@@ -157,6 +157,15 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     expect(api).toHaveBeenCalledWith("/api/notas/631/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "0001234-56.2026" }) });
   });
 
+  it("se o nº do processo não entrar, o envio já gravado não se perde: avisa e manda registrá-lo na etapa 4", async () => {
+    const p = await abrir([envio()]);
+    api.mockRejectedValueOnce(new ApiErro(422, "Medição sem envio registrado"));
+    fireEvent.change(screen.getByLabelText("Nº do processo no órgão (opcional)"), { target: { value: "123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+    expect((p.aoMudar as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain("O nº do processo não foi gravado");
+  });
+
   it("desmarcada a irmã, o registro leva só a medição do envio", async () => {
     await abrir([envio({ irmas })]);
     fireEvent.click(screen.getByLabelText("Incluir também o Reajuste da 7ª Medição (saiu no mesmo e-mail)"));

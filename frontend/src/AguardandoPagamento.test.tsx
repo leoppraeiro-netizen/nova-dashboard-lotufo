@@ -76,6 +76,14 @@ describe("Aguardando pagamento", () => {
     expect(screen.getAllByText("sem protocolo SIGA")).toHaveLength(1);   // so' a linha da Granito
   });
 
+  it("quem só consulta vê a marca, mas sem o caminho para registrar o número", async () => {
+    api.mockResolvedValue([cinco()[0]]);
+    render(<AguardandoPagamento hoje={HOJE} podeEditar={false} />);
+    expect((await screen.findAllByText("sem protocolo SIGA")).length).toBe(2);
+    expect(screen.queryByRole("link", { name: /Registrar o número na etapa 4/ })).toBeNull();
+    expect(screen.getAllByText("sem protocolo SIGA").some(x => x.closest("a"))).toBe(false);
+  });
+
   it("diretoria vê o número do órgão sem o formulário de registrar (B-09, 10/10/2026)", async () => {
     api.mockResolvedValue([linha({ familia: "sinfra", orgao: "SINFRA", numero_orgao: "SEI 123" })]);
     render(<AguardandoPagamento hoje={HOJE} />);

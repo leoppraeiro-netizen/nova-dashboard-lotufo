@@ -212,7 +212,7 @@ export default function MedicoesPagina({ aba, busca, usuario }: { aba: AbaMedico
     conteudo = (
       <>
         <p className="pagina__descricao">Notas já enviadas ao contratante · o nº do protocolo no órgão (SIGA, na MTPAR) se registra na etapa 4 da medição</p>
-        <AguardandoPagamento />
+        <AguardandoPagamento podeEditar={podeEditar} />
       </>
     );
   } else if (!dados) {

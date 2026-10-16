@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import EnviarNota from "./EnviarNota";
 import { brl } from "./formato";
@@ -23,13 +23,16 @@ export function useEnvios(ids: number[]) {
   const [erro, setErro] = useState("");
   const chave = ids.join(",");
   const alvo = useMemo(() => chave.split(",").filter(Boolean).map(Number), [chave]);
+  const leitura = useRef(0);   // so' a leitura mais nova vale: uma resposta atrasada nao desfaz o que a acao acabou de mudar
   const carregar = useCallback(async () => {
     if (alvo.length === 0) return;
+    const minha = ++leitura.current;
     try {
       const l = await api<ListaEnvios>("/api/notas/a-enviar");
+      if (minha !== leitura.current) return;
       setEnvios(l.envios.filter(e => e.medicao_ids.some(id => alvo.includes(id))));
       setErro("");
-    } catch (x) { setErro(mensagem(x)); setEnvios([]); }
+    } catch (x) { if (minha === leitura.current) { setErro(mensagem(x)); setEnvios([]); } }
   }, [alvo]);
   useEffect(() => { void carregar(); }, [carregar]);
   return { envios, erro, carregar };
@@ -140,7 +143,7 @@ export function EtapaEnvio({ envios, erro, recarregarEnvios, podeEditar, versaoD
             <button type="button" className="btn btn--pequeno" onClick={() => setAberto(null)}>Fechar</button>
           </div>
           <EnviarNota key={pidAberto} protocoloId={pidAberto} podeEditar={podeEditar} versao={versaoDocs}
-            embutido={{ aoConcluir: aoMudar, aoTrocar: pid => { void recarregarEnvios().then(() => setAberto(pid)); }, aoAnexarItem }} />
+            embutido={{ aoConcluir: aoMudar, aoTrocar: pid => { void recarregarEnvios().then(() => setAberto(pid)); }, aoAnexarItem, aoDescartar: () => setAberto(null) }} />
         </div>
       )}
 

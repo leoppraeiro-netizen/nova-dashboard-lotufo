@@ -36,6 +36,7 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
       || "Registrado na etapa 4 da medição.";
     setOcupado(true); setErro("");
     const feitos: string[] = [];
+    const semNumero: string[] = [];
     let todasJuntas: Irma[] = [];
     try {
       for (const e of escolhidos) {
@@ -51,13 +52,16 @@ export default function RegistrarFora({ envios, aoFechar, aoFeito }: {
         feitos.push(e.chave);
         todasJuntas = [...todasJuntas, ...juntas];
         if (processo.trim()) {
+          // o envio ja' esta' gravado: se o numero nao entrar, a pessoa o registra na etapa 4 (nao refaz o envio)
           for (const id of [...e.medicao_ids, ...juntas.map(i => i.medicao_id)]) {
-            await api(`/api/notas/${id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: processo.trim() }) });
+            try { await api(`/api/notas/${id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: processo.trim() }) }); }
+            catch (x) { semNumero.push(mensagem(x)); }
           }
         }
       }
-      aoFeito(escolhidos.length === 1 ? avisoPorFora(todasJuntas, escolhidos[0].medicao_ids.length)
-        : "Envios registrados: as notas foram para Aguardando pagamento.");
+      const aviso = escolhidos.length === 1 ? avisoPorFora(todasJuntas, escolhidos[0].medicao_ids.length)
+        : "Envios registrados: as notas foram para Aguardando pagamento.";
+      aoFeito(semNumero.length > 0 ? `${aviso} O nº do processo não foi gravado (${semNumero[0]}): registre-o na etapa 4, depois do envio.` : aviso);
     } catch (x) {
       setErro(feitos.length > 0 ? `${mensagem(x)} Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`
         : mensagem(x));

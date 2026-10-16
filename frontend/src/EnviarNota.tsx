@@ -170,7 +170,9 @@ function Secao({ n, titulo, passo, acoes, children }: {
 /** A etapa 4 da pagina da medicao mostra este envio; depois de enviar ela recarrega. */
 export type Embutido = { aoConcluir: (aviso?: string) => void; aoTrocar: (protocoloId: number) => void;
   /** issue #148: um documento anexado num item (a FRC assinada, p. ex.) muda o que as outras etapas mostram */
-  aoAnexarItem?: () => void };
+  aoAnexarItem?: () => void;
+  /** a lixeira do e-mail (sem texto editado) fecha o envio aberto */
+  aoDescartar?: () => void };
 
 /** `versao` (issue #100): a pagina da medicao a incrementa quando um documento da medicao muda em outra etapa; o envio
  *  e' lido de novo e, se os anexos mudaram, a previa e' refeita com o aviso. */
@@ -324,7 +326,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
       <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${assinaturaAnexos(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar o e-mail"
         bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
-        aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => {}} />
+        aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => embutido.aoDescartar?.()} />
       {refeita && <CaixaAviso nivel="atencao" role="status">A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.</CaixaAviso>}
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>

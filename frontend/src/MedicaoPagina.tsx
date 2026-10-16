@@ -289,7 +289,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
             <span className="campo__nota"> · registrado fora do sistema</span>
           </p>
         ))}
-        {registrados.length > 0 && <NumeroDoOrgaoFora m={m} atual={registrados.at(-1)?.numero_processo ?? ""} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+        {registrados.length > 0 && <NumeroDoOrgaoFora ms={grupo.filter(x => x.protocolos.some(p => !p.protocolo_id) && !FINAIS.includes(x.estado))} atual={registrados.at(-1)?.numero_processo ?? ""} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
           aoMudar={() => { setFeito("Número gravado."); recarregar(); }} />}
       </ProtocolosDaMedicao>
     </div>
@@ -419,7 +419,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
 
 
 /** O nº do protocolo no orgao de um envio registrado fora do sistema: so' se digita aqui, na etapa 4. */
-function NumeroDoOrgaoFora({ m, atual, podeEditar, aoMudar }: { m: Medicao; atual: string; podeEditar: boolean; aoMudar: () => void }) {
+function NumeroDoOrgaoFora({ ms, atual, podeEditar, aoMudar }: { ms: Medicao[]; atual: string; podeEditar: boolean; aoMudar: () => void }) {
   const [numero, setNumero] = useState(atual);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -427,7 +427,8 @@ function NumeroDoOrgaoFora({ m, atual, podeEditar, aoMudar }: { m: Medicao; atua
     ev.preventDefault();
     setOcupado(true); setErro("");
     try {
-      await api(`/api/notas/${m.id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: numero.trim() }) });
+      // onde o orgao junta, o registro por fora cobriu a medicao e o reajuste: o numero vale para os dois
+      for (const x of ms) await api(`/api/notas/${x.id}/numero-orgao`, { method: "POST", body: JSON.stringify({ numero: numero.trim() }) });
       aoMudar();
     } catch (e) { setErro(mensagemDeErro(e)); } finally { setOcupado(false); }
   }
