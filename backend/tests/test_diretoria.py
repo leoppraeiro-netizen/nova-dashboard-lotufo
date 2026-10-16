@@ -167,6 +167,38 @@ def test_carteira_saldo_ritmo_e_termino(cenario):
     assert k["ritmo_mensal_centavos"] == 33_833_333             # 203.000.000 / 6, meio para cima
 
 
+def test_faturado_no_mes_soma_notas_emitidas_no_mes_na_cota(cenario):
+    c, ids = cenario
+    c.execute("UPDATE entidades SET coligada_rm=2 WHERE chave='cons'")
+    c.execute("UPDATE contratos SET centro_custo_rm='CC-P' WHERE id=?", (ids["propria"],))
+
+    def nota(idmov, coligada, emissao, valor, situacao="ativa", centro=None):
+        return c.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, emissao, valor_centavos, situacao, centro_custo) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?)", (coligada, idmov, f"{idmov:09d}", emissao, valor, situacao, centro)).lastrowid
+    n1 = nota(1, 1, "2026-09-05", 1_000_000)                    # ligada a medicao da propria: 100%
+    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
+              "SELECT id, ?, 1000000, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=14", (n1, ids["propria"]))
+    nota(2, 1, "2026-09-30", 250_000, centro="CC-P")            # sem medicao: pelo centro de custo
+    n3 = nota(3, 2, "2026-09-10", 1_000_001)                    # consorcio a 50%: 500.000,5 sobe para 500.001
+    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
+              "SELECT id, ?, 1000001, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=1", (n3, ids["consorcio"]))
+    nota(4, 1, "2026-08-31", 9_000_000)                         # emitida em agosto: fora
+    nota(5, 1, "2026-10-01", 9_000_000)                         # emitida em outubro: fora
+    nota(6, 1, "2026-09-15", 9_000_000, situacao="cancelada", centro="CC-P")
+    nota(7, 1, "2026-09-16", 9_000_000, centro="CC-DESCONHECIDO")  # obra nao identificada: fora
+    c.commit()
+    m = diretoria.painel(c, HOJE)["mes_ano"]
+    assert m["faturado_mes_centavos"] == 1_000_000 + 250_000 + 500_001
+    assert m["notas_faturadas_mes"] == 3
+
+
+def test_carteira_por_orgao_traz_vigente_medido_e_obras_para_o_cartao(cenario):
+    c, ids = cenario
+    por = {o["orgao"]: o for o in diretoria.painel(c, HOJE)["carteira"]["por_orgao"]}
+    assert (por["SINFRA - X"]["vigente_centavos"], por["SINFRA - X"]["medido_centavos"], por["SINFRA - X"]["obras"]) == (100_000_000, 3_900_000, 1)
+    assert (por["MTPAR"]["vigente_centavos"], por["MTPAR"]["medido_centavos"]) == (600_000_000, 200_500_000)
+
+
 def test_pagamento_atrasado_so_para_a_diretoria_e_so_liberado(cenario):
     c, ids = cenario
     assert diretoria.avisos_pagamento(c, HOJE) == []           # antes da conciliacao, nada
