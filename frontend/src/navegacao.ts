@@ -5,7 +5,8 @@ import type { Rota } from "./rota";
 //
 // Trilho de icones (09/10/2026, prototipo aprovado pelo Leo): uma lista so', sem rotulos de grupo, na ordem do
 // trabalho. Cada perfil ve o recorte dele. As Notas (A enviar, Aguardando pagamento) sairam do menu: viraram abas
-// de Medicoes. Avisos fica PROVISORIAMENTE, ate' a pagina Obras ser redesenhada.
+// de Medicoes. Os Avisos moram dentro de Obras (redesenho #159): o item e a rota /avisos continuam, e o App os leva
+// para "Obras" com os Avisos abertos.
 
 export type Perfil = "engenharia" | "diretoria" | "admin";
 export type ItemMenu = "inicio" | "medicoes" | "obras" | "avisos" | "documentos" | "a-receber" | "carteira" | "admin";
