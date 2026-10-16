@@ -7,8 +7,10 @@ import zipfile
 
 import pytest
 
-from app import (arquivos, auth, cadastro_aplicar, certidoes, cobranca_certidoes, correio, db, documentos,
-                 notas_envio, protocolo, tempo)
+from app import (arquivos, auth, cadastro_aplicar, certidoes, cobranca_certidoes, correio, db, documentos, frc,
+                 medicoes, notas_envio, protocolo, tempo)
+from tests import test_frc
+from tests.test_frc import _texto, consorcio14, conn, usuario  # noqa: F401  (fixtures do consorcio com FRC)
 from tests.test_protocolo import CARTAS, CINCO, _contrato, _pdf, _textos
 
 D = datetime.date
@@ -1227,3 +1229,251 @@ def test_par_da_pagina_traz_a_outra_metade_e_a_liberacao(api):
     sozinha = c.execute("SELECT MAX(id) FROM medicoes").fetchone()[0]
     assert cl.get(f"/api/medicoes/{sozinha}/par").json()["metades"] == []
     assert cl.get("/api/medicoes/999999/par").status_code == 404
+
+
+# --- issue #169: a FRC assinada do envio e' a da FRC vigente ----------------------------------------
+
+def test_assinada_de_frc_anterior_recusa_o_envio(conn, usuario, consorcio14, _texto, tmp_path, monkeypatch):  # noqa: F811
+    """Gate Sol na PR #168: as notas mudam, a FRC e' gerada de novo e a assinada anexada e' a da versao anterior. O
+    item nao fica pronto e o servidor recusa o envio (bloqueio, sem justificativa possivel) antes de reservar."""
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    cid, mid = consorcio14
+    n = test_frc.ULTIMA + 1
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (mid,))
+    conn.commit()
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} assinada.pdf")
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid])
+    assert notas_envio.detalhe_envio(conn, pid)["bloqueio"] is None
+    frc.gerar(conn, usuario, mid, n)                       # FRC gerada de novo: a assinada anexada e' da anterior
+    d = notas_envio.detalhe_envio(conn, pid)
+    item = next(i for i in d["envio"]["itens"] if i["chave"] == f"frc:{mid}")
+    assert item["estado"] == "falta" and d["envio"]["situacao"] == "bloqueado"
+    assert "FRC assinada não é a da FRC vigente" in d["envio"]["aviso"]
+    assert d["bloqueio"] == (f"14ª Medição: A FRC assinada anexada não é a da FRC nº {n} vigente: baixe a FRC "
+                             "gerada, assine no DocuSign e anexe aqui")
+    assert not [a for a in d["previa"]["anexos"] if a["origem"] == "frc"]          # a velha nao vai
+    pv = protocolo.previa_envio(conn, [pid])
+    with pytest.raises(protocolo.Bloqueio, match="não é a da FRC nº"):
+        notas_envio.enviar(conn, usuario, pid, pv["para"] or ["orgao@exemplo.com.br"], pv["copia"], pv["assunto"],
+                           pv["corpo"], "justificativa longa o bastante para passar", anexos_previa=pv["anexos"])
+    p = conn.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    # a assinada da FRC vigente destrava, e so' ela vai no e-mail
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} assinada de novo.pdf")
+    d = notas_envio.detalhe_envio(conn, pid)
+    assert d["bloqueio"] is None
+    assert [a["nome"] for a in d["previa"]["anexos"] if a["origem"] == "frc"] == [f"FRC {n} assinada de novo.pdf"]
+
+
+def test_pdf_assinado_da_versao_anterior_com_o_mesmo_numero_e_recusado(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Revisor adversarial na PR #179 (critico 1): baixa a FRC nº N (v1) e assina; troca uma nota; "Gerar de novo"
+    faz a v2 com o mesmo nº N. Anexar o PDF assinado da v1 e' recusado (o texto traz a nota velha); o da v2 entra."""
+    cid, mid = consorcio14
+    n = test_frc.ULTIMA + 1
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    v1 = test_frc._texto_da_frc(conn, mid)
+    trocada = ("lotufo", 2290, *test_frc.NOTAS_FRC[2][2:])       # a nota de Cuiaba reemitida com outro numero
+    test_frc._anexar(conn, usuario, mid, _texto, [trocada])
+    assert frc.situacao(conn, mid)["frc"]["desatualizada"] is True
+    frc.gerar(conn, usuario, mid, n)
+    assert frc.situacao(conn, mid)["frc"]["numero"] == n and "2290" in test_frc._texto_da_frc(conn, mid)
+    with pytest.raises(ValueError, match=f"Este PDF não é a FRC nº {n} vigente"):
+        test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} v1 assinada.pdf", texto=v1)
+    item, _ = test_frc._item_frc(conn, cid, mid)
+    assert item["estado"] == "falta"
+    test_frc._assinar(conn, usuario, mid, _texto, f"FRC {n} v2 assinada.pdf")
+    assert test_frc._item_frc(conn, cid, mid)[0]["estado"] == "ok"
+
+
+# --- rodada 4 da PR #179 (revisor adversarial na rodada 3) ---------------------------------------------------
+
+def _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, nome):  # noqa: F811
+    cid, mid = consorcio14
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (mid,))
+    conn.commit()
+    doc = test_frc._assinar(conn, usuario, mid, _texto, nome)["documento_id"]
+    return cid, mid, doc
+
+
+def test_pacote_montado_com_a_assinada_velha_exige_montar_de_novo(conn, usuario, consorcio14, _texto, tmp_path,
+                                                                   monkeypatch):  # noqa: F811
+    """Critico: orgao com as notas DENTRO do pacote (familia mtpar). Assinada A (FRC v1) no pacote montado; a FRC e'
+    gerada de novo e a assinada B (v2) anexada: o bloqueio da A some, mas o pacote ainda leva a A. O envio fica
+    bloqueado ate' montar de novo; o pacote novo leva a B e libera."""
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    cid, mid, velha = _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, "FRC v1 assinada.pdf")
+    oid = conn.execute("SELECT orgao_id FROM contratos WHERE id=?", (cid,)).fetchone()[0]
+    conn.execute("UPDATE orgaos SET familia='mtpar' WHERE id=?", (oid,))
+    conn.commit()
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid], "301")
+    assert "notas" in protocolo._contexto(conn, protocolo._linha(conn, pid))[2].partes
+    protocolo.montar(conn, usuario["id"], pid)
+    assert json.loads(protocolo._linha(conn, pid)["montado_frcs"]) == [velha]
+    frc.gerar(conn, usuario, mid, test_frc.ULTIMA + 1)
+    nova = test_frc._assinar(conn, usuario, mid, _texto, "FRC v2 assinada.pdf")["documento_id"]
+    assert frc.assinada(conn, mid)["documento"]["id"] == nova
+    assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) == protocolo.PACOTE_FRC_VELHA
+    env = notas_envio.detalhe_envio(conn, pid)["envio"]
+    assert env["situacao"] == "bloqueado" and "Pacote com a FRC assinada anterior" in env["aviso"]
+    pv = protocolo.previa_envio(conn, [pid], hoje=HOJE)
+    with pytest.raises(protocolo.Bloqueio, match="O pacote foi montado antes da FRC assinada que vale agora"):
+        protocolo.enviar(conn, usuario, [pid], ["orgao@exemplo.com.br"], [], pv["assunto"], pv["corpo"],
+                         "justificativa longa o bastante para passar", hoje=HOJE)
+    assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+    protocolo.montar(conn, usuario["id"], pid)
+    assert json.loads(protocolo._linha(conn, pid)["montado_frcs"]) == [nova]
+    assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) is None
+
+
+def test_frc_que_muda_durante_a_reserva_recusa_e_destrava(conn, usuario, consorcio14, _texto, tmp_path,
+                                                          monkeypatch):  # noqa: F811
+    """Aviso: a FRC fica desatualizada entre a previa e a reserva. A conferencia depois da reserva recusa antes do
+    e-mail e destrava a reserva (senao o e-mail sairia sem a FRC assinada, que deixou de valer)."""
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    cid, mid, _ = _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, "FRC assinada.pdf")
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid])
+    pv = protocolo.previa_envio(conn, [pid])
+    assert pv["bloqueio"] is None and [a for a in pv["anexos"] if a["origem"] == "frc"]
+    reservar = protocolo.envio_reserva.reservar
+
+    def no_meio(conn_, *a, **k):            # outra pessoa troca uma nota enquanto o envio reserva
+        reservar(conn_, *a, **k)
+        conn_.execute("UPDATE frcs SET notas='[]' WHERE medicao_id=? AND substituida_em IS NULL", (mid,))
+    monkeypatch.setattr(protocolo.envio_reserva, "reservar", no_meio)
+    with pytest.raises(protocolo.Bloqueio, match="As notas mudaram depois da FRC nº"):
+        notas_envio.enviar(conn, usuario, pid, pv["para"] or ["orgao@exemplo.com.br"], pv["copia"], pv["assunto"],
+                           pv["corpo"], "justificativa longa o bastante para passar", anexos_previa=pv["anexos"])
+    p = conn.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_irma_com_frc_que_bloqueia_nao_vai_no_registro_por_fora(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Aviso: onde medicao e reajuste vao juntos, a irma cuja FRC assinada bloqueia (aqui: reajuste sem espelho) nao
+    se oferece nem entra no registro por fora, que contornaria o bloqueio do envio."""
+    cid, mid, _ = _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, "FRC assinada.pdf")
+    reaj = medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 14, "tipo": "reajuste", "competencia": "2026-08"})
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (reaj,))
+    conn.commit()
+    assert frc.assinada(conn, reaj)["recusa"] == frc.SEM_ESPELHO
+    c = protocolo._contrato(conn, cid)
+    familia, _, o = protocolo._orgao(conn, c)
+    m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    assert notas_envio._irmas(conn, c, familia, o, [m], HOJE) == []
+    with pytest.raises(ValueError, match="não pode ir neste registro"):
+        notas_envio._conferir_externo(conn, [mid, reaj], {reaj})
+
+
+# --- rodada 5 da PR #179 (revisor adversarial na rodada 4) ---------------------------------------------------
+
+def _mtpar(conn, cid):
+    oid = conn.execute("SELECT orgao_id FROM contratos WHERE id=?", (cid,)).fetchone()[0]
+    conn.execute("UPDATE orgaos SET familia='mtpar' WHERE id=?", (oid,))
+    conn.commit()
+
+
+def test_assinado_do_pacote_anterior_e_recusado_depois_de_montar_de_novo(conn, usuario, consorcio14, _texto,
+                                                                         monkeypatch):  # noqa: F811
+    """Critico: monta com a assinada A (FRC v1), troca uma nota, gera a v2, anexa B e monta de novo; o PDF assinado do
+    pacote ANTERIOR (com a A) passa na semelhanca de paginas, mas nao traz a FRC vigente: o anexo e' recusado. O
+    assinado do pacote de agora entra."""
+    cid, mid, _ = _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, "FRC v1 assinada.pdf")
+    _mtpar(conn, cid)
+    n = test_frc.ULTIMA + 1
+    v1 = test_frc._texto_da_frc(conn, mid)
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid], "301")
+    protocolo.montar(conn, usuario["id"], pid)
+    pacote_v1 = arquivos.caminho_seguro(protocolo._linha(conn, pid)["montado_arquivo"]).read_bytes()
+    test_frc._anexar(conn, usuario, mid, _texto, [("lotufo", 2290, *test_frc.NOTAS_FRC[2][2:])])   # nota reemitida
+    frc.gerar(conn, usuario, mid, n)
+    v2 = test_frc._texto_da_frc(conn, mid)
+    assert "2290" in v2 and "2290" not in v1
+    test_frc._assinar(conn, usuario, mid, _texto, "FRC v2 assinada.pdf")
+    carimbo = "\nDocuSign Envelope ID: 0A1B2C3D-0000-1111-2222-333344445555\n"
+    # o texto de cada pacote como o DocuSign o devolve: o da FRC que ele leva (as notas de teste nao tem texto)
+    textos = {pacote_v1: [v1 + carimbo]}
+    monkeypatch.setattr(protocolo.leitura_pdf, "textos_por_pagina_com_limite", lambda pdf, teto=400: textos[pdf])
+    # o pacote de agora ainda leva a A: assinar de novo nao resolve, a mensagem manda montar de novo
+    with pytest.raises(ValueError, match="O pacote foi montado antes da FRC assinada que vale agora"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v1)
+    protocolo.montar(conn, usuario["id"], pid)
+    pacote_v2 = arquivos.caminho_seguro(protocolo._linha(conn, pid)["montado_arquivo"]).read_bytes()
+    textos[pacote_v2] = [v2 + carimbo]
+    with pytest.raises(ValueError, match=f"O assinado não traz a FRC nº {n} vigente da 14ª Medição"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v1)
+    # os numeros e valores da v2 numa pagina que nao e' a da FRC (nota, carta) nao contam
+    textos[b"fora"] = [v2.replace("FATURA DE RECEBIMENTO DE CONSÓRCIO", "NOTA FISCAL") + carimbo, v1 + carimbo]
+    with pytest.raises(ValueError, match=f"O assinado não traz a FRC nº {n} vigente"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, b"fora")
+    textos[b"digitalizado"] = ["", ""]
+    with pytest.raises(ValueError, match="O assinado não tem texto para conferir a FRC"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, b"digitalizado")
+    p = protocolo._linha(conn, pid)
+    assert (p["situacao"], p["assinado_arquivo"]) == ("montado", None)
+    # o pacote montado de novo entre a conferencia e a gravacao: a conferencia sob o lock recusa
+    conferir = protocolo.assinatura.conferir
+
+    def no_meio(*a):
+        conn.execute("UPDATE protocolos SET montado_sha256='outro' WHERE id=?", (pid,))
+        conn.commit()
+        return conferir(*a)
+    monkeypatch.setattr(protocolo.assinatura, "conferir", no_meio)
+    with pytest.raises(ValueError, match="O pacote foi montado de novo enquanto o assinado era conferido"):
+        protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v2)
+    monkeypatch.setattr(protocolo.assinatura, "conferir", conferir)
+    conn.execute("UPDATE protocolos SET montado_sha256=? WHERE id=?", (p["montado_sha256"], pid))
+    conn.commit()
+    d = protocolo.receber_assinado(conn, usuario["id"], pid, pacote_v2)
+    assert d["situacao"] == "assinado" and protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) is None
+
+
+def test_pacote_sem_a_frc_assinada_pede_montar_de_novo(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Sugestao: pacote montado antes de qualquer assinada, ou de antes da migracao 041 (montado_frcs NULL), nao
+    leva a assinada que vale: bloqueio com a mensagem de pacote SEM a FRC (nao "leva a anterior")."""
+    cid, mid = consorcio14
+    test_frc._anexar(conn, usuario, mid, _texto, test_frc.NOTAS_FRC)
+    conn.execute("UPDATE medicoes SET estado='nota_emitida' WHERE id=?", (mid,))
+    conn.commit()
+    _mtpar(conn, cid)
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid], "301")
+    protocolo.montar(conn, usuario["id"], pid)                 # sem assinada: o pacote vai sem FRC
+    assert json.loads(protocolo._linha(conn, pid)["montado_frcs"]) == []
+    doc = test_frc._assinar(conn, usuario, mid, _texto, "FRC assinada.pdf")["documento_id"]
+    assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) == protocolo.PACOTE_SEM_FRC
+    env = notas_envio.detalhe_envio(conn, pid)["envio"]
+    assert env["situacao"] == "bloqueado" and "Pacote sem a FRC assinada: monte de novo" in env["aviso"]
+    protocolo.montar(conn, usuario["id"], pid)
+    assert json.loads(protocolo._linha(conn, pid)["montado_frcs"]) == [doc]
+    assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) is None
+    conn.execute("UPDATE protocolos SET montado_frcs=NULL WHERE id=?", (pid,))      # montado antes da 041
+    conn.commit()
+    assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) == protocolo.PACOTE_SEM_FRC
+
+
+def test_anexo_que_muda_de_tamanho_durante_a_reserva_recusa_e_destrava(conn, usuario, consorcio14, _texto, tmp_path,
+                                                                       monkeypatch):  # noqa: F811
+    """Sugestao: sem `anexos_previa` (rota generica de protocolos), uma nota que muda de tamanho entre a previa e a
+    reserva recusa com AnexosMudaram depois da reserva e destrava antes de qualquer e-mail."""
+    monkeypatch.setenv("DASH_GRAPH_SIMULADOR", str(tmp_path / "sim"))
+    cid, mid, _ = _consorcio_nota_emitida(conn, usuario, consorcio14, _texto, "FRC assinada.pdf")
+    pid = notas_envio.iniciar(conn, usuario["id"], cid, [mid])
+    pv = protocolo.previa_envio(conn, [pid], hoje=HOJE)
+    assert pv["bloqueio"] is None and [a for a in pv["anexos"] if a["origem"] == "nota"]
+    nota = conn.execute("SELECT arquivo FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='nfs' ORDER BY id "
+                        "LIMIT 1", (mid,)).fetchone()[0]
+    reservar = protocolo.envio_reserva.reservar
+
+    def no_meio(conn_, *a, **k):            # o arquivo da nota muda enquanto o envio reserva
+        reservar(conn_, *a, **k)
+        caminho = arquivos.caminho_seguro(nota)
+        caminho.write_bytes(caminho.read_bytes() + b"\n% mais")
+    monkeypatch.setattr(protocolo.envio_reserva, "reservar", no_meio)
+    with pytest.raises(protocolo.AnexosMudaram):
+        protocolo.enviar(conn, usuario, [pid], ["orgao@exemplo.com.br"], [], pv["assunto"], pv["corpo"],
+                         "justificativa longa o bastante para passar", hoje=HOJE)
+    p = conn.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
+    assert tuple(p) == ("rascunho", None, None)
+    assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0

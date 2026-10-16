@@ -187,13 +187,18 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
         if consorciadas:
             # FRC (2026-10-09): a dashboard gera a FRC sem assinatura na etapa 3; o que vai ao orgao e' a ASSINADA,
             # anexada aqui como documento `fatura` (uma por medicao). Arrastar e soltar no proprio item.
-            frcs = {d["medicao_id"]: d for d in docs if d["tipo_doc"] == "fatura"}
             for m in ms:
-                d = frcs.get(m["id"])
+                # issue #169: so' conta a assinada ligada a' FRC vigente e nao desatualizada (frc.assinada)
+                a = frc.assinada(conn, m["id"])
+                d = a["documento"]
                 # issue #148: a FRC gerada (sem assinatura) vigente, para a etapa 4 oferecer baixa-la; desatualizada
                 # (as notas mudaram depois dela) nao se oferece: assinaria valores velhos
-                g = None if d else frc.situacao(conn, m["id"]).get("frc")
-                detalhe = (f"Assinada anexada · {d['nome']}" if d
+                g = None if d else a["frc"]
+                if a["recusa"]:         # nao se justifica: o envio fica bloqueado (protocolo.frc_recusadas)
+                    curtos.append("FRC fora do cadastro" if a["recusa"] == frc.SEM_CADASTRO
+                                  else "Sem espelho para a FRC" if a["recusa"] == frc.SEM_ESPELHO
+                                  else "FRC assinada não é a da FRC vigente")
+                detalhe = (f"Assinada anexada · {d['nome']}" if d else a["recusa"] if a["recusa"]
                            else "Falta a assinada: as notas mudaram depois da FRC gerada; gere de novo na etapa 3 "
                                 "(Nota fiscal), assine no DocuSign e anexe aqui" if g and g["desatualizada"]
                            else "Falta a assinada: baixe a FRC gerada, assine no DocuSign e anexe aqui" if g
@@ -201,7 +206,8 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
                 itens.append({"chave": f"frc:{m['id']}", "medicao_id": m["id"],
                               "rotulo": "FRC assinada" + (f" · {medicoes.titulo(m)}" if len(ms) > 1 else ""),
                               "detalhe": detalhe, "frc_gerada": g["numero"] if g and not g["desatualizada"] else None,
-                              "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc"})
+                              "estado": "ok" if d else "falta", "acao": None if d else "anexar_frc",
+                              "bloqueia": bool(a["recusa"])})
             notas_faltam = [f for f in faltas if not f.endswith("FRC assinada não anexada")]
             itens.append({"chave": "consorcio", "rotulo": "Notas das consorciadas",
                           "detalhe": "; ".join(notas_faltam) or "todas anexadas",
@@ -254,7 +260,8 @@ def _itens(conn, c: dict, familia: str, ms: list[dict], hoje: datetime.date) -> 
 def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.date) -> list[dict]:
     """Issue #172: onde medicao e reajuste vao no mesmo e-mail (SINFRA, Pref. VG), a irma (mesmo numero, o outro tipo
     do par execucao x reajuste) com nota emitida que ficou fora deste envio, para o registro por fora leva-la junto.
-    Nao se oferece a irma bloqueada (certidao vencida da natureza dela: o registro por fora contornaria o bloqueio)
+    Nao se oferece a irma bloqueada (certidao vencida da natureza dela ou FRC assinada que nao vale: o registro por
+    fora contornaria o bloqueio)
     nem a que tem envio proprio ja' montado ou assinado (o registro descartaria esse protocolo); rascunho nao conta."""
     regras = json.loads(o.get("regras") or "{}")
     if not protocolo.junta_naturezas(regras, o, protocolo._etapa(familia, _etapa(familia))):
@@ -269,7 +276,8 @@ def _irmas(conn, c: dict, familia: str, o: dict, ms: list[dict], hoje: datetime.
                               "AND estado='nota_emitida' ORDER BY id", (c["id"], m["numero"], outro[m["tipo"]])):
             if r["id"] in dentro or any(p["situacao"] != "rascunho" for p in _ativos(conn, _etapa(familia), r["id"])):
                 continue
-            if any(i["estado"] == "vencida" for i in _itens(conn, c, familia, [dict(r)], hoje)[0]):
+            # rodada 3 da PR #179: nem a irma com item que bloqueia (FRC assinada recusada, sem espelho, sem cadastro)
+            if any(i["estado"] == "vencida" or i.get("bloqueia") for i in _itens(conn, c, familia, [dict(r)], hoje)[0]):
                 continue
             achadas[r["id"]] = {"medicao_id": r["id"], "titulo": medicoes.titulo(r), "tipo": r["tipo"]}
     return list(achadas.values())
@@ -281,10 +289,17 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
     estados = {i["estado"] for i in itens}
     esperas = [x for m in ms if (x := espera(conn, m, c))]
     # issue #188: a espera vem antes do resto, porque e' ela que segura o envio
-    situacao = "esperando" if esperas else "bloqueado" if "vencida" in estados else \
+    situacao = "esperando" if esperas else \
+        "bloqueado" if "vencida" in estados or any(i.get("bloqueia") for i in itens) else \
         "pendente" if "falta" in estados else "a_pedido" if o["chave"] == "pref-cuiaba" else "pronto"
     if esperas:
         curtos = [esperas[0]["texto"].capitalize(), *curtos]
+    # rodada 4 da PR #179: o pacote montado com a FRC assinada anterior bloqueia o envio; a lista mostra
+    elif protocolo_id and (r := [x for x in protocolo.frc_recusadas(conn, protocolo._linha(conn, protocolo_id))
+                                 if x in protocolo.PACOTE_SEM_A_FRC_VIGENTE]):
+        situacao = "bloqueado"
+        curtos.append("Pacote com a FRC assinada anterior: monte de novo" if r[0] == protocolo.PACOTE_FRC_VELHA
+                      else "Pacote sem a FRC assinada: monte de novo")
     ids = sorted(m["id"] for m in ms)
     emitida = max((m["desde"] for m in ms if m.get("desde")), default=None)
     return {"chave": f"c{c['id']}:" + "-".join(f"m{i}" for i in ids), "contrato_id": c["id"],
