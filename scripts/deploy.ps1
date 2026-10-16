@@ -35,6 +35,9 @@ function Construir([string]$alvo) {
     if ($LASTEXITCODE -ne 0) { throw "git fetch falhou" }
     & git -C $AppDir checkout --quiet --detach $alvo
     if ($LASTEXITCODE -ne 0) { throw "git checkout $alvo falhou (diretorio pinado sujo?)" }
+    Reconstruir
+}
+function Reconstruir {
     & $py -m pip install --quiet --disable-pip-version-check -r $lock
     if ($LASTEXITCODE -ne 0) { throw "pip install do requirements.lock falhou" }
     if (-not $SemFrontend) {
@@ -113,11 +116,20 @@ try {
     try { Construir $alvo }
     catch {
         Write-Warning "Construir $alvo falhou: $($_.Exception.Message) -> voltando o diretorio pinado para $anterior"
+        # Sem fetch (a rede pode ser a causa) e so reconstroi se o HEAD saiu de $anterior:
+        # se a falha foi no fetch/checkout do alvo, o HEAD nunca saiu e o build nao e refeito
+        # (npm/vite esvaziariam o dist servido com a producao no ar).
         try {
-            Construir $anterior
+            $atual = (& git -C $AppDir rev-parse HEAD).Trim()
+            if ($atual -ne $anterior) {
+                & git -C $AppDir checkout --quiet --detach $anterior
+                if ($LASTEXITCODE -ne 0) { throw "git checkout $anterior falhou" }
+                Reconstruir
+            }
             Write-Host "deploy abortado no build; producao segue no commit anterior ($anterior), diretorio pinado de volta nele" -ForegroundColor Red
         } catch {
-            Write-Host "deploy abortado no build E a volta para $anterior falhou ($($_.Exception.Message)) - intervir a mao: o diretorio pinado pode estar fora de $anterior" -ForegroundColor Red
+            $onde = (& git -C $AppDir rev-parse HEAD).Trim()
+            Write-Host "deploy abortado no build E a volta para $anterior falhou ($($_.Exception.Message)) - intervir a mao: HEAD do diretorio pinado agora em $onde (esperado $anterior)" -ForegroundColor Red
         }
         exit 1
     }
