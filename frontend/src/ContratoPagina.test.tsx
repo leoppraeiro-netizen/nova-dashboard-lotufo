@@ -5,9 +5,9 @@ import type { Usuario } from "./Login";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
-// O espelho tem fluxo proprio; aqui so' importa que ele avise a pagina quando muda algo.
-vi.mock("./Espelho", () => ({
-  default: ({ aoMudar }: { aoMudar: () => void }) => <button type="button" onClick={aoMudar}>Gerar espelho (teste)</button>,
+// O atalho de iniciar a medição tem fluxo proprio (IniciarProxima.test.tsx); aqui so' importa que ele avise a pagina quando cria algo.
+vi.mock("./IniciarProxima", () => ({
+  default: ({ aoCriar }: { aoCriar: () => void }) => <button type="button" onClick={aoCriar}>Gerar espelho (teste)</button>,
 }));
 
 const usuario = { id: 1, nome: "Leonardo Praeiro", email: "l@l.com", perfil: "admin" } as Usuario;

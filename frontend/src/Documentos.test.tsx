@@ -131,6 +131,7 @@ test("link salvo da tela antiga (?empresa=N) abre a página da empresa, trocando
   render(<Documentos usuario={usuario} busca={{ empresa: "3" }} />);
   await waitFor(() => expect(window.location.pathname).toBe("/documentos/3"));
   expect(window.location.search).toBe("");
+  expect(window.location.hash).toBe("");
 });
 
 test("a garantia vencida de uma obra conta como pendência do cartão e a empresa sem certidão continua na lista", async () => {

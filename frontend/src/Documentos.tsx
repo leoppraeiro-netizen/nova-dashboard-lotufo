@@ -178,7 +178,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
   // Link salvo da tela antiga (/documentos?empresa=N): abre a pagina da empresa, trocando o endereco no lugar.
   const empresaAntiga = /^[1-9][0-9]{0,14}$/.test(busca.empresa ?? "") ? Number(busca.empresa) : null;
   useEffect(() => {
-    if (empresaAntiga !== null) substituir({ tela: "documentos-empresa", id: empresaAntiga }, {});
+    if (empresaAntiga !== null) substituir({ tela: "documentos-empresa", id: empresaAntiga }, { semBusca: true });
   }, [empresaAntiga]);
 
   // A ordem (e, com ?pendentes=1, quem aparece) e' a da carga e a de cada troca de filtro; o que muda depois de

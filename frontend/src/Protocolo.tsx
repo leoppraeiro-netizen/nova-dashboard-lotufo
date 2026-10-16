@@ -531,9 +531,11 @@ export function CriarProtocolo({ contratoId, medicaoId, dados, carregar, primari
 /** A secao Protocolo da pagina da medicao: os protocolos que moram nela (em montagem, com o envio, e os
  *  enviados, com quando e quem), o resumo dos que moram em outra medicao, e o que a pagina acrescenta no
  *  fim (os protocolos registrados fora e o "Registrar protocolo feito fora"). */
-export function ProtocolosDaMedicao({ contratoId, medicaoId, dados, erro, carregar, podeEditar, aoMudar, vazio, children }: {
+export function ProtocolosDaMedicao({ contratoId, medicaoId, dados, erro, carregar, podeEditar, aoMudar, vazio, semCartao, children }: {
   contratoId: number; medicaoId: number; dados: Lista | null; erro?: string; carregar: () => Promise<void>; podeEditar: boolean;
   aoMudar: () => void; vazio?: React.ReactNode; children?: React.ReactNode;
+  /** Na etapa 4 da pagina da medicao a moldura e' a da etapa: sem o cartao nem o titulo "Protocolo". */
+  semCartao?: boolean;
 }) {
   const [marcados, setMarcados] = useState<number[]>([]);
   const { daqui, deOutra } = dados ? protocolosDa(dados.protocolos, medicaoId) : { daqui: [], deOutra: [] };
@@ -544,12 +546,15 @@ export function ProtocolosDaMedicao({ contratoId, medicaoId, dados, erro, carreg
   // nao tem carta (a etapa da nota) e so' espera o envio
   const protocolarEProximo = abertos.some(p => p.situacao === "assinado" || !p.tem_carta);
 
+  const Raiz = semCartao ? "div" : "section";
   return (
-    <section className="cartao" id="protocolo" aria-labelledby="titulo-protocolo-medicao">
+    <Raiz className={semCartao ? undefined : "cartao"} id="protocolo" {...(semCartao ? {} : { "aria-labelledby": "titulo-protocolo-medicao" })}>
+      {!semCartao && (
       <div className="cartao__cabeca">
         <h2 className="cartao__titulo" id="titulo-protocolo-medicao">Protocolo</h2>
       </div>
-      <div className="cartao__corpo pilha">
+      )}
+      <div className={semCartao ? "pilha" : "cartao__corpo pilha"}>
         {!dados && !erro && <p className="campo__nota">Carregando os protocolos…</p>}
         {!dados && erro && (
           <div className="form-inline">
@@ -575,6 +580,6 @@ export function ProtocolosDaMedicao({ contratoId, medicaoId, dados, erro, carreg
         {dados && daqui.length === 0 && deOutra.length === 0 && <p className="campo__nota">{vazio ?? "Nenhum protocolo desta medição."}</p>}
         {children}
       </div>
-    </section>
+    </Raiz>
   );
 }
