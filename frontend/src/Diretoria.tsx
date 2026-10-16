@@ -16,8 +16,8 @@ import { Abas } from "./Topo";
 // Carteira (NAVEGACAO.md › Carteira; bloco 8, spec §10.5), a entrada da diretoria, em abas na URL: Resumo (a
 // padrao), QDOP e Producao. Tudo na COTA da Lotufo, com o vocabulario fixo: medido, faturado, protocolado,
 // recebido. As regras moram em `app/diretoria.py`; o total a receber so' mostra valor depois de conciliado
-// (geral.yaml: diretoria.total_a_receber_liberado). O protocolado por orgao e os reajustes esperando
-// apostilamento moram em A receber; a lista de avisos, na tela de Avisos; o que termina, em Obras.
+// (geral.yaml: diretoria.total_a_receber_liberado). O a receber (por obra, previsto e recebido) mora
+// em A receber; os reajustes esperando apostilamento, na aba Reajuste da obra; a lista de avisos, na tela de Avisos; o que termina, em Obras.
 
 type Grupo = { quantidade: number; valor_centavos: number | null };
 type PorOrgao = Grupo & { orgao: string; maior_dias: number | null };
@@ -209,16 +209,6 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
           <Kpi valorTexto={valor(d.protocolado.valor_centavos)} rotulo={`protocolado esperando pagamento (${d.protocolado.quantidade})`} />
           <Kpi valorTexto={brl(d.recebido_mes.valor_centavos)} rotulo={`recebido no mês (${d.recebido_mes.quantidade})`} />
         </ul>
-        {/* o protocolado por orgao (faixas, obras) e os reajustes esperando apostilamento moram em A receber */}
-        <div className="cartao__corpo">
-          <p>
-            Em A receber:{" "}
-            <Link para={{ tela: "a-receber" }} ir={ir}>por órgão e há quanto tempo</Link>{" · "}
-            <Link para={{ tela: "a-receber" }} secao="reajustes" ir={ir}>
-              reajustes esperando apostilamento ({d.reajustes_apostilamento.quantidade})
-            </Link>
-          </p>
-        </div>
       </Secao>
 
       <Secao id="dir-mes" titulo="O mês" dica={`Competência ${fmtCompetencia(m.mes)}`}>
