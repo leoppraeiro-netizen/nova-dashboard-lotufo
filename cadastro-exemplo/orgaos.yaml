@@ -16,6 +16,8 @@
   documentos_medicao: [fgts, federal, trabalhista, estadual, municipal]
   documentos_reajuste: [fgts, federal, trabalhista, estadual, municipal]
   ordem_certidoes: [federal, trabalhista, municipal, estadual, fgts]
+  # peças que o pleito de reajuste leva além da memória de cálculo e do cronograma (opcional; issue #50):
+  # pecas_pleito_reajuste: [falencia, contrato_social, documento_representante, balanco]
   carta_destinatario:
     - À Secretaria de Exemplo
     - Superintendência de Obras de Exemplo

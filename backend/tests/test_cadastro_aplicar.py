@@ -450,3 +450,34 @@ def test_ensaio_da_frc_nao_grava_nem_copia_o_logo(conn):
     assert r["frc"]["criados"] == ["consorcio-exemplo"]
     assert conn.execute("SELECT COUNT(*) FROM frc_consorcios").fetchone()[0] == 0
     assert not list((db.db_path().parent / "modelos").glob("*.jpg"))
+
+
+# --- issue #65: garantia e ART do contrato, copiadas para a pasta de dados -------------------------
+
+def test_garantia_e_art_gravadas_e_ensaio_nao_copia(conn, tmp_path):
+    from app import arquivos
+    art, gar = tmp_path / "art.pdf", tmp_path / "gar.pdf"
+    art.write_bytes(b"%PDF-1.4 art")
+    gar.write_bytes(b"%PDF-1.4 gar")
+    cad = _cad(contratos=[_contrato(art="123", art_caminho=str(art), garantia_apolice="AP-9",
+                                    garantia_vigencia_fim="2027-03-31", garantia_caminho=str(gar))])
+    cadastro_aplicar.aplicar(conn, 1, cad, ensaio=True)
+    assert not (arquivos.pasta("anexos") / f"{arquivos.sha_de(b'%PDF-1.4 art')}.pdf").exists()
+    cadastro_aplicar.aplicar(conn, 1, cad)
+    c = conn.execute("SELECT art, art_arquivo, garantia_apolice, garantia_vigencia_fim, garantia_arquivo "
+                     "FROM contratos").fetchone()
+    assert (c["art"], c["garantia_apolice"], c["garantia_vigencia_fim"]) == ("123", "AP-9", "2027-03-31")
+    assert arquivos.caminho_seguro(c["art_arquivo"]).is_file() and arquivos.caminho_seguro(c["garantia_arquivo"]).is_file()
+    assert cadastro_aplicar.aplicar(conn, 1, cad)["contratos"]["iguais"] == 1
+
+
+def test_endosso_com_vigencia_aplicado_e_imutavel(conn):
+    inst = {"chave": "end-1", "tipo": "endosso_garantia", "numero": None, "objeto": None, "corrige": None,
+            "pdf": None, "data": "2026-09-01", "delta_valor_centavos": 0, "nova_execucao_fim": None,
+            "nova_vigencia_fim": None, "dados": {"vigencia_fim": "2027-09-30", "apolice": "AP-1"}}
+    cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(instrumentos=[inst])]))
+    dados = json.loads(conn.execute("SELECT dados FROM instrumentos").fetchone()[0])
+    assert dados["vigencia_fim"] == "2027-09-30"
+    troca = {**inst, "dados": {"vigencia_fim": "2028-01-01"}}
+    with pytest.raises(ValueError, match="já aplicado"):
+        cadastro_aplicar.aplicar(conn, 1, _cad(contratos=[_contrato(instrumentos=[troca])]))

@@ -19,8 +19,8 @@ vi.mock("./Frc", () => ({
   },
 }));
 vi.mock("./Notas", () => ({
-  Notas: ({ aoMudar, rotulo, medicao }: { aoMudar: () => void; rotulo?: string; medicao: { id: number } }) =>
-    <div data-medicao={medicao.id}>{rotulo}<button type="button" onClick={aoMudar}>Anexar nota (teste)</button></div>,
+  Notas: ({ aoMudar, rotulo, medicao, podeDesfazer }: { aoMudar: () => void; rotulo?: string; medicao: { id: number }; podeDesfazer?: boolean }) =>
+    <div data-medicao={medicao.id} data-desfazer={String(!!podeDesfazer)}>{rotulo}<button type="button" onClick={aoMudar}>Anexar nota (teste)</button></div>,
 }));
 vi.mock("./Protocolo", async () => {
   const real = await vi.importActual<typeof import("./Protocolo")>("./Protocolo");
@@ -54,6 +54,25 @@ function responder() {
 describe("Página da medição: as etapas se atualizam entre si", () => {
   afterEach(() => { cleanup(); api.mockReset(); });
 
+  // issue #71 (revisor na PR #202): desfazer o vinculo da nota so' para o admin e so' em medicao aberta
+  it.each([["protocolada", "true"], ["recebida", "false"], ["cancelada", "false"], ["desistida", "false"]])(
+    "medição %s: desfazer vínculo da nota = %s", async (estado, esperado) => {
+      responder();
+      const base = api.getMockImplementation()!;
+      api.mockImplementation(async (url: string, opcoes?: unknown) =>
+        url === "/api/contratos/1/medicoes" ? [{ ...MEDICAO, estado }] : base(url, opcoes));
+      const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+      await waitFor(() => expect(container.querySelector("[data-medicao='5']")).not.toBeNull());
+      expect(container.querySelector("[data-medicao='5']")!.getAttribute("data-desfazer")).toBe(esperado);
+    });
+
+  it("engenharia não desfaz vínculo de nota", async () => {
+    responder();
+    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={{ ...usuario, perfil: "engenharia" } as Usuario} origem={null} />);
+    await waitFor(() => expect(container.querySelector("[data-medicao='5']")).not.toBeNull());
+    expect(container.querySelector("[data-medicao='5']")!.getAttribute("data-desfazer")).toBe("false");
+  });
+
   it("depois de anexar ou vincular nota, os protocolos e a medição são lidos de novo", async () => {
     responder();
     render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
@@ -76,6 +95,20 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(1));
     fireEvent.click(screen.getByRole("button", { name: "Anexar nota (teste)" }));
     await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(2));
+  });
+
+  // issue #208: o espelho misto que ficou vigente para outra medicao (superado para esta) nao e' o espelho dela
+  it("a etapa do espelho mostra a versão mais nova da medição, não o misto superado", async () => {
+    responder();
+    const base = api.getMockImplementation()!;
+    const esp = (id: number, versao: number, superado: boolean) => ({ id, numero: 23, versao, situacao: "vigente",
+      criado_em: "2026-10-15 12:00:00", criado_por_nome: null, envio: null,
+      medicoes: [{ id: 5, tipo: "execucao", superado }] });
+    api.mockImplementation(async (url: string, opcoes?: unknown) =>
+      url === "/api/contratos/1/espelho" ? { espelhos: [esp(7, 1, true), esp(8, 2, false)] } : base(url, opcoes));
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect(await screen.findByText(/nº 23 · versão 2/)).toBeTruthy();
+    expect(screen.queryByText(/nº 23 · versão 1/)).toBeNull();
   });
 
   it("depois de enviar um protocolo, a medição é lida de novo", async () => {

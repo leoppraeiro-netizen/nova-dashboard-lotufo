@@ -167,7 +167,8 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
   const medicaoDa = (id: number) => medicoes.find(x => x.id === id);
   const umaCompleta = metades.some(x => x.completa) && !metades.every(x => x.completa);
   const minha = metades.find(x => x.medicao_id === m.id);
-  const espVigente = espelhos.find(e => e.situacao === "vigente" && e.medicoes.some(x => x.id === m.id));
+  // #208: o misto que ficou vigente para outra medicao (superado para esta) nao e' o espelho desta
+  const espVigente = espelhos.find(e => e.situacao === "vigente" && e.medicoes.some(x => x.id === m.id && !x.superado));
   const valor = m.valor_protocolado_centavos;
   const abrir = (p: Painel, id: string) => { disparador.current = id; setErro(""); setFeito(""); setPainel(p); };
   const fechar = () => setPainel(null);
@@ -347,6 +348,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                       return mx ? (
                         <section key={`${x.medicao_id}-${versaoNotas}`} className="notas-bloco" aria-label={rotuloDoBloco(mx)}>
                           <Notas medicao={mx} rotulo={rotuloDoBloco(mx)} podeEditar={podeEditar && !FINAIS.includes(mx.estado)}
+                            podeDesfazer={usuario.perfil === "admin" && !FINAIS.includes(mx.estado)}
                             aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                         </section>
                       ) : null;
@@ -354,6 +356,7 @@ export default function MedicaoPagina({ contratoId, medicaoId, usuario, origem }
                   </div>
                 ) : (
                   <Notas key={versaoNotas} medicao={m} podeEditar={podeEditar && !FINAIS.includes(m.estado)}
+                    podeDesfazer={usuario.perfil === "admin" && !FINAIS.includes(m.estado)}
                     aoMudar={() => { recarregar(); setVersaoFrc(v => v + 1); }} />
                 )}
               </div>

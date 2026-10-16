@@ -61,6 +61,8 @@ describe("medição", () => {
 
   it("o espelho e o protocolo com várias medições têm um lar só", () => {
     expect(larDoEspelho(espelho71)).toBe(723);
+    // issue #208: execucao superada (desmembramento inverso) deixa o lar com o Projeto
+    expect(larDoEspelho({ medicoes: [{ id: 1, tipo: "execucao", superado: true }, { id: 2, tipo: "projeto" }] })).toBe(2);
     const p = prot(9, [723, 763]);
     expect(protocolosDa([p], 723)).toEqual({ daqui: [p], deOutra: [] });
     expect(protocolosDa([p], 763)).toEqual({ daqui: [], deOutra: [p] });
