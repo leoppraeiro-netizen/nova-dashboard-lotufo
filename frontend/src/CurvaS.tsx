@@ -2,7 +2,8 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { brl } from "./Medicoes";
 import { curvaS, type PontoDaCurva } from "./obra";
 import { Link } from "./Link";
-import { fmtCompetencia, fmtMesCurto, hojeLocal } from "./tempo";
+import { useHoje } from "./ExecucaoContrato";
+import { fmtCompetencia, fmtMesCurto } from "./tempo";
 
 // Curva S da pagina da obra (#160, prototipo aprovado): previsto do cronograma vigente (cinza) contra o medido de
 // execucao (indigo), acumulados, com a visao "por mes". Os numeros sao os da API da curva (`/curva`); a tela so'
@@ -61,10 +62,10 @@ export default function CurvaS({ pontos, contratoId }: { pontos: PontoDaCurva[] 
   const grade: number[] = [];
   for (let v = 0; v <= topo + 1; v += passo) grade.push(v);
 
-  const hoje = hojeLocal();
+  const hoje = useHoje();
   const iHoje = N > 0 ? mesesEntre(serie[0].competencia, hoje.slice(0, 7)) + (Number(hoje.slice(8, 10)) - 1) / 30 : -1;
   const xHoje = ML + banda * iHoje;
-  const hojeVisivel = N > 0 && iHoje >= -0.5 && iHoje <= N - 0.5;
+  const hojeVisivel = N > 0 && iHoje >= 0 && iHoje <= N;
 
   const cada = Math.max(1, Math.ceil(N / Math.max(1, Math.floor(iw / (estreito ? 56 : 64)))));
   const medidos = serie.map((p, i) => ({ p, i })).filter(({ p }) => p.acumuladoMedido !== null);

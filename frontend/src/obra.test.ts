@@ -33,6 +33,11 @@ describe("Página da obra: curva S e linhas do tempo", () => {
     expect(linhaDoTempo("2026-12-31", "2026-12-31", "2026-12-31").posicao).toBe(100);
   });
 
+  it("data malformada dá NaN nos dias, para a tela tratar como sem data final", () => {
+    expect(Number.isNaN(diasEntre("2026-10-16", "abc"))).toBe(true);
+    expect(Number.isNaN(linhaDoTempo("2026-01-01", "", "2026-10-16").restantes)).toBe(true);
+  });
+
   it("os dias restantes viram texto", () => {
     expect(restantesTexto(1)).toBe("1 dia restante");
     expect(restantesTexto(45)).toBe("45 dias restantes");

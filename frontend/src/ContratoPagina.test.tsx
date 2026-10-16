@@ -122,6 +122,69 @@ describe("Página da obra: o desenho novo", () => {
     expect(within(cartao).getAllByText(/^Hoje /)).toHaveLength(1);
   });
 
+  function responderCom(cab: object) {
+    responderCompleto();
+    const base = api.getMockImplementation()!;
+    api.mockImplementation(async (url: string, o?: { method?: string }) =>
+      url.endsWith("/cabecalho") ? { ...CABECALHO_COMPLETO, ...cab } : base(url, o));
+  }
+  const fixarDia = (iso: string) => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(iso));
+  };
+
+  it("obra suspensa mostra o selo 'paralisada' e que o vencimento não conta, sem dias", async () => {
+    fixarDia("2026-10-16T15:00:00Z");
+    responderCom({ status: "suspenso" });
+    render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    const cartao = (await screen.findByRole("heading", { name: "Execução do contrato" })).closest("section")!;
+    expect(within(cartao).getByText("paralisada")).toBeTruthy();
+    expect(within(cartao).getByText("obra paralisada: o vencimento não conta")).toBeTruthy();
+    expect(within(cartao).queryByText("76 dias restantes")).toBeNull();
+    expect(within(cartao).getByText("107 dias restantes")).toBeTruthy();   // a vigência segue contando
+  });
+
+  it("contrato encerrado ou rescindido diz isso no lugar dos dias", async () => {
+    fixarDia("2026-10-16T15:00:00Z");
+    responderCom({ status: "encerrado" });
+    const { unmount } = render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    let cartao = (await screen.findByRole("heading", { name: "Execução do contrato" })).closest("section")!;
+    expect(within(cartao).getAllByText("contrato encerrado")).toHaveLength(2);
+    expect(within(cartao).queryByText(/restantes/)).toBeNull();
+    unmount();
+    responderCom({ status: "rescindido" });
+    render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    cartao = (await screen.findByRole("heading", { name: "Execução do contrato" })).closest("section")!;
+    expect(within(cartao).getAllByText("contrato rescindido")).toHaveLength(2);
+  });
+
+  it("o dia vira à meia-noite de Cuiabá, não à do UTC", async () => {
+    fixarDia("2026-10-17T03:30:00Z");   // 23h30 do dia 16 em Cuiabá
+    responderCompleto();
+    render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    const cartao = (await screen.findByRole("heading", { name: "Execução do contrato" })).closest("section")!;
+    expect(within(cartao).getAllByText("Hoje 16/10/2026")).toHaveLength(2);
+    expect(within(cartao).getByText("76 dias restantes")).toBeTruthy();
+  });
+
+  it("data final ilegível mostra só a data, nunca 'NaN dias'", async () => {
+    fixarDia("2026-10-16T15:00:00Z");
+    responderCom({ execucao_fim: "31/12" });
+    render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    const cartao = (await screen.findByRole("heading", { name: "Execução do contrato" })).closest("section")!;
+    expect(within(cartao).getByText("31/12")).toBeTruthy();
+    expect(cartao.textContent).not.toContain("NaN");
+  });
+
+  it("o marcador 'Hoje' da curva aparece também na segunda metade do último mês", async () => {
+    fixarDia("2026-10-25T15:00:00Z");   // curva vai de ago a out/2026
+    responderCompleto();
+    render(<ContratoPagina contratoId={1} usuario={usuario} aba="medicoes" origem={null} busca={{}} />);
+    const curva = (await screen.findByRole("heading", { name: "Curva S" })).closest("section")!;
+    await waitFor(() => expect(within(curva).getByRole("img")).toBeTruthy());
+    expect(curva.querySelector(".c-hoje")).not.toBeNull();
+  });
+
   it("os avisos da obra ficam num cartão ao lado da página", async () => {
     responderCompleto();
     const base = api.getMockImplementation()!;

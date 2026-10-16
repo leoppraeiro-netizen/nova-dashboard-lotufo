@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { linhaDoTempo, restantesTexto } from "./obra";
+import { diasEntre, linhaDoTempo, restantesTexto } from "./obra";
 import Selo from "./Selo";
 import { fmtDataPura, hojeLocal } from "./tempo";
 
@@ -10,7 +10,7 @@ import { fmtDataPura, hojeLocal } from "./tempo";
 type Status = "ativo" | "suspenso" | "em_encerramento" | "encerrado" | "rescindido";
 
 /** A data do dia, relida a cada minuto: o marcador muda de lugar na virada do dia sem a pessoa recarregar. */
-function useHoje(): string {
+export function useHoje(): string {
   const [hoje, setHoje] = useState(hojeLocal);
   useEffect(() => {
     const t = window.setInterval(() => setHoje(hojeLocal()), 60_000);
@@ -21,11 +21,12 @@ function useHoje(): string {
 
 function Linha({ titulo, inicio, fim, status, hoje, paralisada }:
     { titulo: string; inicio: string | null; fim: string | null; status: Status; hoje: string; paralisada?: boolean }) {
-  if (!fim) {
+  // data final ausente ou ilegivel: so' a data, como a tela antiga (nunca "vencida ha NaN dias")
+  if (!fim || Number.isNaN(diasEntre(hoje, fim))) {
     return (
       <div className="lt">
         <p className="lt__titulo"><span>{titulo}</span></p>
-        <p className="lt__nota lt__nota--esq">Sem data final cadastrada.</p>
+        <p className="lt__nota lt__nota--esq">{fim ? fmtDataPura(fim) : "Sem data final cadastrada."}</p>
       </div>
     );
   }
