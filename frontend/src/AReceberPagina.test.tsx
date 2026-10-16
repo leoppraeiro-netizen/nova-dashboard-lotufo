@@ -51,6 +51,17 @@ describe("A receber", () => {
     expect(detalhe.textContent).toMatch(/Dezembro de 2026 \(previsão\): R\$\s*22\.000,00/);
   });
 
+  it("as setas percorrem os meses do grafico, levando o foco junto", async () => {
+    api.mockResolvedValue(RESPOSTA);
+    render(<AReceberPagina />);
+    const detalhe = (await screen.findAllByRole("status"))[0];
+    const set = screen.getByRole("button", { name: /^setembro de 2026: previsto/ });
+    fireEvent.keyDown(screen.getByRole("button", { name: /^outubro de 2026: previsto/ }), { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(set);
+    fireEvent.keyDown(set, { key: "ArrowLeft" });
+    expect(detalhe.textContent).toMatch(/^Agosto de 2026/);
+  });
+
   it("clicar numa obra filtra a tabela e o total; clicar de novo ou em Mostrar todas volta", async () => {
     api.mockResolvedValue(RESPOSTA);
     render(<AReceberPagina />);

@@ -335,10 +335,10 @@ def painel(conn, hoje: datetime.date | None = None) -> dict:
 def a_receber(conn, hoje: datetime.date | None = None) -> dict:
     """Tela A receber (redesenho #162; so' leitura; tudo na cota). O total e a lista sao as cobrancas protocoladas
     esperando pagamento (medicoes protocoladas e, como no painel da diretoria, as notas do RM em aberto que nenhuma
-    medicao representa), por obra. Antes da conciliacao o valor e' None (a quantidade segue), como no painel.
+    medicao representa), por obra. Antes da conciliacao o valor e' None e as notas do RM ficam fora (como no painel).
 
     Regra do "previsto" (a confirmar pelo Leo; o sistema nao tem previsao por medicao): o previsto de um mes e' a
-    soma, na cota, das medicoes protocoladas (hoje em aberto ou ja' recebidas) e das notas do RM em aberto cujo
+    soma, na cota, das medicoes protocoladas (hoje em aberto ou ja' recebidas) cujo
     vencimento (data do protocolo ou da emissao + prazo normal do orgao) cai naquele mes. O recebido do mes e' a
     soma, na cota, das medicoes com `recebida_em` no mes. Seis meses ate o atual e tres a frente."""
     hoje = hoje or tempo.hoje_local()
@@ -360,7 +360,7 @@ def a_receber(conn, hoje: datetime.date | None = None) -> dict:
              for m in abertas]
     prazos: dict = {}
     previsto = dict.fromkeys([_mes(hoje, k) for k in range(-5, 4)], 0)
-    for m in [x for x in ms if x["estado"] in (*PROTOCOLADAS, "recebida")] + notas:
+    for m in [x for x in ms if x["estado"] in (*PROTOCOLADAS, "recebida")]:   # so' medicoes: a nota do RM repetiria a recebida
         base = _d(m["protocolo_em"])
         if not base:
             continue

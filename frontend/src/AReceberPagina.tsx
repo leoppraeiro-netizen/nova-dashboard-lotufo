@@ -33,8 +33,9 @@ function pct(rec: number | null, prev: number | null): number | null {
 }
 /** Valor curto do eixo e das barras: "4,2 mi" ou "850 mil". So' apresentacao; a conta e' em centavos inteiros. */
 function curto(c: number): string {
-  if (c >= 100_000_000) return `${(c / 100_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
-  return c === 0 ? "0" : `${Math.round(c / 100_000).toLocaleString("pt-BR")} mil`;
+  if (Math.round(c / 100_000) >= 1000) return `${(c / 100_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
+  if (c === 0) return "0";
+  return c < 100_000 ? `R$ ${Math.round(c / 100).toLocaleString("pt-BR")}` : `${Math.round(c / 100_000).toLocaleString("pt-BR")} mil`;
 }
 /** Topo do eixo e passo: o maior valor arredondado para cima num degrau 1, 2 ou 5 (x 10^k) de tres divisoes. */
 function eixo(maior: number): { topo: number; passo: number } {
@@ -82,8 +83,11 @@ function Grafico({ meses, liberado, escolhido, escolher }:
   for (let t = 0; t <= topo; t += passo) ticks.push(t);
   const teclas = (ev: KeyboardEvent, i: number) => {
     if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); escolher(i); }
-    if (ev.key === "ArrowRight" && i < meses.length - 1) escolher(i + 1);
-    if (ev.key === "ArrowLeft" && i > 0) escolher(i - 1);
+    const alvo = ev.key === "ArrowRight" ? i + 1 : ev.key === "ArrowLeft" ? i - 1 : null;
+    if (alvo === null || alvo < 0 || alvo >= meses.length) return;
+    ev.preventDefault();
+    escolher(alvo);
+    ev.currentTarget.parentElement?.querySelector<SVGGElement>(`[data-mes="${meses[alvo].competencia}"]`)?.focus();
   };
   return (
     <div className="ar-grafico" ref={ref} role="group" aria-label="Previsto e recebido nos últimos 6 meses e previsão dos próximos 3">
@@ -139,7 +143,7 @@ function Detalhe({ m, hoje }: { m: Mes; hoje: string }) {
   const p = pct(m.recebido_centavos, m.previsto_centavos);
   return (
     <>
-      <strong>{nome}</strong>{m.atual && ` (mês atual, até ${fmtDataPura(hoje).slice(0, 5)})`}: previsto{" "}
+      <strong>{nome}</strong>{m.atual && ` (mês atual, até ${hoje.slice(8, 10)}/${hoje.slice(5, 7)})`}: previsto{" "}
       <span className="dinheiro">{valor(m.previsto_centavos)}</span> · recebido{" "}
       <span className="dinheiro">{valor(m.recebido_centavos)}</span>{p !== null && ` · ${p}% do previsto`}
     </>
@@ -273,8 +277,8 @@ export default function AReceberPagina() {
                   </tr>
                 </thead>
                 <tbody>
-                  {itens.map(i => (
-                    <tr key={`${i.medicao_id ?? "nota"}-${i.contrato_id}-${i.nota_numero ?? i.numero}`}>
+                  {itens.map((i, k) => (
+                    <tr key={`${k}-${i.medicao_id ?? "nota"}-${i.contrato_id}-${i.nota_numero ?? i.numero}`}>
                       <td className="ar-forte col-largo" data-rotulo="Obra">{i.obra}</td>
                       <td data-rotulo="Medição">
                         {tituloMedicao(i)}{i.competencia && <> <span className="campo__nota">({fmtCompetencia(i.competencia)})</span></>}
