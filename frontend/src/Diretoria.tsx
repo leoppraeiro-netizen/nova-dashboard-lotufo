@@ -298,10 +298,10 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
             <span className="num">{mi(m.previsto_ano_centavos)}</span></span>
         </li>
         <li className="cartao numero">
-          <span className="numero__rotulo">Notas emitidas no mês</span>
+          <span className="numero__rotulo">Faturado no mês</span>
           <span className="numero__valor num" title={brl(m.faturado_mes_centavos)}>{mi(m.faturado_mes_centavos)}</span>
-          <span className="numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "nota emitida", "notas emitidas")} em {fmtCompetencia(m.mes)}
-            {" "}· soma das notas fiscais ativas emitidas no mês, na cota</span>
+          <span className="numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "medição faturada", "medições faturadas")} em {fmtCompetencia(m.mes)}
+            {" "}· medições faturadas no mês (com nota emitida), pelo valor atestado, na cota — mesma regra da coluna Faturado do QDOP</span>
         </li>
       </ul>
 
@@ -315,22 +315,22 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
 
       <h2 className="titulo-secao">Por contratante</h2>
       {k.por_orgao.length === 0 ? <p className="nota-resumo">Nenhum contratante com saldo a executar.</p> : (
-        <ul className="contratantes" aria-label="Por contratante">
+        <ul className="cart-contratantes" aria-label="Por contratante">
           {k.por_orgao.map(o => {
             const feito = o.vigente_centavos > 0 ? Math.max(0, Math.min(1, o.medido_centavos / o.vigente_centavos)) : 0;
             return (
               <li key={o.orgao}>
-                <Link className="cartao contratante" para={{ tela: "obras" }} busca={o.orgao === "sem órgão" ? undefined : { orgao: o.orgao }} ir={ir}>
-                  <h3 className="contratante__nome">{o.orgao}</h3>
-                  <span className="contratante__rotulo">Saldo a executar</span>
-                  <span className="contratante__valor num" title={brl(o.saldo_centavos)}>{mi(o.saldo_centavos)}</span>
-                  <span className="contratante__obras">{contar(o.obras, "obra em execução", "obras em execução")} · {fmtPercentual(o.fracao, 1, true)} do saldo da carteira</span>
-                  <span className="progresso">
-                    <span className="progresso__rotulo">% executado</span>
-                    <span className="progresso__trilho" role="img" aria-label={`${Math.floor(feito * 100)}% executado`}>
-                      <span className="progresso__feito" style={{ width: `${(feito * 100).toFixed(1)}%` }} />
+                <Link className="cartao cart-contratante" para={{ tela: "obras" }} busca={o.orgao === "sem órgão" ? undefined : { orgao: o.orgao }} ir={ir}>
+                  <h3 className="cart-contratante__nome">{o.orgao}</h3>
+                  <span className="cart-contratante__rotulo">Saldo a executar</span>
+                  <span className="cart-contratante__valor num" title={brl(o.saldo_centavos)}>{mi(o.saldo_centavos)}</span>
+                  <span className="cart-contratante__obras">{contar(o.obras, "obra em execução", "obras em execução")} · {fmtPercentual(o.fracao, 1, true)} do saldo da carteira</span>
+                  <span className="cart-progresso">
+                    <span className="cart-progresso__rotulo">% executado</span>
+                    <span className="cart-progresso__trilho" role="img" aria-label={`${Math.floor(feito * 100)}% executado`}>
+                      <span className="cart-progresso__feito" style={{ width: `${(feito * 100).toFixed(1)}%` }} />
                     </span>
-                    <span className="progresso__pct num">{Math.floor(feito * 100)}%</span>
+                    <span className="cart-progresso__pct num">{Math.floor(feito * 100)}%</span>
                   </span>
                 </Link>
               </li>

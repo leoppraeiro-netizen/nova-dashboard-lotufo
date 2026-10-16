@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { caminhoDe, hrefDe, origemPara, parseRota, type Rota } from "./rota";
+import { buscaDosAvisosEmObras, caminhoDe, hrefDe, origemPara, parseRota, substituir, type Rota } from "./rota";
 
 describe("rota", () => {
   it("toda rota tem um caminho canônico e volta igual", () => {
@@ -86,5 +86,17 @@ describe("rota", () => {
     expect(vinda).toEqual({ tela: "medicoes", href: "/medicoes?obra=7" });
     expect(origemPara(obra, "/obras/7", { tela: "obra", id: 7, aba: "prazos" }, vinda)).toEqual(vinda);
     expect(origemPara(obra, "/obras/7", { tela: "documentos" }, vinda)).toBeUndefined();
+  });
+
+  it("/avisos abre Obras com os Avisos abertos, de todas as obras, mantendo os filtros do link (#159)", () => {
+    expect(parseRota("/avisos")).toEqual({ tela: "avisos" });
+    expect(buscaDosAvisosEmObras({})).toEqual({ c: "todas", avisos: "1" });
+    expect(buscaDosAvisosEmObras({ obra: "7", familia: "prazos" })).toEqual({ c: "todas", avisos: "1", obra: "7", familia: "prazos" });
+    window.history.replaceState(null, "", "/avisos?obra=7#x");
+    substituir({ tela: "obras" }, buscaDosAvisosEmObras({ obra: "7" }));
+    expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe("/obras?c=todas&avisos=1&obra=7#x");
+    window.history.replaceState(null, "", "/contratos?q=x");
+    substituir({ tela: "obras" });
+    expect(window.location.pathname + window.location.search).toBe("/obras?q=x");
   });
 });

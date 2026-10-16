@@ -44,10 +44,10 @@ describe("Carteira", () => {
     expect(within(numeros).getAllByRole("listitem")).toHaveLength(3);
     expect(within(numeros).getByText("Saldo a executar")).toBeTruthy();
     expect(within(numeros).getByText("Medido no ano")).toBeTruthy();
-    expect(within(numeros).getByText("Notas emitidas no mês")).toBeTruthy();
+    expect(within(numeros).getByText("Faturado no mês")).toBeTruthy();
     // o faturado do mês vem do servidor, em milhões, com o valor exato e a contagem de notas na linha de apoio
     expect(within(numeros).getByText("R$ 1,2 mi")).toBeTruthy();
-    expect(within(numeros).getByText(/2 notas emitidas em 09\/2026/)).toBeTruthy();
+    expect(within(numeros).getByText(/2 medições faturadas em 09\/2026/)).toBeTruthy();
     // curva S acumulada: previsto 150.000 + 200.000 e medido 100.000 + 150.000 até 09/2026
     expect(screen.getByRole("img", { name: /Previsto e medido acumulados de 08\/2026 a 09\/2026/ })).toBeTruthy();
     const leitura = (screen.getByRole("status").textContent ?? "").replace(/\s/g, " ");

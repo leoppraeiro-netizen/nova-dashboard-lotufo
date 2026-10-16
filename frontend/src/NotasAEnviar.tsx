@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
-import { api, apiForm, mensagemDeErro } from "./api";
+import { api, apiForm, baixarArquivo, mensagemDeErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
 import { ir, trocarBusca, type Busca } from "./rota";
@@ -115,10 +115,18 @@ export function ItensEnvio({ itens, aoMudar, podeEditar = true }: { itens: ItemE
     try { await apiForm(`/api/medicoes/${it.medicao_id}/notas`, fd); aoMudar(); } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
-  // issue #148: falta a assinada mas a FRC ja' foi gerada: o link para baixa-la fica no proprio item
+  // issue #148: falta a assinada mas a FRC ja' foi gerada: o link para baixa-la fica no proprio item. Issue #169: a FRC
+  // que ficou desatualizada depois de a tela carregar e' recusada pelo servidor; a mensagem aparece e a tela recarrega
+  async function baixar(caminho: string) {
+    setErro("");
+    try { await baixarArquivo(caminho, "FRC.pdf"); } catch (e) { setErro(mensagem(e)); aoMudar(); }
+  }
   const baixarFrc = (it: ItemEnvio) => it.frc_gerada && it.estado !== "ok" && it.medicao_id ? (
     <span className="nota-item__detalhe">
-      <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}>Baixar a FRC gerada (nº {it.frc_gerada})</a>
+      <a className="link forte" href={`/api/medicoes/${it.medicao_id}/frc/pdf`}
+        onClick={ev => { ev.preventDefault(); void baixar(`/api/medicoes/${it.medicao_id}/frc/pdf`); }}>
+        Baixar a FRC gerada (nº {it.frc_gerada})
+      </a>
     </span>
   ) : null;
 

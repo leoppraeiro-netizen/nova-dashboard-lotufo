@@ -219,25 +219,15 @@ def _medido(ms: list[dict], mes: str) -> int:
 
 
 def _faturado_mes(conn, mes: str) -> dict:
-    """Faturado no mes (A-163, regra a confirmar com o Leo): a soma das notas fiscais ativas com DATA DE EMISSAO no
-    mes, na cota da Lotufo (arredondamento unico por nota). A obra da nota vem da medicao a que ela esta' ligada
-    ou, sem ligacao, do centro de custo (como o a receber); nota sem obra identificada ou de outra coligada que a
-    da entidade do contrato (NFS-e repassada pelo consorcio) nao entra. So' leitura."""
-    contr, por_centro, por_coligada = _mapa_contratos(conn)
+    """Faturado no mes (decisao do Leo de 16/10/2026, opcao b): as medicoes que receberam a nota no mes, pelo valor
+    atestado (senao o protocolado), na cota. E' a regra da coluna "Faturado" do QDOP (`qdop._faturado`), so'
+    fatiada pelo mes da nota (`nota_emitida_em`, data da nota). So' leitura."""
     total, quantidade = 0, 0
-    for n in conn.execute("SELECT * FROM notas_fiscais WHERE situacao='ativa' AND emissao IS NOT NULL AND substr(emissao,1,7)=?", (mes,)):
-        ligada = conn.execute("""SELECT m.contrato_id FROM nf_alocacoes a JOIN medicoes m ON m.id=a.medicao_id
-                                 WHERE a.nota_id=? AND a.desfeita_em IS NULL ORDER BY a.id LIMIT 1""", (n["id"],)).fetchone()
-        if ligada:
-            cid = ligada["contrato_id"]
-        else:
-            ids = por_centro.get((n["coligada"], (n["centro_custo"] or "").strip())) or por_coligada.get(n["coligada"]) or []
-            cid = ids[0] if len(ids) == 1 else None
-        c = contr.get(cid)
-        if c is None or c["col"] != n["coligada"]:
-            continue
-        total += contratos.cota(n["valor_centavos"], c["pct"]) or 0
-        quantidade += 1
+    for c in conn.execute("SELECT id, percentual_direito_bp FROM contratos WHERE estado<>'rescindido'"):
+        total += qdop._faturado(conn, c["id"], c["percentual_direito_bp"], False, mes)
+        quantidade += conn.execute("SELECT COUNT(*) FROM medicoes WHERE contrato_id=? AND tipo IN ('execucao','projeto') "
+                                   "AND estado IN ('nota_emitida','protocolada','nf_emitida','recebida') "
+                                   "AND substr(nota_emitida_em,1,7)=?", (c["id"], mes)).fetchone()[0]
     return {"valor_centavos": total, "notas": quantidade}
 
 

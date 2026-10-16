@@ -5,7 +5,7 @@ import pathlib
 
 import pytest
 
-from app import auth, avisos, cadastro_aplicar, db, diretoria, medicoes
+from app import auth, avisos, cadastro_aplicar, db, diretoria, medicoes, qdop
 from tests.test_protocolo import _contrato
 
 D = datetime.date
@@ -167,37 +167,36 @@ def test_carteira_saldo_ritmo_e_termino(cenario):
     assert k["ritmo_mensal_centavos"] == 33_833_333             # 203.000.000 / 6, meio para cima
 
 
-def test_faturado_no_mes_soma_notas_emitidas_no_mes_na_cota(cenario):
+def test_faturado_no_mes_e_a_regra_do_qdop_fatiada_pelo_mes_da_nota(cenario):
     c, ids = cenario
-    c.execute("UPDATE entidades SET coligada_rm=2 WHERE chave='cons'")
-    c.execute("UPDATE contratos SET centro_custo_rm='CC-P' WHERE id=?", (ids["propria"],))
 
-    def nota(idmov, coligada, emissao, valor, situacao="ativa", centro=None):
-        return c.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, emissao, valor_centavos, situacao, centro_custo) "
-                         "VALUES (?, ?, ?, ?, ?, ?, ?)", (coligada, idmov, f"{idmov:09d}", emissao, valor, situacao, centro)).lastrowid
-    n1 = nota(1, 1, "2026-09-05", 1_000_000)                    # ligada a medicao da propria: 100%
-    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
-              "SELECT id, ?, 1000000, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=14", (n1, ids["propria"]))
-    nota(2, 1, "2026-09-30", 250_000, centro="CC-P")            # sem medicao: pelo centro de custo
-    n3 = nota(3, 2, "2026-09-10", 1_000_001)                    # consorcio a 50%: 500.000,5 sobe para 500.001
-    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
-              "SELECT id, ?, 1000001, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=1", (n3, ids["consorcio"]))
-    nota(4, 1, "2026-08-31", 9_000_000)                         # emitida em agosto: fora
-    nota(5, 1, "2026-10-01", 9_000_000)                         # emitida em outubro: fora
-    nota(6, 1, "2026-09-15", 9_000_000, situacao="cancelada", centro="CC-P")
-    nota(7, 1, "2026-09-16", 9_000_000, centro="CC-DESCONHECIDO")  # obra nao identificada: fora
-    nota(8, 3, "2026-09-17", 9_000_000, centro="CC-P")          # coligada diferente da entidade da obra: fora
-    # NFS-e da coligada 1 ligada a medicao de consorcio (coligada 2): repassada pelo consorcio, fora
-    n9 = nota(9, 1, "2026-09-18", 9_000_000)
-    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
-              "SELECT id, ?, 9000000, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=1", (n9, ids["consorcio"]))
-    # nota so' do PDF (sem idmov), pelo centro de custo: entra
-    c.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, emissao, valor_centavos, situacao, centro_custo, origem) "
-              "VALUES (1, NULL, '77', '2026-09-20', 100000, 'ativa', 'CC-P', 'pdf')")
+    def nota_em(contrato, numero, data, tipo="execucao"):
+        c.execute("UPDATE medicoes SET nota_emitida_em=? WHERE contrato_id=? AND numero=? AND tipo=?", (data, contrato, numero, tipo))
+    nota_em(ids["propria"], 14, "2026-09-05")        # protocolada, 7.000,00: entra
+    nota_em(ids["propria"], 1, "2026-09-20")         # recebida, 8.000,00: entra
+    nota_em(ids["propria"], 15, "2026-06-15")        # faturada em junho: fora de setembro
+    nota_em(ids["propria"], 13, "2026-09-12")        # espelho gerado, sem nota de fato: nao e' faturado
+    nota_em(ids["consorcio"], 2, "2026-09-10")       # 4.000.000,00 a 50%: 2.000.000,00 na cota
+    nota_em(ids["consorcio"], 2, "2026-09-10", "reajuste")   # reajuste nao entra (e' outra coluna do QDOP)
     c.commit()
     m = diretoria.painel(c, HOJE)["mes_ano"]
-    assert m["faturado_mes_centavos"] == 1_000_000 + 250_000 + 500_001 + 100_000
-    assert m["notas_faturadas_mes"] == 4
+    assert m["faturado_mes_centavos"] == 700_000 + 800_000 + 200_000_000
+    assert m["notas_faturadas_mes"] == 3
+    # medicao com nota registrada, sem nota no RM (nenhuma linha em notas_fiscais), entra do mesmo jeito
+    assert c.execute("SELECT COUNT(*) FROM notas_fiscais").fetchone()[0] == 0
+
+
+def test_faturado_no_mes_bate_com_a_coluna_faturado_do_qdop(cenario):
+    c, ids = cenario
+    c.execute("UPDATE medicoes SET nota_emitida_em='2026-09-15'")      # todas as medicoes com nota no mesmo mes
+    c.commit()
+    total_qdop = sum(l["faturados"] for l in qdop.linhas(c, HOJE))
+    assert total_qdop > 0
+    assert diretoria.painel(c, HOJE)["mes_ano"]["faturado_mes_centavos"] == total_qdop
+    # em outro mes, nada
+    c.execute("UPDATE medicoes SET nota_emitida_em='2026-08-15'")
+    c.commit()
+    assert diretoria.painel(c, HOJE)["mes_ano"]["faturado_mes_centavos"] == 0
 
 
 def test_carteira_por_orgao_traz_vigente_medido_e_obras_para_o_cartao(cenario):
