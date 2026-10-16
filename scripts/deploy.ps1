@@ -108,7 +108,19 @@ try {
     } else {
         Write-Host "sem migracao nova; sem backup pre-migracao"
     }
-    Construir $alvo
+    # Construir pode lancar depois do checkout (pip/npm/build): o diretorio pinado nao pode ficar
+    # num commit que nao subiu (issue #78). Volta para $anterior (checkout + reconstrucao) e sai com 1.
+    try { Construir $alvo }
+    catch {
+        Write-Warning "Construir $alvo falhou: $($_.Exception.Message) -> voltando o diretorio pinado para $anterior"
+        try {
+            Construir $anterior
+            Write-Host "deploy abortado no build; producao segue no commit anterior ($anterior), diretorio pinado de volta nele" -ForegroundColor Red
+        } catch {
+            Write-Host "deploy abortado no build E a volta para $anterior falhou ($($_.Exception.Message)) - intervir a mao: o diretorio pinado pode estar fora de $anterior" -ForegroundColor Red
+        }
+        exit 1
+    }
     $novo = (& git -C $AppDir rev-parse HEAD).Trim()
     Reiniciar
     if (SaudavelENovo) {
