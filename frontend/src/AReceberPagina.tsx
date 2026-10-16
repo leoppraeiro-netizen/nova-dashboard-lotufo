@@ -191,7 +191,7 @@ export default function AReceberPagina() {
         <div className="cartao ar-numero">
           <span className="ar-numero__rotulo">Previsto em {nomeMes}</span>
           <span className="ar-numero__valor num">{valor(mes.previsto_centavos)}</span>
-          <span className="ar-numero__apoio">{liberado ? "vencimentos do mês; o recebido pode incluir vencidos de meses anteriores" : "a conciliar com a controladoria"}</span>
+          <span className="ar-numero__apoio">{liberado ? "vencimentos do mês; o recebido pode incluir pagamentos de outros meses" : "a conciliar com a controladoria"}</span>
         </div>
         <div className="cartao ar-numero">
           <span className="ar-numero__rotulo">Medições recebidas em {nomeMes}</span>
