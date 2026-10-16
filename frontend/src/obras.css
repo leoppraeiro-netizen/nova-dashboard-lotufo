@@ -88,3 +88,15 @@
 .avisos-area .tabela--grade col.c-valor-aviso { width: 150px; }
 .avisos-area .tabela--grade col.c-onde { width: 260px; }
 .aviso__fato .forte { margin-right: 2px; }
+.avisos-area__corpo > *, .avisos-area__grupos > * { min-width: 0; }
+.avisos-area .form-inline select { max-width: 100%; }
+@media (max-width: 700px) {
+  /* as colunas fixas (112 + 150 + 260 px) nao cabem no celular: a tabela ganha largura minima e a Rolagem rola,
+     em vez de a coluna "Aviso" ficar sem espaco e o texto se sobrepor */
+  .avisos-area .tabela--grade { min-width: 720px; }
+  .avisos-area .form-inline { flex-wrap: wrap; }
+  .avisos-area .form-inline .campo { min-width: 0; flex: 1 1 140px; }
+  .avisos-area .detalhes > summary { width: auto; max-width: 100%; overflow-wrap: anywhere; }
+  .avisos-area .detalhes__resto { display: block; margin-top: 4px; }
+  .avisos-area .cartao__cabeca { flex-wrap: wrap; }
+}

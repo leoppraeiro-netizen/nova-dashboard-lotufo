@@ -59,12 +59,12 @@ describe("Obras: escolha do contratante e lista", () => {
     // 3 obras em andamento (a encerrada fica de fora): vigente 6000,00 e medido 2250,00 -> 38%; saldo 3750,00
     expect(linhas[0].textContent).toContain("3 obras");
     expect(linhas[0].textContent).toContain("38%");
-    expect(linhas[0].textContent).toMatch(/Saldo a executar\s*R\$\s*3\.750,00/);
+    expect(linhas[0].textContent).toMatch(/Saldo a executar \(valor cheio\)\s*R\$\s*3\.750,00/);
     expect(linhas[1].textContent).toContain("MTPAR");
     expect(linhas[1].textContent).toContain("1 encerrada");
     expect(linhas[2].textContent).toContain("SINFRA");
     expect(linhas[2].textContent).toContain("2 obras");
-    expect(linhas[2].textContent).toMatch(/Saldo a executar\s*R\$\s*2\.250,00/);
+    expect(linhas[2].textContent).toMatch(/Saldo a executar \(valor cheio\)\s*R\$\s*2\.250,00/);
     // os avisos do contratante: 1 obra com aviso, 1 crítico
     expect(linhas[2].textContent).toContain("1 com aviso");
     expect(linhas[2].textContent).toMatch(/1\scrítico/);

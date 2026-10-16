@@ -49,9 +49,11 @@ export function rotaDoItem(i: ItemMenu): Rota {
 
 /** O item do menu que fica marcado: a tela e tudo abaixo dela na hierarquia (Obras na obra; Medicoes na medicao,
  *  na nova medicao e no envio da nota, que nasce da aba Enviar nota). */
-export function itemDe(r: Rota): ItemMenu | "conta" | null {
+export function itemDe(r: Rota, busca: Record<string, string> = {}): ItemMenu | "conta" | null {
   switch (r.tela) {
     case "raiz": return null;
+    // os Avisos moram em Obras (?avisos=1): com eles abertos, o item aceso e' o dos Avisos
+    case "obras": return busca.avisos === "1" ? "avisos" : "obras";
     case "obra": return "obras";
     case "medicao": case "nova-medicao": case "notas-envio": return "medicoes";
     default: return r.tela;

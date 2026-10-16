@@ -103,7 +103,7 @@ function LinhaContratante({ nome, r, c, todas = false, comAvisos }: { nome: stri
           <div className="progresso" role="img" aria-label={`${r.pct}% executado`}><span className="progresso__barra" style={{ width: `${Math.min(100, Math.max(0, r.pct))}%` }} /></div>
         </div>
         <div className="contratante__saldo">
-          <span className="contratante__rotulo">Saldo a executar</span>
+          <span className="contratante__rotulo">Saldo a executar (valor cheio)</span>
           <span className="contratante__valor">{brl(r.saldo)}</span>
         </div>
         <div className="contratante__avisos">
@@ -236,7 +236,7 @@ export default function Contratos({ ir, busca = {}, perfil = "engenharia" }: { i
   const resumo = resumoContratante(doContratante, porObra);
   const meta = !lista ? "" : escolha
     ? `${contratantes.length === 1 ? "1 contratante" : `${contratantes.length} contratantes`} · ${total.obras} ${total.obras === 1 ? "obra em andamento" : "obras em andamento"}`
-    : `${obrasN(resumo.obras)} · ${resumo.pct}% executado · saldo a executar ${brl(resumo.saldo)}`;
+    : `${obrasN(resumo.obras)} · ${resumo.pct}% executado · saldo a executar (valor cheio) ${brl(resumo.saldo)}`;
   const nAvisosLabel = avisos ? ` (${escolha ? avisos.length : avisosDoRecorte.length})` : "";
 
   return (
