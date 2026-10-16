@@ -125,9 +125,11 @@ export function notasDivergentes(m: MedicaoBase): { nota: NotaDaMedicao; diferen
     .filter(x => x.diferencas.length > 0);
 }
 
-/** A medicao que mora o espelho da competencia: a de execucao dele (NAVEGACAO.md: um lar so'). */
-export function larDoEspelho(e: { medicoes: { id: number; tipo: string }[] }): number | null {
-  return (e.medicoes.find(x => x.tipo === "execucao") ?? e.medicoes[0])?.id ?? null;
+/** A medicao que mora o espelho da competencia: a de execucao dele (NAVEGACAO.md: um lar so').
+ *  Medicao para a qual o espelho ja foi superado nao e' lar: la ele nao aparece (#208). */
+export function larDoEspelho(e: { medicoes: { id: number; tipo: string; superado?: boolean }[] }): number | null {
+  const vivas = e.medicoes.filter(x => !x.superado);
+  return (vivas.find(x => x.tipo === "execucao") ?? vivas[0])?.id ?? null;
 }
 
 /** Protocolos que tocam a medicao. Com varias medicoes, o protocolo mora na primeira; nas outras, resumo. */

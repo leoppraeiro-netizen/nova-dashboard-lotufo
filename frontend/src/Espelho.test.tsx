@@ -151,6 +151,16 @@ describe("Espelho", () => {
     expect(screen.getAllByRole("article")).toHaveLength(1);
   });
 
+  // issue #208: desmembramento inverso, a execucao tem espelho novo e o misto antigo mora no Projeto protocolado
+  it("na medição de Projeto, o misto superado para a execução mora nela, sem aviso de lar", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "espelho_gerado", superado: true },
+      { id: 2, tipo: "projeto", estado: "protocolada" }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
+    expect(await screen.findByRole("link", { name: /ESPELHO - MT-388/ })).toBeTruthy();
+    expect(screen.queryByText(/mora/)).toBeNull();
+  });
+
   it("versão já enviada: reenvio só com a confirmação marcada (S8)", async () => {
     const enviado = { ...ESPELHO, envio: { id: 9, remetente: "maria@l.com", para: ["f@x.com"], copia: [], assunto: "A",
       enviado_em: "2026-10-10 13:00:00" } };
