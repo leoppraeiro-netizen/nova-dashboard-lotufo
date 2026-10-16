@@ -599,7 +599,7 @@ def resumo(conn, hoje: datetime.date | None = None) -> dict:
     prevista_de: dict[int, int] = {}
     prevista_dados: dict[int, dict] = {}   # a MESMA medicao de prevista_de: o rotulo e o link da aba nao divergem
     for r in conn.execute("SELECT contrato_id, id, numero, tipo, competencia FROM medicoes WHERE estado='prevista' "
-                          "ORDER BY competencia, numero, id"):
+                          "AND tipo IN ('execucao','projeto') ORDER BY competencia, tipo='projeto', numero, id"):
         if r["contrato_id"] not in prevista_de:
             prevista_de[r["contrato_id"]] = r["id"]
             prevista_dados[r["contrato_id"]] = {"numero": r["numero"], "tipo": r["tipo"], "competencia": r["competencia"]}

@@ -199,6 +199,39 @@ def test_prevista_da_aba_e_a_mesma_que_o_iniciar_abre(conn):
     assert medicoes.resumo(conn, datetime.date(2026, 9, 30))["obras"][0]["ha_dias"] == 0
 
 
+def test_prevista_da_aba_ignora_reajuste(conn):
+    """O reajuste (mesmo numero/competencia da execucao) nunca aparece como a medicao prevista da obra."""
+    c = conn
+    a = _obra(c, "A", _orgao(c, "sinfra-suef1", "SINFRA - SUEF I", "sinfra"))
+    c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+              "VALUES (?,3,'reajuste','2026-01','prevista')", (a,))
+    c.commit()
+    o = medicoes.resumo(conn, HOJE)["obras"][0]
+    assert o["prevista_id"] is None and o["prevista"] is None
+    pid = c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) "
+                    "VALUES (?,4,'execucao','2026-02','prevista')", (a,)).lastrowid
+    c.commit()
+    o = medicoes.resumo(conn, HOJE)["obras"][0]
+    assert o["prevista_id"] == pid and o["prevista"]["tipo"] == "execucao"
+
+
+def test_prevista_da_aba_desempata_por_competencia_tipo_numero_e_id(conn):
+    """Mesma competencia: execucao antes de projeto; mesmo tipo: menor numero."""
+    c = conn
+    a = _obra(c, "A", _orgao(c, "sinfra-suef1", "SINFRA - SUEF I", "sinfra"))
+    ins = lambda n, t, comp: c.execute(  # noqa: E731
+        "INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado) VALUES (?,?,?,?,'prevista')",
+        (a, n, t, comp)).lastrowid
+    ins(1, "projeto", "2026-03")
+    ins(9, "execucao", "2026-03")
+    esperada = ins(5, "execucao", "2026-03")
+    ins(1, "execucao", "2026-04")
+    c.commit()
+    o = medicoes.resumo(conn, HOJE)["obras"][0]
+    assert o["prevista_id"] == esperada
+    assert o["prevista"] == {"numero": 5, "tipo": "execucao", "competencia": "2026-03"}
+
+
 def test_rota_do_resumo(client_admin):
     r = client_admin.get("/api/medicoes/resumo")
     assert r.status_code == 200, r.text
