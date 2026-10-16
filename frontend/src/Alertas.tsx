@@ -30,13 +30,13 @@ export type Aviso = {
 const ABAS_OBRA: readonly string[] = ["medicoes", "prazos", "reajuste", "documentos", "contrato"] satisfies AbaObra[];
 
 /** Para onde o aviso leva: as notas da medicao (aviso de nota, A2), o ciclo da data-base (aviso de reajuste,
- *  A10), a aba da obra, ou a empresa (ancora do cartao dela) em Documentos. */
+ *  A10), a aba da obra, ou a pagina da empresa em Documentos. */
 export function destinoDoAviso(a: Aviso): { para: Rota; secao?: string; busca?: Busca } | null {
   const d = a.destino;
   if (!d) return null;
-  // a empresa em Documentos: a matriz so' com ela (?empresa=, com o cabecalho das colunas a vista) e a linha dela
+  // a empresa em Documentos: a pagina dela (#161); o aviso da regularidade do mes leva direto a aba dela
   if (d.tela === "documentos") return a.entidade_id
-    ? { para: { tela: "documentos" }, busca: { empresa: String(a.entidade_id) }, secao: `emp-${a.entidade_id}` }
+    ? { para: { tela: "documentos-empresa", id: a.entidade_id, aba: a.tipo === "regularidade_mes" ? "regularidade" : a.tipo === "garantia_vencendo" || a.tipo === "art_nao_anexada" ? "garantia" : undefined } }
     : { para: { tela: "documentos" } };
   if (d.aba === "notas" && a.medicao_id) return { para: { tela: "medicao", obra: d.id, id: a.medicao_id }, secao: "notas" };
   if (d.aba === "reajuste" && a.data_base_mes) return { para: { tela: "obra", id: d.id, aba: "reajuste" }, secao: `db-${a.data_base_mes}` };

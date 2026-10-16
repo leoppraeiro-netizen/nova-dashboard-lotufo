@@ -25,6 +25,7 @@ describe("navegação por perfil", () => {
     expect(itemDe({ tela: "medicao", obra: 7, id: 723 })).toBe("medicoes");
     expect(itemDe({ tela: "nova-medicao", obra: 7 })).toBe("medicoes");
     expect(itemDe({ tela: "notas-envio", id: 55 })).toBe("medicoes");
+    expect(itemDe({ tela: "documentos-empresa", id: 3, aba: "garantia" })).toBe("documentos");      // #161
     expect(itemDe({ tela: "medicoes", aba: "enviar-nota" })).toBe("medicoes");
   });
 
