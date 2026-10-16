@@ -194,7 +194,7 @@ export default function AReceberPagina() {
           <span className="ar-numero__apoio">{liberado ? "o que se esperava receber no mês" : "a conciliar com a controladoria"}</span>
         </div>
         <div className="cartao ar-numero">
-          <span className="ar-numero__rotulo">Recebido em {nomeMes}</span>
+          <span className="ar-numero__rotulo">Medições recebidas em {nomeMes}</span>
           <span className="ar-numero__valor num">{valor(mes.recebido_centavos)}</span>
           <span className="ar-numero__apoio num">
             {percentual !== null && `${percentual}% do previsto · `}até {fmtDataPura(p.hoje)}

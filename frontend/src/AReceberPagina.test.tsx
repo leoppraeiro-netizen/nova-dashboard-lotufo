@@ -36,7 +36,7 @@ describe("A receber", () => {
     expect(api).toHaveBeenCalledWith("/api/a-receber");
     expect(within(resumo).getByText("A receber, na cota").nextSibling?.textContent).toMatch(/R\$\s*15\.000,03/);
     expect(within(resumo).getByText("Previsto em outubro").nextSibling?.textContent).toMatch(/R\$\s*20\.000,00/);
-    expect(within(resumo).getByText("Recebido em outubro").nextSibling?.textContent).toMatch(/R\$\s*10\.000,01/);
+    expect(within(resumo).getByText("Medições recebidas em outubro").nextSibling?.textContent).toMatch(/R\$\s*10\.000,01/);
     expect(within(resumo).getByText(/50% do previsto · até 16\/10\/2026/)).toBeTruthy();
   });
 
@@ -96,7 +96,7 @@ describe("A receber", () => {
     const resumo = await screen.findByRole("region", { name: "Resumo" });
     expect(within(resumo).getByText("A receber, na cota").nextSibling?.textContent).toBe("—");
     expect(within(resumo).getByText("valores a conciliar com a controladoria")).toBeTruthy();
-    expect(within(resumo).getByText("Recebido em outubro").nextSibling?.textContent).toMatch(/R\$\s*10\.000,01/);
+    expect(within(resumo).getByText("Medições recebidas em outubro").nextSibling?.textContent).toMatch(/R\$\s*10\.000,01/);
   });
 
   it("erro da API vira mensagem em portugues", async () => {

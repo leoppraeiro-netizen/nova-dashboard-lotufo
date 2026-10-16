@@ -360,7 +360,9 @@ def a_receber(conn, hoje: datetime.date | None = None) -> dict:
              for m in abertas]
     prazos: dict = {}
     previsto = dict.fromkeys([_mes(hoje, k) for k in range(-5, 4)], 0)
-    for m in [x for x in ms if x["estado"] in (*PROTOCOLADAS, "recebida")]:   # so' medicoes: a nota do RM repetiria a recebida
+    # so' medicoes (a nota do RM repetiria a recebida) e recebida so' com data: o corte de 25/09/2026 fechou o legado como
+    # recebida sem `recebida_em`; essas nao entram no recebido e, por isso, tambem ficam fora do previsto
+    for m in [x for x in ms if x["estado"] in PROTOCOLADAS or (x["estado"] == "recebida" and x["recebida_em"])]:
         base = _d(m["protocolo_em"])
         if not base:
             continue

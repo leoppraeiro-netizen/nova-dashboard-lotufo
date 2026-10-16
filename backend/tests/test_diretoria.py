@@ -341,3 +341,13 @@ def test_a_receber_nota_do_rm_entra_na_lista_e_no_total(cenario):
     nota = [i for i in r["itens"] if i["tipo"] == "nota"]
     assert len(nota) == 1 and nota[0]["medicao_id"] is None and nota[0]["nota_numero"] == "900"
     assert nota[0]["valor_centavos"] == 2_500_000 and r["total"]["valor_centavos"] == 700_000 + 300_000 + 2_500_000
+
+
+def test_a_receber_recebida_sem_data_do_corte_fica_fora_do_previsto(cenario):
+    c, ids = cenario        # medicao do legado protocolada em 05/09, fechada pelo corte (recebida, sem recebida_em)
+    mid = c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado, valor_protocolado_centavos) "
+                    "VALUES (?, 30, 'execucao', '2026-07', 'recebida', 5000000)", (ids["propria"],)).lastrowid
+    c.execute("INSERT INTO medicao_protocolos (medicao_id, data, origem) VALUES (?, '2026-09-05', 'manual')", (mid,))
+    c.commit(); ids["liberar"]()
+    r = diretoria.a_receber(c, HOJE)
+    assert r["mes"]["previsto_centavos"] == 700_000            # so' a 14; os 50.000,00 sem data nao entram
