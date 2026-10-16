@@ -40,18 +40,30 @@ próprio servidor. O resto do deploy (`scripts\deploy.ps1`, rollback automático
 
 1. **Conta.** `ssh <servidor>` com a conta local administradora de deploy: a sessão já chega elevada. A conta Azure AD
    não serve ao OpenSSH do Windows.
-2. **Comandos como script pelo stdin**, nunca inline: `ssh <servidor> 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' < deploy.ps1`
-   (aspas e `&` inline quebram no PowerShell 5.1). O `deploy.ps1` desse comando é um arquivo temporário no Mac, fora do repositório.
-3. **Conteúdo do script**, nesta ordem:
-   - `Set-Location` na pasta principal do projeto no servidor e `git pull --ff-only`;
-   - conferir administrador (`IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)` deve dar `True`; senão, parar);
-   - criar o sentinela do watchdog: `New-Item -ItemType File -Path C:\DashboardLotufo\watchdog.pause -Force | Out-Null`;
-   - `& .\scripts\deploy.ps1` (ou com `-SemFrontend`), **sem redirecionar stderr** dentro do PowerShell;
-   - ler a linha final: `DEPLOY OK`, `ROLLBACK OK` ou `ROLLBACK TAMBEM FALHOU`.
-4. **Depois**, numa segunda chamada pelo mesmo caminho: `Invoke-WebRequest http://localhost/api/health -UseBasicParsing`
-   (200 com `banco: ok`), `git -C C:\DashboardLotufo\app rev-parse --short HEAD` igual ao `origin/master`, e apagar o
-   sentinela (`Remove-Item C:\DashboardLotufo\watchdog.pause -Force -ErrorAction SilentlyContinue`; `Test-Path` deve dar `False`).
-   Apagar o sentinela também quando o deploy der `ROLLBACK`.
+2. **Comandos como script pelo stdin**, nunca inline: `ssh <servidor> 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' < script.ps1`
+   (aspas e `&` inline quebram no PowerShell 5.1). O `script.ps1` é um arquivo temporário no Mac, fora do repositório (nome
+   diferente de `scripts\deploy.ps1`, que é o do projeto). No `-Command -` uma falha de comando nativo não para o script:
+   conferir `$LASTEXITCODE` depois de cada `git` e sair com `exit 1`. Escrever cada conferência numa linha só (bloco de várias
+   linhas pode exigir uma linha em branco depois, no 5.1).
+3. **Primeira chamada, só leitura** (nada muda no servidor): `Set-Location` na pasta principal do projeto; `git switch master`;
+   `git pull --ff-only`; `git rev-parse master origin/master` iguais (senão `exit 1`); conferir administrador numa linha
+   (`if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 1 }`);
+   e imprimir o que vai subir: `git log --oneline "$atual..origin/master"` e `git diff --name-only` de `backend/migrations` e de `frontend`,
+   com `$atual` = `git -C C:\DashboardLotufo\app rev-parse HEAD`. Com isso a sessão avisa o Leo de migração nova (número e o que faz)
+   e escolhe `-SemFrontend` se nada em `frontend/` mudou.
+4. **Segunda chamada, o deploy**: criar o sentinela do watchdog (`New-Item -ItemType File -Path C:\DashboardLotufo\watchdog.pause -Force | Out-Null`),
+   `& .\scripts\deploy.ps1` (ou com `-SemFrontend`), **sem redirecionar stderr** dentro do PowerShell, e ler a linha final:
+   `DEPLOY OK`, `ROLLBACK OK`, `ROLLBACK TAMBEM FALHOU` ou `BACKUP PRE-MIGRACAO FALHOU` seguido de `deploy abortado antes do
+   checkout` (nada mudou na produção).
+5. **Terceira chamada, conferência**: `Invoke-WebRequest http://localhost/api/health -UseBasicParsing` (200 com `banco: ok`),
+   `git -C C:\DashboardLotufo\app rev-parse --short HEAD` igual ao `origin/master`, e apagar o sentinela
+   (`Remove-Item C:\DashboardLotufo\watchdog.pause -Force -ErrorAction SilentlyContinue`; `Test-Path` deve dar `False`).
+   Apagar o sentinela também quando o deploy der `ROLLBACK` ou `BACKUP PRE-MIGRACAO FALHOU`.
+6. **Se a chamada do deploy cair** (conexão SSH perdida, timeout da ferramenta) **ou não trouxer a linha final**: o PowerShell
+   remoto pode ter morrido sem rodar o `finally` do `deploy.ps1`, deixando o sentinela e o watchdog pausado. Reconectar e conferir
+   `Test-Path C:\DashboardLotufo\watchdog.pause`, `/api/health` e o `rev-parse` do diretório pinado; ler
+   `C:\DashboardLotufo\logs\dashboard.log`; só então apagar o sentinela. Para evitar o problema, o deploy pode rodar
+   desacoplado (`Start-Process powershell` com a saída num arquivo de log) e o log ser lido depois, em outra chamada.
 
 ## Saúde
 `GET /api/health` toca o banco (503 se não responder) e devolve a última rodada de backup: `ultimo_snapshot`, `ultimo_snapshot_erro`, `ultima_copia_arquivos`, `ultima_copia_arquivos_erro`, `ultima_copia_externa`, `ultima_copia_externa_erro`, `ultima_copia_externa_arquivos`, `ultima_copia_externa_arquivos_erro`. Cópia externa com data de ontem ou erro preenchido = olhar o log.

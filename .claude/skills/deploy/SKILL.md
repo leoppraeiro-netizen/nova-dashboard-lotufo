@@ -33,11 +33,16 @@ detached HEAD) e não do tree de desenvolvimento. `scripts\deploy.ps1` atualiza 
 - **SSH, a partir do Mac**: runbook, subseção "Deploy a partir do Mac (SSH)". Entrar com `ssh <servidor>` na conta
   local administradora de deploy (a conta Azure AD não serve); a sessão já vem elevada. Mandar os comandos como
   **script pelo stdin** (`ssh <servidor> 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' < script.ps1`),
-  nunca inline (aspas e `&` quebram no PowerShell 5.1). As pré-condições 3 e 4 se conferem no começo do próprio
-  script: `Set-Location` na pasta principal, `git pull --ff-only`, `git rev-parse master origin/master` iguais e o
-  `IsInRole(...Administrator)` acima dando `True` (senão o script para). As pré-condições 1 e 2 (`gh`) rodam no Mac.
-  Os trechos "Antes de rodar" e "Rodar" entram no script na mesma ordem; a conferência de saúde e o sentinela do
-  fim podem ir numa segunda chamada pelo mesmo caminho.
+  nunca inline (aspas e `&` quebram no PowerShell 5.1); conferências numa linha só, e `$LASTEXITCODE` depois de cada
+  `git`, com `exit 1`, porque no `-Command -` falha nativa não para o script. Em **três chamadas em sequência**:
+  1. só leitura: `Set-Location` na pasta principal, `git switch master`, `git pull --ff-only`, `git rev-parse master origin/master`
+     iguais, `IsInRole(...Administrator)` acima dando `True` e o bloco "Antes de rodar" (log, migrações, frontend). Daqui
+     a sessão avisa o Leo da migração e escolhe `-SemFrontend`. As pré-condições 1 e 2 (`gh`) rodam no Mac;
+  2. o deploy: sentinela e "Rodar" itens 1 a 3;
+  3. conferência de saúde e commit, e apagar o sentinela (itens 4 e 5).
+
+  Se a chamada 2 cair ou vier sem a linha final, o `finally` do `deploy.ps1` pode não ter rodado: reconectar, conferir
+  `Test-Path` do sentinela, `/api/health` e o `rev-parse` do pinado, e só então apagar o sentinela (ver runbook).
 - Nos dois: nome de máquina, usuário e IP não entram em texto, commit nem registro (repositório público); usar
   `<servidor>` e "conta de deploy".
 
