@@ -1477,3 +1477,17 @@ def test_anexo_que_muda_de_tamanho_durante_a_reserva_recusa_e_destrava(conn, usu
     p = conn.execute("SELECT situacao, envio_id, envio_reservado_em FROM protocolos WHERE id=?", (pid,)).fetchone()
     assert tuple(p) == ("rascunho", None, None)
     assert conn.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_a_enviar_mostra_se_o_envio_comecado_esta_reservado(api):
+    """So' leitura: a pagina da medicao oferece 'Liberar envio preso' apenas com reserva de fato."""
+    cl, c, ids = api
+    sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
+    assert sinfra["protocolo_id"] is None and sinfra["envio_reservado_em"] is None
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": sinfra["medicao_ids"]}).json()["protocolo_id"]
+    sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
+    assert sinfra["protocolo_id"] == pid and sinfra["envio_reservado_em"] is None
+    c.execute("UPDATE protocolos SET envio_reservado_em=datetime('now') WHERE id=?", (pid,)); c.commit()
+    sinfra, = _por_contrato(cl.get("/api/notas/a-enviar").json(), ids["sinfra"])
+    assert sinfra["envio_reservado_em"] is not None

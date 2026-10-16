@@ -256,12 +256,16 @@ export function irHref(href: string) {
   ir(parseRota(u.pathname), { busca: Object.fromEntries(u.searchParams), secao: u.hash.replace(/^#/, "") || undefined });
 }
 
-/** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). Com `busca`,
- *  os filtros passam a ser esses (a rota antiga que muda de dono, como Avisos dentro de Obras). */
-export function substituir(destino: Rota, busca?: Busca) {
-  const q = busca ? new URLSearchParams(busca).toString() : window.location.search.replace(/^\?/, "");
-  window.history.replaceState(window.history.state, "",
-    `${caminhoDe(destino)}${q ? `?${q}` : ""}${window.location.hash}`);
+/** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). Opcoes:
+ *  `busca`: os filtros passam a ser esses (a rota antiga que muda de dono, como Avisos dentro de Obras);
+ *  `secao`: a ancora passa a ser essa (o endereco antigo que cai numa etapa da medicao);
+ *  `semBusca`: o destino nao leva os filtros do endereco de antes. */
+export type OpcoesSubstituir = { busca?: Busca; secao?: string; semBusca?: boolean };
+export function substituir(destino: Rota, opcoes: OpcoesSubstituir = {}) {
+  const q = opcoes.busca ? new URLSearchParams(opcoes.busca).toString()
+    : opcoes.semBusca ? "" : window.location.search.replace(/^\?/, "");
+  const hash = opcoes.secao !== undefined ? `#${opcoes.secao}` : opcoes.semBusca ? "" : window.location.hash;
+  window.history.replaceState(window.history.state, "", `${caminhoDe(destino)}${q ? `?${q}` : ""}${hash}`);
   avisar();
 }
 

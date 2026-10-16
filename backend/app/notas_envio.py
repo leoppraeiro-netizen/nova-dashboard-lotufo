@@ -310,7 +310,10 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
             "valor_centavos": sum(m.get("valor_centavos") or 0 for m in ms), "emitida_em": emitida,
             "dias": (hoje - datetime.date.fromisoformat(emitida)).days if emitida else None,
             "situacao": situacao, "aviso": " · ".join(dict.fromkeys(curtos)) or None, "itens": itens,
-            "protocolo_id": protocolo_id, "irmas": _irmas(conn, c, familia, o, ms, hoje)}
+            "protocolo_id": protocolo_id, "irmas": _irmas(conn, c, familia, o, ms, hoje),
+            # so' leitura (16/10/2026): o envio comecado cujo e-mail pode estar saindo; a pagina da medicao so' oferece "Liberar envio preso" com ele
+            "envio_reservado_em": (conn.execute("SELECT envio_reservado_em FROM protocolos WHERE id=?", (protocolo_id,)).fetchone() or [None])[0]
+            if protocolo_id else None}
 
 
 # --- lista -----------------------------------------------------------------------------------------
