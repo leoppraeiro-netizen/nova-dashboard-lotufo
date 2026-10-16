@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { api, apiForm } from "./api";
+import { api, apiForm, ApiErro } from "./api";
+import ConfirmarFaltas from "./ConfirmarFaltas";
 import { IconeAlerta } from "./icones";
 import Janela from "./Janela";
 import { avisoPorFora, mensagem, notasDe, type Envio, type Irma } from "./NotasAEnviar";
@@ -14,6 +15,9 @@ import { hojeLocal } from "./tempo";
 // rascunho do envio e guarda o .eml). O nº do processo no orgao segue por /api/notas/{id}/numero-orgao, que e'
 // onde o servidor guarda esse numero nos protocolos feitos por fora. O nº do oficio nao tem campo proprio no
 // registro por fora: vai na observacao, que fica na auditoria e na medicao.
+// Issue #230: o registro segue a regra do envio (#213). Falta documento nao bloqueia: o servidor responde 422
+// CONFIRMAR_PENDENCIAS com a lista, o aviso "ATENÇÃO" (ConfirmarFaltas) pede a confirmacao e o registro daquele envio
+// vai de novo com a lista confirmada (`confirmadas`), que o servidor confere outra vez sob o lock.
 
 export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, aoRecarregar }: {
   envios: Envio[]; aoFechar: () => void; aoFeito: (aviso: string) => void;
@@ -33,11 +37,19 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
   const [irmasFora, setIrmasFora] = useState<number[]>([]);   // irmas desmarcadas
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
+  // issue #230: a lista confirmada de cada envio, e o envio esperando a confirmacao no aviso
+  const [confirmadas, setConfirmadas] = useState<Record<string, string[]>>({});
+  const [confirmar, setConfirmar] = useState<{ chave: string; itens: string[]; mudou: boolean } | null>(null);
 
   const fechar = () => { if (parcial) aoRecarregar(); aoFechar(); };
 
-  async function registrar(ev: React.FormEvent) {
+  function registrar(ev: React.FormEvent) {
     ev.preventDefault();
+    void executar(confirmadas);
+  }
+
+  async function executar(conf: Record<string, string[]>) {
+    setConfirmar(null);
     const escolhidos = envios.filter(e => marcados.includes(e.chave));
     if (escolhidos.length === 0) { setErro("Marque o que saiu neste envio."); return; }
     // a observacao vira a justificativa da ressalva na auditoria: nao ha' texto padrao
@@ -56,6 +68,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
         fd.append("enviado_em", data);
         fd.append("observacao", observacao);
         if (eml) fd.append("eml", eml);
+        for (const x of conf[e.chave] ?? []) fd.append("confirmadas", x);
         await apiForm("/api/notas/envio-externo", fd);
         feitos.push(e.chave);
         todasJuntas = [...todasJuntas, ...juntas];
@@ -71,6 +84,17 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
         : "Envios registrados: as notas foram para Aguardando pagamento.";
       aoFeito(semNumero.length > 0 ? `${aviso} O nº do processo não foi gravado (${semNumero[0]}): registre-o na etapa 4, depois do envio.` : aviso);
     } catch (x) {
+      const pendente = escolhidos[feitos.length];
+      if (x instanceof ApiErro && x.status === 422 && x.corpo?.codigo === "CONFIRMAR_PENDENCIAS" && pendente) {
+        // falta documento neste envio: o aviso pede a confirmacao; os ja' registrados saem da lista e ficam ditos
+        if (feitos.length > 0) {
+          setMarcados(marcados.filter(c => !feitos.includes(c))); setParcial(true);
+          setErro(`Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`);
+        }
+        setConfirmar({ chave: pendente.chave, itens: x.corpo.pendencias ?? [], mudou: (conf[pendente.chave] ?? []).length > 0 });
+        setOcupado(false);
+        return;
+      }
       setErro(feitos.length > 0 ? `${mensagem(x)} Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`
         : mensagem(x));
       if (feitos.length > 0) { setMarcados(marcados.filter(c => !feitos.includes(c))); setParcial(true); }
@@ -138,6 +162,13 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
           <button type="button" className="btn" onClick={fechar}>Cancelar</button>
         </div>
       </form>
+      {confirmar && <ConfirmarFaltas itens={confirmar.itens} mudou={confirmar.mudou} aoCancelar={() => setConfirmar(null)}
+        pergunta="Deseja continuar com o registro do envio?" rotuloContinuar="Continuar com o registro"
+        aoContinuar={() => {
+          const conf = { ...confirmadas, [confirmar.chave]: confirmar.itens };
+          setConfirmadas(conf);
+          void executar(conf);
+        }} />}
     </Janela>
   );
 }

@@ -6,8 +6,11 @@ import { IconeAlerta } from "./icones";
 // que o servidor confere de novo (`mudou`: a lista que ele devolveu e' outra, entao a confirmacao e' pedida de novo).
 // Janela modal para o teclado: o foco abre no Cancelar (um Enter a mais nao envia), Escape cancela, o Tab da' a volta
 // dentro dela e, ao fechar, o foco volta ao botao que a abriu.
-export default function ConfirmarFaltas({ itens, mudou = false, aoCancelar, aoContinuar }: {
+// Issue #230: o registro do envio feito por fora usa o mesmo aviso, com a pergunta e o botao do registro.
+export default function ConfirmarFaltas({ itens, mudou = false, aoCancelar, aoContinuar,
+  pergunta = "Deseja continuar com o envio?", rotuloContinuar = "Continuar com o envio" }: {
   itens: string[]; mudou?: boolean; aoCancelar: () => void; aoContinuar: () => void;
+  pergunta?: string; rotuloContinuar?: string;
 }) {
   const caixa = useRef<HTMLDivElement>(null);
   const [antes] = useState(() => document.activeElement as HTMLElement | null);
@@ -20,7 +23,8 @@ export default function ConfirmarFaltas({ itens, mudou = false, aoCancelar, aoCo
     alvo?.focus();
   };
   function teclas(ev: React.KeyboardEvent<HTMLDivElement>) {
-    if (ev.key === "Escape") { ev.stopPropagation(); cancelar(); return; }
+    // preventDefault (issue #230): dentro de um <dialog> (registro por fora), o Esc fecharia a janela de baixo junto
+    if (ev.key === "Escape") { ev.preventDefault(); ev.stopPropagation(); cancelar(); return; }
     if (ev.key !== "Tab") return;
     const botoes = caixa.current?.querySelectorAll<HTMLElement>("button");
     if (!botoes || botoes.length === 0) return;
@@ -40,11 +44,11 @@ export default function ConfirmarFaltas({ itens, mudou = false, aoCancelar, aoCo
           <p>{mudou ? "O que falta mudou desde a sua confirmação. Agora falta:"
             : um ? "Falta neste envio:" : `Faltam ${itens.length} itens neste envio:`}</p>
           <ul className="confirmar-faltas__lista">{itens.map((x, i) => <li key={i}>{x}</li>)}</ul>
-          <p className="confirmar-faltas__pergunta">Deseja continuar com o envio?</p>
+          <p className="confirmar-faltas__pergunta">{pergunta}</p>
         </div>
         <div className="confirmar-faltas__acoes">
           <button type="button" className="btn" autoFocus onClick={cancelar}>Cancelar</button>
-          <button type="button" className="btn btn--primario" onClick={aoContinuar}>Continuar com o envio</button>
+          <button type="button" className="btn btn--primario" onClick={aoContinuar}>{rotuloContinuar}</button>
         </div>
       </div>
     </div>
