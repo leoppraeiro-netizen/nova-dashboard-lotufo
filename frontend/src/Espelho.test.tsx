@@ -175,6 +175,23 @@ describe("Espelho", () => {
     fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
     await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
     expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/2/documentos");
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("oficio.pdf anexado à 10ª Medição de Projeto como evidência do órgão."));
+  });
+
+  it("misto com o Projeto superado: na medição de execução, só leitura com o link para o Projeto e o anexo na execução", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "protocolada" },
+      { id: 2, tipo: "projeto", estado: "espelho_gerado", superado: true }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    apiForm.mockResolvedValueOnce({ documento_id: 51, repetido: false });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 1, tipo: "execucao" }} />);
+    const nota = await screen.findByText(/só para leitura/);
+    expect(nota.querySelector("a")?.textContent).toBe("10ª Medição de Projeto");
+    expect(screen.queryByRole("button", { name: /Enviar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Gerar de novo" })).toBeNull();
+    const arquivo = new File(["%PDF"], "oficio.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar evidência do órgão/), { target: { files: [arquivo] } });
+    await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(1));
+    expect(apiForm.mock.lastCall![0]).toBe("/api/medicoes/1/documentos");
   });
 
   it("misto com a execução superada, por etapa: nenhuma das duas partes oferece enviar ou gerar de novo", async () => {

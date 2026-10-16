@@ -249,13 +249,16 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     const arquivo = input.files?.[0];
     if (!arquivo) return;
     const alvo = medicao && esp.medicoes.some(m => m.id === medicao.id && !m.superado) ? medicao.id : larDoEspelho(esp);
-    if (alvo === null) { input.value = ""; return; }
+    const med = esp.medicoes.find(m => m.id === alvo);
+    if (!med) { setFeito(""); setErro("Este espelho não tem medição em vigor para receber o anexo."); input.value = ""; return; }
     setErro(""); setFeito(""); setOcupado(true);
     try {
       const fd = new FormData();
       fd.append("arquivo", arquivo);
-      const r = await apiForm<{ documento_id: number; repetido: boolean }>(`/api/medicoes/${alvo}/documentos`, fd);
-      setFeito(r.repetido ? `${arquivo.name} já estava anexado a esta medição.` : `${arquivo.name} anexado à medição ${esp.numero} como evidência do órgão.`);
+      const r = await apiForm<{ documento_id: number; repetido: boolean }>(`/api/medicoes/${med.id}/documentos`, fd);
+      // sem ponto final: a mensagem de `feito` ganha o ponto na hora de mostrar
+      setFeito(r.repetido ? `${arquivo.name} já estava anexado a esta medição`
+        : `${arquivo.name} anexado à ${tituloMedicao({ numero: esp.numero, tipo: med.tipo })} como evidência do órgão`);
       aoMudar();
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); input.value = ""; }
   };
@@ -448,7 +451,12 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
         <div className="vazio"><p>Esta medição não tem espelho gerado pelo sistema.</p></div>
       )}
 
-      {medicao && passo.tipo === "lista" && vigentes.map(esp => (
+      {medicao && passo.tipo === "lista" && vigentes.map(esp => {
+        // #212: com uma das medicoes ja' em espelho mais novo, este fica so' para leitura (o servidor recusa
+        // o envio, e gerar de novo partiria dos valores antigos da superada)
+        const superadas = esp.medicoes.filter(m => m.superado);
+        const soLeitura = superadas.length > 0;
+        return (
         <article className={parte ? "pilha espelho__item" : "cartao__corpo espelho__item"} key={esp.id} aria-label={`Espelho nº ${esp.numero}`}>
           {!parte && (
           <div className="espelho__cabeca">
@@ -493,24 +501,22 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
           {parte === "faturamento" && esp.envio && (
             <p className="campo__nota">Enviado por {esp.envio.remetente} → {esp.envio.para.join(", ")}.</p>
           )}
-          {/* #212: com uma das medicoes ja' em espelho mais novo, este fica so' para leitura (o servidor recusa
-              o envio, e gerar de novo partiria dos valores antigos da superada) */}
-          {esp.medicoes.filter(m => m.superado).map(m => (
+          {superadas.map(m => (
             <p className="campo__nota" key={m.id}>
               Este espelho fica só para leitura: a{" "}
               <Link para={{ tela: "medicao", obra: contratoId, id: m.id }} secao="espelho">{tituloMedicao({ numero: esp.numero, tipo: m.tipo })}</Link>{" "}
-              já tem espelho mais novo. Para mudar valores ou enviar ao faturamento, use o espelho mais novo dela.
+              já tem espelho mais novo, e enviar ou gerar este de novo voltaria aos valores antigos dela.
             </p>
           ))}
           {podeEditar && (
             <div className={parte ? "med-acoes" : "form-inline"}>
               {/* primario so' enquanto nao foi enviado: "Enviar de novo" nao e' o proximo passo */}
-              {so("faturamento") && !esp.medicoes.some(m => m.superado) && (
+              {so("faturamento") && !soLeitura && (
                 <button type="button" className={`btn btn--pequeno${esp.envio ? "" : " btn--primario"}`} disabled={ocupado} onClick={() => abrirEnvio(esp)}>
                   {esp.envio ? "Enviar de novo" : "Enviar ao faturamento"}
                 </button>
               )}
-              {so("espelho") && !esp.medicoes.some(m => m.superado) && <button type="button" className="btn btn--pequeno" onClick={() => abrirForm(esp)}>Gerar de novo</button>}
+              {so("espelho") && !soLeitura && <button type="button" className="btn btn--pequeno" onClick={() => abrirForm(esp)}>Gerar de novo</button>}
               {so("espelho") && (
                 <label className="btn btn--pequeno espelho__anexar">
                   Anexar o que o órgão mandou (PDF)
@@ -522,7 +528,8 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
             </div>
           )}
         </article>
-      ))}
+        );
+      })}
 
       {medicao && passo.tipo === "lista" && so("espelho") && substituidos.length > 0 && (
         <details className={parte ? "detalhes" : "detalhes cartao__corpo"}>
