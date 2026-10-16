@@ -1,22 +1,16 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useEffect } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SituacaoFrc } from "./Frc";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
-const { api, frcLida } = vi.hoisted(() => ({ api: vi.fn(), frcLida: { atual: null as unknown, lida: false } }));
+const { api } = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
 // Cada cartao tem fluxo proprio; aqui so' importa que, ao avisar a pagina, ela releia o que os outros mostram.
-vi.mock("./Espelho", () => ({ default: () => null }));
-// a FRC so' conta o que leu (aoLer), como o cartao de verdade depois de GET /frc
+vi.mock("./Espelho", () => ({
+  default: ({ parte }: { parte?: string }) => <div data-espelho={parte} />,
+}));
 vi.mock("./Frc", () => ({
-  // le de novo quando a pagina muda a versao, como o cartao de verdade
-  FrcConsorcio: ({ aoLer, versao }: { aoLer?: (s: SituacaoFrc) => void; versao: number }) => {
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { if (frcLida.atual) { aoLer?.(frcLida.atual as SituacaoFrc); frcLida.lida = true; } }, [versao]);
-    return null;
-  },
+  FrcConsorcio: ({ medicaoId }: { medicaoId: number }) => <div data-frc={medicaoId} />,
 }));
 vi.mock("./Notas", () => ({
   Notas: ({ aoMudar, rotulo, medicao, podeDesfazer }: { aoMudar: () => void; rotulo?: string; medicao: { id: number }; podeDesfazer?: boolean }) =>
@@ -26,8 +20,8 @@ vi.mock("./Protocolo", async () => {
   const real = await vi.importActual<typeof import("./Protocolo")>("./Protocolo");
   return {
     ...real,
-    ProtocolosDaMedicao: ({ aoMudar }: { aoMudar: () => void }) =>
-      <button type="button" onClick={aoMudar}>Enviar protocolo (teste)</button>,
+    ProtocolosDaMedicao: ({ aoMudar, children }: { aoMudar: () => void; children?: React.ReactNode }) =>
+      <div><button type="button" onClick={aoMudar}>Enviar protocolo (teste)</button>{children}</div>,
   };
 });
 
@@ -39,165 +33,197 @@ const MEDICAO = { id: 5, numero: 23, tipo: "execucao", competencia: "2026-09", e
 const LISTA = { familia: "ses", etapas: [], pecas: [], medicoes: [], protocolos: [] };
 
 const leituras = (caminho: string) => api.mock.calls.filter(c => c[0] === caminho && !c[1]);
+// a pagina abre na etapa da vez; a ancora (#etapa-N) abre outra
+const abrirEtapa = (n: number) => window.history.replaceState(null, "", `/obras/1/medicoes/5#etapa-${n}`);
+const pagina = (perfil: Usuario["perfil"] = "admin", id = 5) =>
+  render(<MedicaoPagina contratoId={1} medicaoId={id} usuario={{ ...usuario, perfil }} origem={null} />);
 
-function responder() {
+function responder(extra: Record<string, unknown> = {}) {
   api.mockImplementation(async (url: string) => {
+    if (url in extra) return extra[url];
     if (url.endsWith("/cabecalho")) return { obra: "Hospital", orgao: "SES", instrumento: "CT 1/2026", percentual_lotufo_bp: 10000 };
     if (url === "/api/contratos/1/medicoes") return [MEDICAO];
     if (url === "/api/contratos/1/protocolos") return LISTA;
     if (url.startsWith("/api/medicoes/andamento")) return [];
     if (url === "/api/contratos/1/espelho") return { espelhos: [] };
+    if (url === "/api/notas/a-enviar") return { envios: [], contadores: {} };
     return {};
   });
 }
 
+describe("Página da medição: o trilho, a etapa aberta e a coluna da direita", () => {
+  beforeEach(() => window.history.replaceState(null, "", "/obras/1/medicoes/5"));
+  afterEach(() => { cleanup(); api.mockReset(); });
+
+  it("abre só a etapa da vez; as outras abrem no lugar dela, com a faixa para voltar", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }] });
+    const { container } = pagina();
+    await screen.findByRole("heading", { name: "Envio ao órgão", level: 2 });
+    expect(container.querySelectorAll(".med-etapa")).toHaveLength(1);
+    expect(screen.queryByText(/Você está vendo a etapa/)).toBeNull();
+    const trilho = screen.getByRole("navigation", { name: "Etapas da medição" });
+    expect(trilho.querySelector("[aria-current='step']")!.textContent).toContain("Envio ao órgão");
+    fireEvent.click(within(trilho).getByRole("button", { name: /Etapa 3: Nota fiscal/ }));
+    expect(screen.getByRole("heading", { name: "Nota fiscal", level: 2 })).toBeTruthy();
+    expect(container.querySelectorAll(".med-etapa")).toHaveLength(1);
+    expect(screen.getByText(/Você está vendo a etapa 3, já feita/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Voltar à etapa atual" }));
+    expect(screen.getByRole("heading", { name: "Envio ao órgão", level: 2 })).toBeTruthy();
+    expect(screen.queryByText(/Você está vendo a etapa/)).toBeNull();
+    // etapa que ainda não começou: abre, com o aviso de que libera depois
+    fireEvent.click(within(trilho).getByRole("button", { name: /Etapa 5: Pagamento/ }));
+    expect(screen.getByText(/Você está vendo a etapa 5, que ainda não começou/)).toBeTruthy();
+    expect(screen.getByText("Libera depois da etapa 4.")).toBeTruthy();
+  });
+
+  it("a âncora #etapa-N abre a etapa; as âncoras antigas (#notas) abrem a etapa 3", async () => {
+    responder();
+    abrirEtapa(2);
+    pagina();
+    expect(await screen.findByRole("heading", { name: "Faturamento", level: 2 })).toBeTruthy();
+    cleanup();
+    window.history.replaceState(null, "", "/obras/1/medicoes/5#notas");
+    pagina();
+    expect(await screen.findByRole("heading", { name: "Nota fiscal", level: 2 })).toBeTruthy();
+  });
+
+  it("o caminho do topo: Medições volta à aba onde a medição está e a obra leva à página da obra", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }] });
+    pagina();
+    const caminho = await screen.findByRole("navigation", { name: "Você está em" });
+    await waitFor(() => expect(within(caminho).getByRole("link", { name: "Hospital" })).toBeTruthy());
+    expect(within(caminho).getByRole("link", { name: "Medições" }).getAttribute("href")).toBe("/medicoes/enviar-nota");
+    expect(within(caminho).getByRole("link", { name: "Hospital" }).getAttribute("href")).toBe("/obras/1");
+  });
+
+  it("título “Nª Medição + Reajuste”, valores somados e a coluna com Resumo e Linha do tempo", async () => {
+    const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste", valor_protocolado_centavos: 50000 };
+    responder({ "/api/contratos/1/medicoes": [MEDICAO, REAJ] });
+    pagina();
+    expect(await screen.findByRole("heading", { name: "23ª Medição + Reajuste", level: 1 })).toBeTruthy();
+    const lateral = screen.getByRole("complementary", { name: "Resumo e linha do tempo" });
+    expect(within(lateral).getByText("Resumo da medição")).toBeTruthy();
+    expect(within(lateral).getByText("Linha do tempo")).toBeTruthy();
+    expect(within(lateral).getByText("Total").closest("div")!.textContent).toContain("10.500,00");
+  });
+
+  it("“Mais ações” só tem atestado, medição final, cancelar, desistir e liberar envio preso", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "prevista" }] });
+    pagina();
+    fireEvent.click(await screen.findByRole("button", { name: /Mais ações/ }));
+    const itens = within(screen.getByRole("menu")).getAllByRole("menuitem").map(x => x.textContent);
+    expect(itens).toEqual(["Definir o atestado", "Marcar como medição final", "Cancelar a medição", "Registrar desistência"]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Cancelar a medição" }));
+    expect(screen.getByRole("heading", { name: "Cancelar a medição", level: 2 })).toBeTruthy();
+  });
+
+  it("quem só consulta não vê “Mais ações”", async () => {
+    responder();
+    pagina("diretoria");
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: /Mais ações/ })).toBeNull();
+  });
+
+  it("“Liberar envio preso” aparece com um envio começado e abre a liberação", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }],
+      "/api/notas/a-enviar": { envios: [{ chave: "m5", contrato_id: 1, medicao_ids: [5], protocolo_id: 3, notas: [], itens: [], situacao: "pronto",
+        descricao: "23ª medição", valor_centavos: 1, familia: "sinfra", aviso: null }], contadores: {} } });
+    pagina();
+    fireEvent.click(await screen.findByRole("button", { name: /Mais ações/ }));
+    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Liberar envio preso" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("menuitem", { name: "Liberar envio preso" }));
+    expect(screen.getByRole("button", { name: "Liberar envio" })).toBeTruthy();
+  });
+});
+
 describe("Página da medição: as etapas se atualizam entre si", () => {
+  beforeEach(() => abrirEtapa(3));
   afterEach(() => { cleanup(); api.mockReset(); });
 
   // issue #71 (revisor na PR #202): desfazer o vinculo da nota so' para o admin e so' em medicao aberta
   it.each([["protocolada", "true"], ["recebida", "false"], ["cancelada", "false"], ["desistida", "false"]])(
     "medição %s: desfazer vínculo da nota = %s", async (estado, esperado) => {
-      responder();
-      const base = api.getMockImplementation()!;
-      api.mockImplementation(async (url: string, opcoes?: unknown) =>
-        url === "/api/contratos/1/medicoes" ? [{ ...MEDICAO, estado }] : base(url, opcoes));
-      const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+      responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado }] });
+      const { container } = pagina();
       await waitFor(() => expect(container.querySelector("[data-medicao='5']")).not.toBeNull());
       expect(container.querySelector("[data-medicao='5']")!.getAttribute("data-desfazer")).toBe(esperado);
     });
 
   it("engenharia não desfaz vínculo de nota", async () => {
     responder();
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={{ ...usuario, perfil: "engenharia" } as Usuario} origem={null} />);
+    const { container } = pagina("engenharia");
     await waitFor(() => expect(container.querySelector("[data-medicao='5']")).not.toBeNull());
     expect(container.querySelector("[data-medicao='5']")!.getAttribute("data-desfazer")).toBe("false");
   });
 
-  it("depois de anexar ou vincular nota, os protocolos e a medição são lidos de novo", async () => {
+  it("depois de anexar ou vincular nota, os protocolos, os envios e a medição são lidos de novo", async () => {
     responder();
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    pagina();
     fireEvent.click(await screen.findByRole("button", { name: "Anexar nota (teste)" }));
     await waitFor(() => expect(leituras("/api/contratos/1/protocolos")).toHaveLength(2));
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes")).toHaveLength(2));
+    await waitFor(() => expect(leituras("/api/notas/a-enviar")).toHaveLength(2));
   });
 
-  // issue #100 (revisor na PR #141): NF anexada na etapa 3 com o envio aberto na etapa 4 faz o envio reler os anexos
-  it("com a nota emitida, anexar nota na etapa 3 relê o envio aberto na etapa 4", async () => {
-    responder();
-    const base = api.getMockImplementation()!;
-    api.mockImplementation(async (url: string, opcoes?: unknown) => {
-      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }];
-      if (url === "/api/notas/a-enviar") return { envios: [{ chave: "m5", contrato_id: 1, medicao_ids: [5], protocolo_id: 3, notas: [] }], contadores: {} };
-      if (url === "/api/notas/envio/3") return null;
-      return base(url, opcoes);
-    });
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(1));
-    fireEvent.click(screen.getByRole("button", { name: "Anexar nota (teste)" }));
-    await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(2));
+  it("a FRC é de cada medição: uma por bloco quando o órgão tem medição e reajuste", async () => {
+    const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste" };
+    const metade = (id: number, tipo: string) => ({ medicao_id: id, tipo, titulo: "x", estado: "protocolada", faltam: 0, esperadas: [],
+      completa: true, espera: null, liberacao: null });
+    responder({ "/api/contratos/1/medicoes": [MEDICAO, REAJ],
+      "/api/medicoes/5/par": { junta: false, orgao: "MTPAR", metades: [metade(5, "execucao"), metade(6, "reajuste")] } });
+    const { container } = pagina();
+    await waitFor(() => expect(container.querySelector("[data-frc='6']")).not.toBeNull());
+    expect(container.querySelector("[data-frc='5']")).not.toBeNull();
   });
 
   // issue #208: o espelho misto que ficou vigente para outra medicao (superado para esta) nao e' o espelho dela
   it("a etapa do espelho mostra a versão mais nova da medição, não o misto superado", async () => {
-    responder();
-    const base = api.getMockImplementation()!;
+    abrirEtapa(1);
     const esp = (id: number, versao: number, superado: boolean) => ({ id, numero: 23, versao, situacao: "vigente",
       criado_em: "2026-10-15 12:00:00", criado_por_nome: null, envio: null,
       medicoes: [{ id: 5, tipo: "execucao", superado }] });
-    api.mockImplementation(async (url: string, opcoes?: unknown) =>
-      url === "/api/contratos/1/espelho" ? { espelhos: [esp(7, 1, true), esp(8, 2, false)] } : base(url, opcoes));
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    responder({ "/api/contratos/1/espelho": { espelhos: [esp(7, 1, true), esp(8, 2, false)] } });
+    pagina();
     expect(await screen.findByText(/nº 23 · versão 2/)).toBeTruthy();
     expect(screen.queryByText(/nº 23 · versão 1/)).toBeNull();
   });
 
-  it("depois de enviar um protocolo, a medição é lida de novo", async () => {
+  it("etapa 1 é o Espelho e a 2 o Faturamento: o mesmo cartão, uma parte em cada etapa", async () => {
+    abrirEtapa(1);
     responder();
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    const { container, unmount } = pagina();
+    await waitFor(() => expect(container.querySelector("[data-espelho='espelho']")).not.toBeNull());
+    unmount();
+    abrirEtapa(2);
+    const outra = pagina();
+    await waitFor(() => expect(outra.container.querySelector("[data-espelho='faturamento']")).not.toBeNull());
+  });
+
+  it("depois de enviar um protocolo (etapa 4 já feita), a medição é lida de novo", async () => {
+    abrirEtapa(4);
+    responder();
+    pagina();
     fireEvent.click(await screen.findByRole("button", { name: "Enviar protocolo (teste)" }));
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes")).toHaveLength(2));
   });
-});
 
-// issue #148: com a ultima nota a FRC e' gerada e a medicao passa para o envio; a etapa 3 continua aberta ate' a
-// FRC assinada estar anexada, porque e' dali que se baixa a FRC para assinar
-describe("Página da medição: etapa 3 da obra de consórcio", () => {
-  afterEach(() => { cleanup(); api.mockReset(); frcLida.atual = null; frcLida.lida = false; });
-
-  const FRC = { numero: 77, data_geracao: "2026-10-14", gerada_em: "2026-10-14T10:00:00", gerada_por: null,
-    bruto_centavos: 100, liquido_centavos: 90, desatualizada: false };
-  const consorcio = (extra: Partial<SituacaoFrc>): SituacaoFrc =>
-    ({ disponivel: true, consorcio: "Consórcio X", motivo: null, itens: [], frc: FRC, assinada: false, ...extra });
-
-  // devolve a etapa 3 depois que a pagina recebeu a leitura da FRC (aoLer) e renderizou de novo
-  async function etapa3(frc: SituacaoFrc, estado = "nota_emitida") {
-    responder();
-    const base = api.getMockImplementation()!;
-    api.mockImplementation(async (url: string, opcoes?: unknown) => {
-      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado }];
-      if (url === "/api/notas/a-enviar") return { envios: [], contadores: {} };
-      return base(url, opcoes);
-    });
-    frcLida.atual = frc;
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    await screen.findByRole("button", { name: "Anexar nota (teste)" });
-    await waitFor(() => expect(frcLida.lida).toBe(true));
-    await act(async () => {});
-    return container.querySelector("#etapa-3") as HTMLDetailsElement;
-  }
-
-  it("FRC gerada e ainda não assinada: a etapa 3 fica aberta", async () => {
-    const etapa = await etapa3(consorcio({}));
-    expect(etapa.open).toBe(true);
-  });
-
-  it("com a FRC assinada anexada, a etapa 3 fecha", async () => {
-    const etapa = await etapa3(consorcio({ assinada: true }));
-    expect(etapa.tagName).toBe("DETAILS");
-    expect(etapa.open).toBe(false);
-  });
-
-  it("anexar a FRC assinada na etapa 4 relê a FRC e a etapa 3 fecha, sem recarregar a página", async () => {
-    const ITEM = { chave: "frc:5", rotulo: "FRC assinada", medicao_id: 5, frc_gerada: 77, estado: "falta",
-      acao: "anexar_frc", detalhe: "Falta a assinada" };
-    const ENVIO = { chave: "m5", contrato_id: 1, obra: "Hospital", orgao: "SINFRA", orgao_sub: null, familia: "sinfra",
-      grupo: "SINFRA", a_pedido: false, medicao_ids: [5], descricao: "23ª medição", notas: [], valor_centavos: 100,
-      emitida_em: "2026-10-13", dias: 1, situacao: "pendente", aviso: null, protocolo_id: 3, itens: [ITEM] };
-    responder();
-    const base = api.getMockImplementation()!;
-    api.mockImplementation(async (url: string, opcoes?: unknown) => {
-      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }];
-      if (url === "/api/notas/a-enviar") return { envios: [ENVIO], contadores: {} };
-      if (url === "/api/notas/envio/3") return { envio: ENVIO, familia: "sinfra", etapa: "nota", situacao_protocolo: "rascunho",
-        carta: null, previa: { para: [], copia: [], assunto: "Notas", corpo: "Bom dia.", anexos: [], links: [] },
-        bloqueio: null, pendencias: [], justificativa_obrigatoria: false, extras: [] };
-      if (url.startsWith("/api/correio/contatos")) return [];
-      return base(url, opcoes);
-    });
-    frcLida.atual = consorcio({});
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    const etapa = () => container.querySelector("#etapa-3") as HTMLDetailsElement;
-    await waitFor(() => expect(etapa().open).toBe(true));
-    frcLida.atual = consorcio({ assinada: true });
-    const pdf = new File(["%PDF-1.4"], "FRC 77 assinada.pdf", { type: "application/pdf" });
-    fireEvent.change(await screen.findByLabelText("Anexar FRC assinada"), { target: { files: [pdf] } });
-    await waitFor(() => expect(etapa().open).toBe(false));
-  });
-
-  it("medição encerrada sem a FRC assinada: a etapa 3 não abre sozinha", async () => {
-    const etapa = await etapa3(consorcio({}), "recebida");
-    expect(etapa.open).toBe(false);
-  });
-
-  it("obra que não é de consórcio: a etapa 3 feita fica recolhida, como antes", async () => {
-    const etapa = await etapa3({ disponivel: false, consorcio: null, motivo: null });
-    expect(etapa.open).toBe(false);
+  it("etapa 4 já feita: o protocolo registrado fora mostra o nº do órgão e não há mais “Registrar protocolo feito fora”", async () => {
+    abrirEtapa(4);
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [{ id: 9, data: "2026-10-10", numero_oficio: "360/2026",
+      numero_processo: null, origem: "manual", protocolo_id: null }] }] });
+    pagina();
+    expect(await screen.findByText(/registrado fora do sistema/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Registrar protocolo feito fora/ })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Nº do protocolo no órgão"), { target: { value: "2026.10.004512" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/notas/5/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "2026.10.004512" }) }));
   });
 });
 
 // issue #188: a execucao e o reajuste da mesma competencia na mesma pagina; onde o orgao junta os dois no mesmo
 // e-mail, a metade pronta espera a outra (opcao A: a espera fica na tela e no envio, nao no estado)
-describe("Página da medição: notas da medição e do reajuste", () => {
+describe("Página da medição: medição e reajuste", () => {
+  beforeEach(() => window.history.replaceState(null, "", "/obras/1/medicoes/5"));
   afterEach(() => { cleanup(); api.mockReset(); });
 
   const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste", estado: "espelho_enviado", valor_protocolado_centavos: 50000 };
@@ -205,112 +231,107 @@ describe("Página da medição: notas da medição e do reajuste", () => {
     medicao_id: id, tipo, titulo: tipo === "execucao" ? "23ª Medição" : "Reajuste da 23ª Medição", estado: "nota_emitida",
     faltam: 0, esperadas: [], completa: true, espera: null, liberacao: null, ...extra });
   const ESPERA = { medicao_id: 6, titulo: "Reajuste da 23ª Medição", tipo: "reajuste", texto: "esperando as notas do reajuste" };
+  const ENVIO_ESPERANDO = { chave: "m5-m6", contrato_id: 1, medicao_ids: [5, 6], protocolo_id: null, notas: [], itens: [], situacao: "esperando",
+    descricao: "23ª medição + reajuste", valor_centavos: 1, familia: "sinfra", aviso: "esperando as notas do reajuste", irmas: [] };
 
-  function comPar(par: unknown) {
-    responder();
-    const base = api.getMockImplementation()!;
-    api.mockImplementation(async (url: string, opcoes?: unknown) => {
-      if (url === "/api/contratos/1/medicoes") return [{ ...MEDICAO, estado: "nota_emitida" }, REAJ];
-      if (url === "/api/medicoes/5/par") return par;
-      if (url === "/api/notas/a-enviar") return { envios: [], contadores: {} };
-      return base(url, opcoes);
-    });
+  function comPar(par: unknown, extra: Record<string, unknown> = {}) {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, estado: "nota_emitida" }, REAJ], "/api/medicoes/5/par": par,
+      "/api/notas/a-enviar": { envios: [ENVIO_ESPERANDO], contadores: {} }, ...extra });
   }
-
   const SINFRA = { junta: true, orgao: "SINFRA", metades: [metade(5, "execucao", { espera: ESPERA }),
     metade(6, "reajuste", { estado: "espelho_enviado", completa: false, faltam: 2 })] };
 
-  it("órgão que junta: dois blocos, o que falta por bloco, o passo em espera e o aviso", async () => {
+  it("órgão que junta: dois blocos na etapa 3, o que falta por bloco e o aviso", async () => {
+    abrirEtapa(3);
     comPar(SINFRA);
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    const { container } = pagina();
     expect(await screen.findByRole("region", { name: "Execução · 23ª Medição" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Reajuste da 23ª Medição" })).toBeTruthy();
     expect(container.querySelector("[data-medicao='6']")).toBeTruthy();       // a nota do reajuste vai para o reajuste
-    const etapa3 = container.querySelector("#etapa-3") as HTMLElement;
-    expect(etapa3.querySelector(".etapa__cabeca")!.textContent).toBe("3Nota fiscalexecução completa · reajuste: faltam 2 notas");
-    const barra = screen.getByRole("navigation", { name: "Etapas da medição" });
-    expect(within(barra).getByRole("link", { name: /Nota fiscal · em espera/ })).toBeTruthy();
-    expect(barra.querySelector(".etapas-barra__item--espera")).toBeTruthy();
-    expect(etapa3.textContent).toContain("Na SINFRA a medição e o reajuste vão no mesmo e-mail. O envio ao órgão abre "
-      + "quando chegarem as notas do reajuste.");
-    // a etapa 4 (o envio) ainda nao abriu
-    expect(container.querySelector("#etapa-4")!.className).toContain("etapa--futura");
+    expect(container.querySelector(".med-etapa__cabeca")!.textContent).toContain("execução completa · reajuste: faltam 2 notas");
+    expect(container.textContent).toContain("Na SINFRA a medição e o reajuste vão no mesmo e-mail. O envio ao órgão abre "
+      + "quando chegarem as notas do reajuste");
   });
 
-  it("na página do reajuste que falta: os mesmos blocos e o aviso, mas a etapa é a da vez, não em espera", async () => {
+  it("órgão que junta, esperando o reajuste: a etapa 4 é a da vez, em espera, e a saída de emergência está na linha do envio", async () => {
     comPar(SINFRA);
-    const base = api.getMockImplementation()!;
-    api.mockImplementation(async (url: string, opcoes?: unknown) => url === "/api/medicoes/6/par" ? SINFRA : base(url, opcoes));
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={6} usuario={usuario} origem={null} />);
-    expect(await screen.findByRole("region", { name: "Execução · 23ª Medição" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Reajuste da 23ª Medição" })).toBeTruthy();
-    expect(container.querySelector(".etapas-barra__item--espera")).toBeNull();
-    expect(container.querySelector("#etapa-3")!.textContent).toContain("O envio ao órgão abre quando chegarem as notas do reajuste.");
-    // a saida de emergencia libera a execucao (a metade pronta), tambem a partir daqui
-    expect(screen.getByRole("button", { name: "Enviar a medição sem o reajuste…" })).toBeTruthy();
-  });
-
-  it("saída de emergência: justificativa obrigatória, libera só a medição pronta", async () => {
-    comPar(SINFRA);
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Enviar a medição sem o reajuste…" }));
-    const liberar = screen.getByRole("button", { name: "Liberar o envio só da medição" }) as HTMLButtonElement;
-    expect(liberar.disabled).toBe(true);
+    pagina();
+    const botao = await screen.findByRole("button", { name: "Enviar a medição sem o reajuste…" });
+    const trilho = screen.getByRole("navigation", { name: "Etapas da medição" });
+    expect(trilho.querySelector(".seta--espera")!.textContent).toContain("Envio ao órgão");
+    expect(screen.queryByRole("button", { name: "Enviar a nota" })).toBeNull();    // nada a iniciar: falta a outra metade
+    fireEvent.click(botao);
+    const enviar = screen.getByRole("button", { name: "Liberar o envio só da medição" }) as HTMLButtonElement;
+    expect(enviar.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Justificativa (obrigatória)"), { target: { value: "notas do reajuste presas no faturamento" } });
-    fireEvent.click(liberar);
+    fireEvent.click(enviar);
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/5/envio-sem-a-outra",
       { method: "POST", body: JSON.stringify({ justificativa: "notas do reajuste presas no faturamento" }) }));
   });
 
-  it("a justificativa da liberação aparece na linha do tempo", async () => {
+  it("na página do reajuste que falta: a etapa da vez é a 3, e a etapa 4 mostra a saída de emergência", async () => {
+    window.history.replaceState(null, "", "/obras/1/medicoes/6#etapa-4");
+    comPar(SINFRA, { "/api/medicoes/6/par": SINFRA });
+    pagina("admin", 6);
+    expect(await screen.findByRole("button", { name: "Enviar a medição sem o reajuste…" })).toBeTruthy();
+    const trilho = screen.getByRole("navigation", { name: "Etapas da medição" });
+    expect(trilho.querySelector(".seta--espera")).toBeNull();
+    expect(trilho.querySelector("[aria-current='step']")!.textContent).toContain("Nota fiscal");
+  });
+
+  it("a justificativa da liberação aparece na linha do tempo e some a saída de emergência", async () => {
     comPar({ ...SINFRA, metades: [metade(5, "execucao", { liberacao: { justificativa: "notas presas no faturamento",
-      em: "2026-10-15 13:00:00", por: "Engenharia" } }), SINFRA.metades[1]] });
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    expect((await screen.findAllByText(/Envio liberado sem o reajuste por Engenharia\. Justificativa: “notas presas no faturamento”/)).length)
-      .toBeGreaterThan(0);
+      em: "2026-10-15 13:00:00", por: "Engenharia" } }), SINFRA.metades[1]] }, { "/api/notas/a-enviar": { envios: [], contadores: {} } });
+    pagina();
+    expect(await screen.findByText(/Envio liberado sem o reajuste por Engenharia\. Justificativa: “notas presas no faturamento”/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Enviar a medição sem o reajuste…" })).toBeNull();
   });
 
-  it("órgão que separa: duas trilhas, sem espera e sem saída de emergência", async () => {
+  it("órgão que separa: um trilho só, sem espera e sem saída de emergência; um envio por linha", async () => {
     comPar({ junta: false, orgao: "MTPAR", metades: [metade(5, "execucao"),
-      metade(6, "reajuste", { estado: "espelho_enviado", completa: false, faltam: 1 })] });
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    const exec = await screen.findByRole("navigation", { name: "Etapas: execução" });
-    const reaj = screen.getByRole("navigation", { name: "Etapas: reajuste" });
-    expect(exec.querySelector("[aria-current='step']")!.textContent).toContain("Envio ao órgão");
-    expect(reaj.querySelector("[aria-current='step']")!.textContent).toContain("Nota fiscal");
-    expect(screen.queryByRole("navigation", { name: "Etapas da medição" })).toBeNull();
-    // a trilha da outra metade leva aos cartoes da pagina dela; a desta pagina, aos cartoes daqui (gate Sol S3)
-    expect(within(reaj).getByRole("link", { name: "Nota fiscal" }).getAttribute("href")).toMatch(/6.*#etapa-3$/);
-    expect(within(exec).getByRole("link", { name: "Envio ao órgão" }).getAttribute("href")).toBe("#etapa-4");
-    expect(container.querySelector(".etapas-barra__item--espera")).toBeNull();
+      metade(6, "reajuste", { estado: "espelho_enviado", completa: false, faltam: 1 })] }, { "/api/notas/a-enviar": { envios: [
+        { ...ENVIO_ESPERANDO, chave: "m5", medicao_ids: [5], situacao: "pronto", aviso: null, descricao: "23ª medição", familia: "mtpar" }], contadores: {} } });
+    const { container } = pagina();
+    await screen.findByRole("button", { name: "Enviar a nota" });
+    expect(screen.getAllByRole("navigation", { name: "Etapas da medição" })).toHaveLength(1);
+    expect(container.querySelector(".seta--espera")).toBeNull();
     expect(screen.queryByRole("button", { name: /sem o reajuste/ })).toBeNull();
-    expect(container.querySelector("#etapa-4")!.className).toContain("etapa--atual");
   });
 
-  it("medição sem reajuste: um bloco só e a barra de sempre", async () => {
-    comPar({ junta: true, orgao: "SINFRA", metades: [] });
-    const { container } = render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    expect(await screen.findByRole("navigation", { name: "Etapas da medição" })).toBeTruthy();
-    expect(container.querySelectorAll("[data-medicao]")).toHaveLength(1);
+  it("medição sem reajuste: um bloco só e o título da medição", async () => {
+    abrirEtapa(3);
+    responder({ "/api/medicoes/5/par": { junta: true, orgao: "SINFRA", metades: [] } });
+    const { container } = pagina();
+    expect(await screen.findByRole("heading", { name: "23ª Medição", level: 1 })).toBeTruthy();
+    await waitFor(() => expect(container.querySelectorAll("[data-medicao]")).toHaveLength(1));
     expect(screen.queryByRole("region", { name: "Execução · 23ª Medição" })).toBeNull();
   });
 });
 
 // issue #53 (decisao do dono, 15/10/2026): o recebimento a mao e' so' do admin; a engenharia espera o RM
-describe("Página da medição: recebimento à mão", () => {
+describe("Página da medição: pagamento (etapa 5)", () => {
+  beforeEach(() => window.history.replaceState(null, "", "/obras/1/medicoes/5"));
   afterEach(() => { cleanup(); api.mockReset(); });
 
-  it("o admin vê “Registrar recebimento” na medição protocolada", async () => {
+  it("o admin vê “Registrar recebimento” na medição protocolada e ele abre a janela", async () => {
     responder();
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
-    expect(await screen.findByRole("button", { name: "Registrar recebimento" })).toBeTruthy();
+    pagina();
+    fireEvent.click(await screen.findByRole("button", { name: "Registrar recebimento" }));
+    expect(screen.getByLabelText("Motivo")).toBeTruthy();
   });
 
   it("a engenharia não vê o botão: o RM marca a baixa", async () => {
     responder();
-    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={{ ...usuario, perfil: "engenharia" }} origem={null} />);
-    expect(await screen.findByText(/O RM marca a baixa sozinho/)).toBeTruthy();
+    pagina("engenharia");
+    expect((await screen.findAllByText(/O RM marca a baixa sozinho/)).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Registrar recebimento" })).toBeNull();
+  });
+
+  it("sem o nº do protocolo no órgão, a linha leva a registrá-lo na etapa 4", async () => {
+    responder({ "/api/contratos/1/medicoes": [{ ...MEDICAO, protocolos: [{ id: 9, data: "2026-10-10", numero_oficio: null,
+      numero_processo: null, origem: "manual", protocolo_id: null }] }] });
+    pagina();
+    const link = await screen.findByRole("link", { name: "a registrar na etapa 4" });
+    expect(link.getAttribute("href")).toBe("/obras/1/medicoes/5#etapa-4");
   });
 });

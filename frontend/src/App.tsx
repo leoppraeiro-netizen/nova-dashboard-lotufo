@@ -7,7 +7,7 @@ import { ABAS_ADMIN } from "./administracao";
 import { ABAS_CARTEIRA } from "./carteira";
 import { BarraSuperior, Trilho } from "./Casca";
 import Documentos from "./Documentos";
-import EnviarNota from "./EnviarNota";
+import AbrirEnvio from "./AbrirEnvio";
 import ContratoPagina from "./ContratoPagina";
 import Contratos from "./Contratos";
 import Inicio from "./Inicio";
@@ -15,7 +15,7 @@ import Login, { type Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 import MedicoesPagina from "./MedicoesPagina";
 import MinhaConta from "./MinhaConta";
-import NovaMedicao from "./NovaMedicao";
+import MedicaoNova from "./MedicaoNova";
 import Diretoria from "./Diretoria";
 import { entradaDe, itemDe, tituloDaSecao, tituloDe } from "./navegacao";
 import { ABAS_MEDICOES } from "./resumoMedicoes";
@@ -74,7 +74,7 @@ export default function App() {
 
   // A barra superior diz a SECAO; quem tem titulo proprio (o objeto, ou o "Bom dia" do Inicio) fica com o h1 da
   // pagina, e a barra nao repete um segundo h1.
-  const tituloProprio = ehDetalhe(rota) || rota.tela === "notas-envio" || rota.tela === "inicio";
+  const tituloProprio = ehDetalhe(rota) || rota.tela === "inicio";
 
   return (
     <div className="shell">
@@ -91,7 +91,7 @@ export default function App() {
         <main className="principal" id="conteudo" tabIndex={-1}>
           {rota.tela === "inicio" && <div className="pagina"><Inicio usuario={usuario} ir={ir} /></div>}
           {rota.tela === "medicoes" && <MedicoesPagina aba={rota.aba ?? "resumo"} busca={busca} usuario={usuario} />}
-          {rota.tela === "notas-envio" && <EnviarNota key={rota.id} protocoloId={rota.id} podeEditar={usuario.perfil === "engenharia" || usuario.perfil === "admin"} />}
+          {rota.tela === "notas-envio" && <AbrirEnvio key={rota.id} protocoloId={rota.id} />}
           {rota.tela === "avisos" && <AvisosPagina busca={busca} perfil={usuario.perfil} />}
           {rota.tela === "a-receber" && (
             <div className="pagina">
@@ -122,7 +122,7 @@ export default function App() {
             // `key` na medicao: trocar de medicao (a da mesma competencia) remonta a pagina e os formularios dela.
             <MedicaoPagina key={`${rota.obra}-${rota.id}`} contratoId={rota.obra} medicaoId={rota.id} usuario={usuario} origem={origem} />
           )}
-          {rota.tela === "nova-medicao" && <NovaMedicao key={rota.obra} contratoId={rota.obra} usuario={usuario} />}
+          {rota.tela === "nova-medicao" && <MedicaoNova key={rota.obra} contratoId={rota.obra} usuario={usuario} origem={origem} />}
           {rota.tela === "documentos" && (
             <div className="pagina">
               <p className="pagina__descricao">

@@ -257,9 +257,10 @@ export function irHref(href: string) {
 }
 
 /** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). */
-export function substituir(destino: Rota) {
-  window.history.replaceState(window.history.state, "",
-    `${caminhoDe(destino)}${window.location.search}${window.location.hash}`);
+export function substituir(destino: Rota, secao?: string) {
+  // com `secao`, e' um destino novo (o endereco antigo que cai numa etapa): nao leva a busca nem a ancora de antes
+  const resto = secao === undefined ? `${window.location.search}${window.location.hash}` : `#${secao}`;
+  window.history.replaceState(window.history.state, "", `${caminhoDe(destino)}${resto}`);
   avisar();
 }
 

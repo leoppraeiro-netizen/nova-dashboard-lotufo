@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FormProtocoloManual, FormRecebimento, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
+import { FormRecebimento, FormValor, notaDoEspelho, valorEditavel } from "./MedicaoAtos";
 import type { Medicao } from "./Medicoes";
 
 const { api } = vi.hoisted(() => ({ api: vi.fn() }));
@@ -30,57 +30,6 @@ describe("notaDoEspelho (gate Sol S7)", () => {
     expect(notaDoEspelho(base)).toBe("vem do espelho · para mudar, gere o espelho de novo");
     expect(notaDoEspelho({ ...base, congelada: 1 })).toBe("vem do espelho · protocolada: corrija por reapresentação");
     expect(notaDoEspelho({ ...base, valor_protocolado_origem: "aceito" })).toBeNull();
-  });
-});
-
-// gate Sol S6 (10/10/2026): o servidor exige 10 caracteres para protocolar com pendencia; a tela acompanha
-describe("FormProtocoloManual", () => {
-  afterEach(() => { cleanup(); api.mockReset(); });
-
-  const PENDENTE = { entidade: "Lotufo", pronto: false,
-    itens: [{ entidade_id: 1, entidade: "Lotufo", tipo: "CND Federal", situacao: "pendente" }] };
-
-  // issue #11: o botão não fica apagado; o clique diz o que falta, junto do campo
-  it("clicar sem a data mostra o erro no campo da data e não grava", async () => {
-    api.mockResolvedValueOnce({ entidade: "Lotufo", pronto: true, itens: [] });
-    const agir = vi.fn(async () => true);
-    render(<FormProtocoloManual contratoId={1} m={base} salvando={false} agir={agir} aoFechar={() => {}} />);
-    await screen.findByText(/em dia para protocolar/);
-    const botao = screen.getByRole("button", { name: "Registrar protocolo" }) as HTMLButtonElement;
-    expect(botao.disabled).toBe(false);
-    fireEvent.click(botao);
-    const data = screen.getByLabelText("Data do protocolo");
-    expect(data.getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById(data.getAttribute("aria-describedby") ?? "")?.textContent).toContain("Informe a data do protocolo.");
-    expect(agir).not.toHaveBeenCalled();
-    fireEvent.change(data, { target: { value: "2026-10-13" } });
-    expect(screen.queryByText("Informe a data do protocolo.")).toBeNull();
-    fireEvent.click(botao);
-    expect(agir).toHaveBeenCalledTimes(1);
-  });
-
-  it("com certidão pendente, o clique pede para assumir e justificar com 10 caracteres", async () => {
-    api.mockResolvedValueOnce(PENDENTE);
-    const agir = vi.fn(async () => true);
-    render(<FormProtocoloManual contratoId={1} m={base} salvando={false} agir={agir} aoFechar={() => {}} />);
-    const apesar = await screen.findByLabelText(/Protocolar apesar das pendências/);
-    fireEvent.change(screen.getByLabelText("Data do protocolo"), { target: { value: "2026-10-13" } });
-    const botao = screen.getByRole("button", { name: "Registrar protocolo" }) as HTMLButtonElement;
-    expect(botao.disabled).toBe(false);
-    fireEvent.click(botao);
-    expect(document.getElementById(apesar.getAttribute("aria-describedby") ?? "")?.textContent)
-      .toContain("Marque “Protocolar apesar das pendências” e justifique");
-    fireEvent.click(apesar);
-    expect(screen.queryByText(/Marque “Protocolar apesar/)).toBeNull();
-    const just = screen.getByLabelText("Justificativa");
-    fireEvent.change(just, { target: { value: "  curta   " } });
-    fireEvent.click(botao);
-    expect(just.getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById(just.getAttribute("aria-describedby") ?? "")?.textContent).toContain("pelo menos 10 caracteres");
-    expect(agir).not.toHaveBeenCalled();
-    fireEvent.change(just, { target: { value: "órgão aceita a CND em 5 dias" } });
-    fireEvent.click(botao);
-    expect(agir).toHaveBeenCalledTimes(1);
   });
 });
 
