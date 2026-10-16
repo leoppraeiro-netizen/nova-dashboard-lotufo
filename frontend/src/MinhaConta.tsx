@@ -30,7 +30,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
   const [erroSenha, setErroSenha] = useState("");  // erro que vem do servidor
   const [senhaTrocada, setSenhaTrocada] = useState("");
 
-  const carregar = () => api<Status>("/api/correio/status").then(setSt).catch(e => setErro(mensagemDeErro(e)));
+  const carregar = () => api<Status>("/api/correio/status").then(s => { setSt(s); setErro(""); }).catch(e => setErro(mensagemDeErro(e)));
   useEffect(() => { if (podeEditar) carregar(); return () => window.clearInterval(timer.current); }, [podeEditar]);
 
   // Enquanto a Microsoft espera a pessoa digitar o codigo, consultar o estado a cada 5 s.
@@ -68,9 +68,11 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
 
   async function enviarImagem(f: File) {
     setErroAss("");
-    if (f.type !== "image/png" && f.type !== "image/jpeg") { setErroAss("A imagem precisa ser PNG ou JPG."); return; }
-    if (f.size > 1024 * 1024) {
+    const limpar = () => { if (arquivo.current) arquivo.current.value = ""; };   // escolher o mesmo arquivo de novo tem que disparar
+    if (f.type !== "image/png" && f.type !== "image/jpeg") { setErroAss("A imagem precisa ser PNG ou JPG."); limpar(); return; }
+    if (f.size > 1024 * 1024) {   // o mesmo limite do servidor (ASSINATURA_MAX)
       setErroAss(`A imagem passa de 1 MB (${(f.size / 1048576).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB). Use uma menor.`);
+      limpar();
       return;
     }
     setOcupado(true);
@@ -97,8 +99,9 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
 
   function digitar(campo: CampoSenha, valor: string) {
     setSenha(s => ({ ...s, [campo]: valor }));
-    setErrosCampo(e => ({ ...e, [campo]: undefined }));
-    setSenhaTrocada("");
+    // mexer na senha nova invalida tambem o erro da confirmacao (que comparava com o valor antigo)
+    setErrosCampo(e => ({ ...e, [campo]: undefined, ...(campo === "nova" ? { confirmar: undefined } : {}) }));
+    setErroSenha(""); setSenhaTrocada("");
   }
 
   async function trocarSenha(ev: React.FormEvent) {
@@ -107,7 +110,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
     const erros: Partial<Record<CampoSenha, string>> = {
       atual: senha.atual ? undefined : "Digite a sua senha atual.",
       nova: !senha.nova ? "Digite a senha nova."
-        : senha.nova.length < 10 ? `A senha nova precisa de pelo menos 10 caracteres (tem ${senha.nova.length}).` : undefined,
+        : [...senha.nova].length < 10 ? `A senha nova precisa de pelo menos 10 caracteres (tem ${[...senha.nova].length}).` : undefined,
       confirmar: !senha.confirmar ? "Repita a senha nova."
         : senha.confirmar !== senha.nova ? "A confirmação não bate com a senha nova." : undefined,
     };
@@ -135,7 +138,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
       <div className="senha">
         <input id={id} type={vendo[campo] ? "text" : "password"} autoComplete={auto} placeholder={dica}
                value={senha[campo]} aria-invalid={errosCampo[campo] ? true : undefined}
-               aria-describedby={`${id}-erro${nota ? ` ${id}-nota` : ""}`}
+               aria-describedby={[errosCampo[campo] ? `${id}-erro` : "", nota ? `${id}-nota` : ""].filter(Boolean).join(" ") || undefined}
                onChange={e => digitar(campo, e.target.value)} />
         <button type="button" className="btn olho" aria-pressed={vendo[campo]}
                 aria-label={`${vendo[campo] ? "Esconder" : "Mostrar"} ${nomeOlho}`}
@@ -147,7 +150,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
       <p className="campo__erro" id={`${id}-erro`} role={errosCampo[campo] ? "alert" : undefined}>{errosCampo[campo]}</p>
     </div>
   );
-  const k = senha.nova.length;
+  const k = [...senha.nova].length;   // pontos de codigo, como o len() do servidor
 
   return (
     <div className="coluna-conta">
@@ -228,7 +231,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
             <div className={`assinatura-alvo${arrastando ? " arrastando" : ""}`} tabIndex={0} role="button"
                  aria-label="Colar ou arrastar a imagem da assinatura" aria-describedby="alvo-dica"
                  onPaste={colar} onDragOver={ev => { ev.preventDefault(); setArrastando(true); }}
-                 onDragLeave={() => setArrastando(false)}
+                 onDragLeave={ev => { if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setArrastando(false); }}
                  onDrop={ev => {
                    ev.preventDefault(); setArrastando(false);
                    const f = imagemDe(ev.dataTransfer);

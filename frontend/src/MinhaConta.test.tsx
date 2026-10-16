@@ -171,6 +171,19 @@ describe("MinhaConta › redesenho", () => {
     expect(api).not.toHaveBeenCalledWith("/api/auth/senha", expect.anything());
   });
 
+  it("corrigir a senha nova tira o erro velho da confirmação", async () => {
+    api.mockResolvedValue(status());
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não conectada");
+    fireEvent.change(screen.getByLabelText("Senha atual"), { target: { value: "velha-123456" } });
+    fireEvent.change(screen.getByLabelText(/^Senha nova/), { target: { value: "senha-nova-456" } });
+    fireEvent.change(screen.getByLabelText("Confirmar a senha nova"), { target: { value: "outra-coisa-789" } });
+    fireEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
+    expect(screen.getByText("A confirmação não bate com a senha nova.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^Senha nova/), { target: { value: "outra-coisa-789" } });
+    expect(screen.queryByText("A confirmação não bate com a senha nova.")).toBeNull();
+  });
+
   it("o olho mostra e esconde a senha", async () => {
     api.mockResolvedValue(status());
     render(<MinhaConta usuario={ENG} />);
