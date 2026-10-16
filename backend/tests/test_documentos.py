@@ -226,3 +226,32 @@ def test_painel_diz_a_composicao_do_consorcio_o_dono_de_cada_obra_e_as_regularid
     assert [a["competencia"] for a in anexadas] == ["2026-07", "2026-06"]
     assert set(anexadas[0]) == {"id", "competencia", "anexada_em"} and len(anexadas[0]["anexada_em"]) == 10
     assert por_id[3]["regularidades_anexadas"] == []
+
+
+def test_empresa_contratada_entra_no_painel_mesmo_sem_certidao_exigida(conn):
+    # revisor, rodada 1: o consorcio cujo orgao so' exige a regularidade ficava fora e a garantia dele sumia da tela
+    _consorcio(conn)
+    cid = _contrato(conn, _orgao(conn, ["regularidade"], []), entidade_id=2)
+    p = documentos.painel(conn)
+    assert 2 in {e["entidade_id"] for e in p["empresas"]}
+    assert {o["contrato_id"]: o["entidade_id"] for o in p["contratos"]}[cid] == 2
+
+
+def test_anexada_em_da_regularidade_e_o_dia_de_cuiaba(conn):
+    # 01:30 UTC de 09/07 ainda e' 21:30 de 08/07 em Cuiaba
+    conn.execute("INSERT INTO regularidades (entidade_id, competencia, arquivo, sha256, tamanho, criado_em) "
+                 "VALUES (1, '2026-06', 'r.pdf', ?, 1, '2026-07-09 01:30:00')", ("a" * 64,))
+    conn.commit()
+    _contrato(conn, _orgao(conn, ["regularidade"], []))
+    e = {x["entidade_id"]: x for x in documentos.painel(conn)["empresas"]}[1]
+    assert e["regularidades_anexadas"][0]["anexada_em"] == "2026-07-08"
+
+
+def test_aviso_de_garantia_leva_a_empresa_contratada(conn):
+    from app import avisos
+    _consorcio(conn)
+    cid = _contrato(conn, _orgao(conn, ["fgts"], []), entidade_id=2)
+    conn.execute("UPDATE contratos SET garantia_vigencia_fim='2026-09-30', garantia_apolice='A1' WHERE id=?", (cid,))
+    conn.commit()
+    g = [a for a in avisos.listar(conn, D(2026, 9, 23)) if a["tipo"] == "garantia_vencendo"]
+    assert g and g[0]["entidade_id"] == 2

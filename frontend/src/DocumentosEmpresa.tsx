@@ -89,7 +89,7 @@ export default function DocumentosEmpresa({ usuario, id, aba = "certidoes", orig
   const nReg = e?.regularidade && e.regularidade.situacao !== "ok" ? 1 : 0;
   const contas: Record<AbaDocumentos, number> = { certidoes: nCert, regularidade: nReg, garantia: nGarantia };
 
-  const r = e ? resumoEmpresa(e) : null;
+  const r = e ? resumoEmpresa(e, painel?.contratos ?? []) : null;
   const linkEmpresa = (x: number) => {
     const o = porId.get(x);
     return o ? <Link para={{ tela: "documentos-empresa", id: x }}>{o.entidade}</Link> : null;
@@ -249,7 +249,7 @@ export default function DocumentosEmpresa({ usuario, id, aba = "certidoes", orig
                         {e.consorciadas!.map(x => {
                           const o = porId.get(x);
                           if (!o) return null;
-                          const ro = resumoEmpresa(o);
+                          const ro = resumoEmpresa(o, painel.contratos ?? []);
                           return (
                             <li key={x}>
                               <div>

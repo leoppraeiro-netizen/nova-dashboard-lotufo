@@ -3,10 +3,10 @@ import { IconeAlerta, IconeRelogio } from "./icones";
 import { Link } from "./Link";
 import type { Usuario } from "./Login";
 import {
-  certidoesOrdenadas, JANELA_DIAS, matriz, NOME_CURTO, proximaAVencer, resumoEmpresa, situacaoArt, situacaoCertidao,
+  certidoesOrdenadas, JANELA_DIAS, matriz, NOME_CURTO, pendenciasDa, proximaAVencer, resumoEmpresa, situacaoArt, situacaoCertidao,
   situacaoGarantia, type EmpresaDoc, type Nivel, type ObraDoc,
 } from "./matriz";
-import { trocarBusca, type Busca } from "./rota";
+import { substituir, trocarBusca, type Busca } from "./rota";
 import { fmtCompetencia as mesBR, fmtDataPura } from "./tempo";
 import { AnexarCertidoes, CnpjCopiar, Pilula, Ponto } from "./documentosComum";
 import { useCopiarCnpj, usePainel } from "./documentosDados";
@@ -115,7 +115,7 @@ function Cartao({ e, nomes, contratos, copia, aoCopiar }: {
   e: EmpresaDoc; nomes: Map<number, string>; contratos: ObraDoc[];
   copia: { entidade_id: number; ok: boolean } | null; aoCopiar: () => void;
 }) {
-  const r = resumoEmpresa(e);
+  const r = resumoEmpresa(e, contratos);
   const proxima = proximaAVencer(e);
   const extras: { nivel: Nivel | null; texto: string; titulo?: string }[] = [];
   if (e.regularidade) {
@@ -175,11 +175,16 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
   const [anuncio, setAnuncio] = useState("");
   const [zip, setZip] = useState(false);
   const { copiar, copia } = useCopiarCnpj(setAnuncio);
+  // Link salvo da tela antiga (/documentos?empresa=N): abre a pagina da empresa, trocando o endereco no lugar.
+  const empresaAntiga = /^[1-9][0-9]{0,14}$/.test(busca.empresa ?? "") ? Number(busca.empresa) : null;
+  useEffect(() => {
+    if (empresaAntiga !== null) substituir({ tela: "documentos-empresa", id: empresaAntiga }, { semBusca: true });
+  }, [empresaAntiga]);
 
   // A ordem (e, com ?pendentes=1, quem aparece) e' a da carga e a de cada troca de filtro; o que muda depois de
   // gravar fica no lugar ate' a pagina recarregar, para a pessoa ver o resultado no cartao em que estava.
   const carregado = painel !== null;
-  const ordem = useMemo(() => painel ? matriz(painel.empresas, soPendentes).map(e => e.entidade_id) : [],
+  const ordem = useMemo(() => painel ? matriz(painel.empresas, soPendentes, painel.contratos ?? []).map(e => e.entidade_id) : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [carregado, soPendentes]);
 
@@ -187,7 +192,7 @@ export default function Documentos({ usuario, busca = {} }: { usuario: Usuario; 
   const porId = new Map(empresas.map(e => [e.entidade_id, e]));
   const lista = ordem.map(id => porId.get(id)).filter((e): e is EmpresaDoc => e !== undefined);
   const nomes = new Map(empresas.map(e => [e.entidade_id, e.entidade]));
-  const pendentes = empresas.filter(e => resumoEmpresa(e).pendencias > 0).length;
+  const pendentes = empresas.filter(e => pendenciasDa(e, painel?.contratos ?? []) > 0).length;
   const qtd = empresas.length === 1 ? "1 empresa" : `${empresas.length} empresas`;
   const recorte = soPendentes
     ? `Mostrando ${pendentes === 1 ? "a única" : `as ${pendentes}`} com pendência, de ${qtd}`

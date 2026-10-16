@@ -11,6 +11,11 @@ export const PAINEL = {
   hoje: "2026-09-23",
   empresas: [
     {
+      // consorcio cujo orgao nao exige certidao nenhuma: a obra dele (garantia vencida) tem de continuar visivel
+      entidade_id: 4, entidade: "Consórcio Sem Certidão", cnpj: "31200808000144", papel: "consorcio", regularidade_exigida: false,
+      regularidade: null, consorciadas: [], consorcios: [], obras: [], regularidades_anexadas: [], certidoes: [],
+    },
+    {
       entidade_id: 3, entidade: "Beta Ltda", cnpj: "31200606000102", papel: "consorciada", regularidade_exigida: false,
       regularidade: null, consorcios: [2], consorciadas: [], obras: [{ contrato_id: 7, obra: "Obra Gama" }],
       regularidades_anexadas: [],
@@ -43,6 +48,8 @@ export const PAINEL = {
     { contrato_id: 5, obra: "Obra Alfa", entidade_id: 1, art: { numero: "1234567", anexada: true, exigida: true },
       garantia: { apolice: "AP-9", vigencia_fim: "2026-10-05", dias: 12, origem: "endosso" as const, situacao: "vencendo" as const } },
     { contrato_id: 6, obra: "Obra Beta", entidade_id: 1, art: { numero: null, anexada: false, exigida: true }, garantia: null },
+    { contrato_id: 8, obra: "Obra Delta", entidade_id: 4, art: { numero: null, anexada: false, exigida: false },
+      garantia: { apolice: null, vigencia_fim: "2026-09-01", dias: -22, origem: "contrato" as const, situacao: "vencida" as const } },
     { contrato_id: 7, obra: "Obra Gama", entidade_id: 2, art: { numero: null, anexada: false, exigida: false }, garantia: null },
   ],
 };

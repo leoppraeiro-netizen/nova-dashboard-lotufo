@@ -23,10 +23,10 @@ test("um cartão por empresa, com a pendência primeiro, a situação geral e a 
   render(<Documentos usuario={usuario} />);
   await screen.findByRole("link", { name: "Lotufo" });
   // o servidor mandou a empresa em dia primeiro; a que tem pendência sobe
-  expect(nomes()).toEqual(["Lotufo", "Beta Ltda", "Consórcio Alfa"]);
+  expect(nomes()).toEqual(["Lotufo", "Consórcio Sem Certidão", "Beta Ltda", "Consórcio Alfa"]);
   const lotufo = screen.getByRole("link", { name: "Lotufo" }).closest("article")!;
   const c = within(lotufo);
-  c.getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada");
+  c.getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada · garantia vence em 12 dias · ART não anexada");
   c.getByText(/Próxima a vencer:/);
   expect(lotufo.textContent).toContain("FGTS em 27/09/2026");
   c.getByText("31.200.101/0001-30");
@@ -53,7 +53,8 @@ test("'Só as com pendência' filtra pela URL e diz o recorte", async () => {
   render(<Documentos usuario={usuario} busca={{ pendentes: "1" }} />);
   await screen.findByRole("link", { name: "Lotufo" });
   expect(screen.queryByRole("link", { name: "Beta Ltda" })).toBeNull();
-  screen.getByText(/Mostrando a única com pendência, de 3 empresas/);
+  screen.getByRole("link", { name: "Consórcio Sem Certidão" });
+  screen.getByText(/Mostrando as 2 com pendência, de 4 empresas/);
   expect((screen.getByRole("checkbox", { name: "Só as com pendência" }) as HTMLInputElement).checked).toBe(true);
 });
 
@@ -113,6 +114,7 @@ test("o ZIP abre uma janela com a data e uma caixa por empresa, e diz o que a em
   expect((screen.getByLabelText("Certidões vigentes em") as HTMLInputElement).value).toBe("2026-09-23");
   fireEvent.click(screen.getByRole("checkbox", { name: "Beta Ltda" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Consórcio Alfa" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Consórcio Sem Certidão" }));
   fireEvent.click(screen.getByRole("button", { name: "Baixar ZIP" }));
   await screen.findByText(/Lotufo: nenhuma certidão vigente em 2026-09-23/);
   expect(buscar).toHaveBeenCalledTimes(1);
@@ -122,4 +124,19 @@ test("o ZIP abre uma janela com a data e uma caixa por empresa, e diz o que a em
 test("competência pelo nome do arquivo do DP", () => {
   expect(competenciaDoNome("042026 - LOTUFO ENGENHARIA.pdf")).toBe("2026-04");
   expect(competenciaDoNome("Documentos Lotufo.pdf")).toBe("");
+});
+
+test("link salvo da tela antiga (?empresa=N) abre a página da empresa, trocando o endereço", async () => {
+  window.history.replaceState(null, "", "/documentos?empresa=3#emp-3");
+  render(<Documentos usuario={usuario} busca={{ empresa: "3" }} />);
+  await waitFor(() => expect(window.location.pathname).toBe("/documentos/3"));
+  expect(window.location.search).toBe("");
+});
+
+test("a garantia vencida de uma obra conta como pendência do cartão e a empresa sem certidão continua na lista", async () => {
+  render(<Documentos usuario={usuario} />);
+  const c = (await screen.findByRole("link", { name: "Consórcio Sem Certidão" })).closest("article")!;
+  within(c).getByText("Garantia de Obra Delta: vencida");
+  within(c).getByText("Garantia vencida");
+  within(c).getByText("Nenhuma certidão vigente");
 });

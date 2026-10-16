@@ -31,18 +31,33 @@ export function certidaoPendente(l: LinhaCertidao): boolean {
   return (l.situacao === "ok" || l.situacao === "vencendo") && l.dias !== null && l.dias <= JANELA_DIAS;
 }
 
-/** Quantas pendencias a empresa tem: as certidoes e a regularidade do mes que nao esta' em dia. */
-export function pendenciasDa(e: EmpresaDoc): number {
-  const reg = e.regularidade && e.regularidade.situacao !== "ok" ? 1 : 0;
-  return e.certidoes.filter(certidaoPendente).length + reg;
+/** O que a garantia e a ART das obras contratadas pela empresa pedem dela (#161): a garantia vencida ou na janela de
+ *  atencao e a ART exigida e nao anexada. `garantiasVencidas` sao as que ja' travam. */
+export function pendenciasDeObras(e: EmpresaDoc, obras: ObraDoc[]) {
+  const minhas = obras.filter(k => k.entidade_id === e.entidade_id);
+  const gs = minhas.filter(k => { const n = situacaoGarantia(k.garantia, "").nivel; return n === "acao" || n === "atencao"; });
+  const artsFaltando = minhas.filter(k => situacaoArt(k.art).nivel === "atencao").length;
+  return {
+    garantiasVencidas: gs.filter(k => k.garantia?.situacao === "vencida").length,
+    garantiasVencendo: gs.filter(k => k.garantia?.situacao !== "vencida").map(k => k.garantia!.dias),
+    artsFaltando,
+    total: gs.length + artsFaltando,
+  };
 }
 
-/** 0 = o que ja' trava (certidao exigida vencida ou faltando, regularidade fora do dia); 1 = o que vence em ate'
- *  30 dias; 2 = nada pendente. */
-export function gravidade(e: EmpresaDoc): number {
+/** Quantas pendencias a empresa tem: as certidoes, a regularidade do mes que nao esta' em dia e (com `obras`) a garantia
+ *  e a ART das obras dela. */
+export function pendenciasDa(e: EmpresaDoc, obras: ObraDoc[] = []): number {
+  const reg = e.regularidade && e.regularidade.situacao !== "ok" ? 1 : 0;
+  return e.certidoes.filter(certidaoPendente).length + reg + pendenciasDeObras(e, obras).total;
+}
+
+/** 0 = o que ja' trava (certidao exigida vencida ou faltando, regularidade fora do dia, garantia vencida); 1 = o que
+ *  vence em ate' 30 dias ou pede a ART; 2 = nada pendente. */
+export function gravidade(e: EmpresaDoc, obras: ObraDoc[] = []): number {
   const trava = e.certidoes.some(l => l.exigida && (l.situacao === "vencida" || l.situacao === "faltando"))
-    || (e.regularidade !== null && e.regularidade.situacao !== "ok");
-  return trava ? 0 : pendenciasDa(e) > 0 ? 1 : 2;
+    || (e.regularidade !== null && e.regularidade.situacao !== "ok") || pendenciasDeObras(e, obras).garantiasVencidas > 0;
+  return trava ? 0 : pendenciasDa(e, obras) > 0 ? 1 : 2;
 }
 
 /** Os dias da certidao exigida que vence primeiro (dentro da janela), para desempatar pela mais urgente. */
@@ -52,10 +67,10 @@ function menorDias(e: EmpresaDoc): number {
 
 /** Pela gravidade (o que ja' trava, o que vence, o resto), depois pela que vence primeiro, depois a ordem do
  *  servidor; `soPendentes` e' o filtro da URL. */
-export function matriz(empresas: EmpresaDoc[], soPendentes: boolean): EmpresaDoc[] {
+export function matriz(empresas: EmpresaDoc[], soPendentes: boolean, obras: ObraDoc[] = []): EmpresaDoc[] {
   const ordem = new Map(empresas.map((e, i) => [e.entidade_id, i]));
-  return empresas.filter(e => !soPendentes || pendenciasDa(e) > 0)
-    .sort((a, b) => gravidade(a) - gravidade(b) || menorDias(a) - menorDias(b)
+  return empresas.filter(e => !soPendentes || pendenciasDa(e, obras) > 0)
+    .sort((a, b) => gravidade(a, obras) - gravidade(b, obras) || menorDias(a) - menorDias(b)
       || ordem.get(a.entidade_id)! - ordem.get(b.entidade_id)!);
 }
 
@@ -106,7 +121,7 @@ export function situacaoCertidao(l: LinhaCertidao, validade: string): { texto: s
 
 /** A situacao geral da empresa (a pilula do cartao e do cabecalho): o que ja' trava, o que vence e a regularidade
  *  fora do dia, em uma frase; "Em dia" quando nada pende. */
-export function resumoEmpresa(e: EmpresaDoc): { texto: string; nivel: Nivel; pendencias: number } {
+export function resumoEmpresa(e: EmpresaDoc, obras: ObraDoc[] = []): { texto: string; nivel: Nivel; pendencias: number } {
   const exigidas = e.certidoes.filter(l => l.exigida);
   const vencidas = exigidas.filter(l => l.situacao === "vencida").length;
   const faltas = exigidas.filter(l => l.situacao === "faltando").length;
@@ -118,9 +133,14 @@ export function resumoEmpresa(e: EmpresaDoc): { texto: string; nivel: Nivel; pen
   if (vencendo.length === 1) partes.push(`1 ${venceEm(vencendo[0].dias ?? 0)}`);
   else if (vencendo.length > 1) partes.push(`${vencendo.length} vencem em até ${Math.max(...vencendo.map(l => l.dias ?? 0))} dias`);
   if (regFora) partes.push(`regularidade ${e.regularidade!.situacao === "faltando" ? "não anexada" : "atrasada"}`);
+  const o = pendenciasDeObras(e, obras);
+  if (o.garantiasVencidas) partes.push(o.garantiasVencidas === 1 ? "garantia vencida" : `${o.garantiasVencidas} garantias vencidas`);
+  if (o.garantiasVencendo.length === 1) partes.push(`garantia ${venceEm(o.garantiasVencendo[0])}`);
+  else if (o.garantiasVencendo.length > 1) partes.push(`${o.garantiasVencendo.length} garantias vencendo`);
+  if (o.artsFaltando) partes.push(o.artsFaltando === 1 ? "ART não anexada" : `${o.artsFaltando} ARTs não anexadas`);
   const texto = partes.length ? partes.join(" · ") : "em dia";
   return { texto: texto.charAt(0).toUpperCase() + texto.slice(1),
-    nivel: vencidas || faltas ? "acao" : partes.length ? "atencao" : "ok", pendencias: pendenciasDa(e) };
+    nivel: vencidas || faltas || o.garantiasVencidas ? "acao" : partes.length ? "atencao" : "ok", pendencias: pendenciasDa(e, obras) };
 }
 
 /** A certidao exigida e vigente que vence primeiro (o "Proxima a vencer" do cartao), ou null. */

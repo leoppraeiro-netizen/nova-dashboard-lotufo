@@ -38,12 +38,12 @@
 .doc-pilula { font-size: 13px; line-height: 20px; padding: 3px 12px; }
 
 .doc-cnpj { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; color: var(--texto-2); }
-.doc-cnpj .num { font-family: var(--fonte-num); user-select: all; }
+.doc-cnpj .num { font-family: var(--fonte-num); user-select: all; position: relative; z-index: 1; }
 .doc-cnpj button { position: relative; z-index: 1; height: 26px; padding: 0 8px; font-size: 12px; }
 .doc-copia { font-size: 12px; color: var(--ok); }
 
 /* os seis pontos numa linha; no cartao estreito (celular), em duas linhas de tres */
-.doc-pontos { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 4px; }
+.doc-pontos { position: relative; z-index: 1; list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px 4px; }
 .doc-pontos li { display: grid; justify-items: center; gap: 6px; font-size: 12px; color: var(--texto-2); text-align: center; }
 @container (max-width: 330px) { .emp-cartao .doc-pontos { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .doc-ponto { display: inline-block; width: 12px; height: 12px; flex: none; border-radius: var(--raio-pilula); background: var(--linha-forte); }

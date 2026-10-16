@@ -322,7 +322,7 @@ def gravar_certidao(conn, usuario_id: int, dados: dict, arquivo: str, sha256: st
 
 def _regularidades_anexadas(conn, entidade_id: int, limite: int = 12) -> list[dict]:
     """As ultimas regularidades anexadas da entidade (a mais recente primeiro): competencia e dia do anexo."""
-    return [{"id": r["id"], "competencia": r["competencia"], "anexada_em": r["criado_em"][:10]}
+    return [{"id": r["id"], "competencia": r["competencia"], "anexada_em": tempo.para_local(datetime.datetime.fromisoformat(r["criado_em"])).date().isoformat()}
             for r in conn.execute("SELECT id, competencia, criado_em FROM regularidades WHERE entidade_id=? "
                                   "ORDER BY competencia DESC, id DESC LIMIT ?", (entidade_id, limite))]
 
@@ -336,7 +336,10 @@ def painel(conn, hoje: datetime.date | None = None) -> dict:
     com_docs = {r[0] for r in conn.execute(
         "SELECT entidade_id FROM certidoes UNION SELECT entidade_id FROM regularidades")}
     ordem = {"lotufo": 0, "consorcio": 1, "consorciada": 2}
-    ents = sorted((e for e in entidades.listar(conn) if e["id"] in cert or e["id"] in regs or e["id"] in com_docs),
+    # a empresa contratada de toda obra ativa entra (a garantia e a ART dela moram na pagina da empresa, #161)
+    contratadas = {contratos.entidade_de(r) for r in conn.execute("SELECT entidade_id FROM contratos WHERE estado='ativo'")}
+    ents = sorted((e for e in entidades.listar(conn)
+                   if e["id"] in cert or e["id"] in regs or e["id"] in com_docs or e["id"] in contratadas),
                   key=lambda e: (ordem.get(e["papel"], 9), _nome(e)))
     # Redesenho de Documentos (#161): quem compoe cada consorcio (so' leitura), para a pagina da empresa.
     consorciadas: dict[int, list[int]] = {}

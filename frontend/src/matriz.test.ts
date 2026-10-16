@@ -18,7 +18,7 @@ describe("matriz de documentos", () => {
   ];
 
   it("pendência é certidão exigida vencida, faltando ou vencendo em até 30 dias, e a regularidade fora do dia", () => {
-    expect(empresas.map(pendenciasDa)).toEqual([1, 0, 3]);
+    expect(empresas.map(x => pendenciasDa(x))).toEqual([1, 0, 3]);
   });
 
   it("pela gravidade: o que já trava, depois o que vence (o mais urgente antes); o filtro deixa só as pendentes", () => {
@@ -83,5 +83,24 @@ describe("redesenho de Documentos (#161)", () => {
     expect(situacaoArt({ numero: "9", anexada: true, exigida: true })).toEqual({ texto: "anexada", nota: "nº 9", nivel: "ok" });
     expect(situacaoArt({ numero: null, anexada: false, exigida: true }).nivel).toBe("atencao");
     expect(situacaoArt({ numero: null, anexada: false, exigida: false }).texto).toBe("não exigida");
+  });
+});
+
+describe("garantia e ART como pendência da empresa (#161)", () => {
+  const obra = (ent: number, dias: number, situacao: "ok" | "vencendo" | "vencida", artAnexada = true) => ({
+    contrato_id: ent, obra: `O${ent}`, entidade_id: ent,
+    garantia: { apolice: null, vigencia_fim: "2026-12-01", dias, origem: "contrato" as const, situacao },
+    art: { numero: null, anexada: artAnexada, exigida: true } });
+  const ok = (id: number) => e(id, [l("federal", "ok", 90)]);
+
+  it("conta na pílula, na ordenação, no filtro e na contagem", () => {
+    const obras = [obra(2, 20, "vencendo"), obra(3, -5, "vencida", false), obra(4, 200, "ok")];
+    expect(resumoEmpresa(ok(2), obras)).toEqual({ texto: "Garantia vence em 20 dias", nivel: "atencao", pendencias: 1 });
+    expect(resumoEmpresa(ok(3), obras)).toEqual({ texto: "Garantia vencida · ART não anexada", nivel: "acao", pendencias: 2 });
+    expect(resumoEmpresa(ok(4), obras).texto).toBe("Em dia");
+    expect(pendenciasDa(ok(3))).toBe(0);                                   // sem as obras, nada muda
+    const lista = [ok(4), ok(2), ok(3)];
+    expect(matriz(lista, false, obras).map(x => x.entidade_id)).toEqual([3, 2, 4]);
+    expect(matriz(lista, true, obras).map(x => x.entidade_id)).toEqual([3, 2]);
   });
 });

@@ -26,7 +26,7 @@ test("cabeçalho com caminho, nome, CNPJ, situação e as obras que exigem a emp
   expect(within(caminho).getByRole("link", { name: "Documentos" }).getAttribute("href")).toBe("/documentos");
   expect(within(caminho).getByText("Lotufo").getAttribute("title")).toBe("Lotufo");
   screen.getByText("31.200.101/0001-30");
-  screen.getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada");
+  screen.getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada · garantia vence em 12 dias · ART não anexada");
   expect(screen.getByRole("link", { name: "Obra Alfa" }).getAttribute("href")).toBe("/obras/5/documentos");
   screen.getByText(/também consorciada em/);
   expect(screen.getByRole("link", { name: "Consórcio Alfa" }).getAttribute("href")).toBe("/documentos/2");
@@ -184,7 +184,7 @@ test("consórcio: as consorciadas com a situação de cada uma; a página diz qu
   screen.getByText(/Consórcio · consorciadas:/);
   const lista = screen.getByRole("heading", { name: "Consorciadas" }).parentElement!;
   expect(within(lista).getByRole("link", { name: "Lotufo" }).getAttribute("href")).toBe("/documentos/1");
-  within(lista).getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada");
+  within(lista).getByText("1 vencida · 1 vence em 4 dias · regularidade atrasada · garantia vence em 12 dias · ART não anexada");
   within(lista).getByText("Em dia");
 });
 
@@ -192,4 +192,11 @@ test("empresa que não existe no painel diz isso e volta para a lista", async ()
   render(<DocumentosEmpresa usuario={usuario} id={99} />);
   await screen.findByText("Essa empresa não tem documento exigido.");
   expect(screen.getByRole("link", { name: "Ver todas as empresas" }).getAttribute("href")).toBe("/documentos");
+});
+
+test("obra de empresa sem certidão exigida continua visível na aba Garantia e ART (revisor, rodada 1)", async () => {
+  render(<DocumentosEmpresa usuario={usuario} id={4} aba="garantia" />);
+  const delta = (await screen.findByRole("rowheader", { name: "Obra Delta" })).closest("tr")!;
+  expect(delta.textContent).toContain("vencida");
+  expect(delta.textContent).toContain("venceu em 01/09/2026");
 });

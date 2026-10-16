@@ -272,9 +272,9 @@ export function irHref(href: string) {
 }
 
 /** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). */
-export function substituir(destino: Rota) {
+export function substituir(destino: Rota, opcoes: { semBusca?: boolean } = {}) {
   window.history.replaceState(window.history.state, "",
-    `${caminhoDe(destino)}${window.location.search}${window.location.hash}`);
+    opcoes.semBusca ? caminhoDe(destino) : `${caminhoDe(destino)}${window.location.search}${window.location.hash}`);
   avisar();
 }
 
