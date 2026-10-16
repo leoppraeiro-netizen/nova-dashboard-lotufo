@@ -219,7 +219,7 @@ function CurvaS({ serie }: { serie: MesAno["serie"] }) {
     }
     return out;
   }, [serie]);
-  if (acc.length === 0) return <p className="cartao__corpo leitura">Sem meses para mostrar.</p>;
+  if (acc.length === 0) return <p className="cartao__corpo cart-leitura">Sem meses para mostrar.</p>;
   const ultimo = acc.length - 1;
   const i = Math.min(sel ?? ultimo, ultimo);
   const a = acc[i];
@@ -241,7 +241,7 @@ function CurvaS({ serie }: { serie: MesAno["serie"] }) {
   };
   return (
     <>
-      <div ref={ref} className="curva">
+      <div ref={ref} className="cart-curva">
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
           aria-label={`Previsto e medido acumulados de ${fmtCompetencia(acc[0].competencia)} a ${fmtCompetencia(acc[ultimo].competencia)}, `
             + `na cota da Lotufo. Ao fim, previsto ${brl(acc[ultimo].previsto)} e medido ${brl(acc[ultimo].medido)}. `
@@ -257,21 +257,21 @@ function CurvaS({ serie }: { serie: MesAno["serie"] }) {
           ))}
           {acc.map((p, n) => (ultimo - n) % pular === 0
             && <text key={p.competencia} className="g-eixo-x" x={x(n)} y={H - 10} textAnchor="middle">{mesCurto(p.competencia)}</text>)}
-          <path className="c-area" d={`${linha("medido")} L${x(ultimo)} ${y(0)} L${x(0)} ${y(0)} Z`} />
-          <path className="c-prev" d={linha("previsto")} />
-          <path className="c-med" d={linha("medido")} />
-          <line className="c-guia" x1={x(i)} x2={x(i)} y1={T} y2={y(0)} />
+          <path className="cart-c-area" d={`${linha("medido")} L${x(ultimo)} ${y(0)} L${x(0)} ${y(0)} Z`} />
+          <path className="cart-c-prev" d={linha("previsto")} />
+          <path className="cart-c-med" d={linha("medido")} />
+          <line className="cart-c-guia" x1={x(i)} x2={x(i)} y1={T} y2={y(0)} />
           {acc.map((p, n) => (
             <g key={p.competencia}>
-              <circle className="c-ponto-prev" cx={x(n)} cy={y(p.previsto)} r={3.5} />
-              <circle className="c-ponto-med" cx={x(n)} cy={y(p.medido)} r={4} />
+              <circle className="cart-c-ponto-prev" cx={x(n)} cy={y(p.previsto)} r={3.5} />
+              <circle className="cart-c-ponto-med" cx={x(n)} cy={y(p.medido)} r={4} />
             </g>
           ))}
           <rect x={mE} y={T} width={W - mE - mD} height={H - T - B} fill="transparent"
             onPointerMove={mover} onPointerDown={mover} onPointerLeave={() => setSel(null)} />
         </svg>
       </div>
-      <p className="cartao__corpo leitura" role="status">
+      <p className="cartao__corpo cart-leitura" role="status">
         Até {fmtCompetencia(a.competencia)}: previsto <span className="num">{brl(a.previsto)}</span> · medido{" "}
         <span className="num">{brl(a.medido)}</span> · {a.previsto > 0 ? pct(a.medido / a.previsto) : "—"} do previsto
       </p>
@@ -285,23 +285,23 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
   const problema = obrasComProblema(p.obras);
   return (
     <>
-      <ul className="numeros" aria-label="Os números da carteira">
-        <li className="cartao numero">
-          <span className="numero__rotulo">Saldo a executar</span>
-          <span className="numero__valor num" title={brl(k.saldo_centavos)}>{mi(k.saldo_centavos)}</span>
-          <span className="numero__apoio"><span className="num">{brl(k.saldo_centavos)}</span> · vigente − medido, {contar(p.obras_base.ativas, "obra ativa", "obras ativas")}</span>
+      <ul className="cart-numeros" aria-label="Os números da carteira">
+        <li className="cartao cart-numero">
+          <span className="cart-numero__rotulo">Saldo a executar</span>
+          <span className="cart-numero__valor num" title={brl(k.saldo_centavos)}>{mi(k.saldo_centavos)}</span>
+          <span className="cart-numero__apoio"><span className="num">{brl(k.saldo_centavos)}</span> · vigente − medido, {contar(p.obras_base.ativas, "obra ativa", "obras ativas")}</span>
         </li>
-        <li className="cartao numero">
-          <span className="numero__rotulo">Medido no ano</span>
-          <span className="numero__valor num" title={brl(m.acumulado_ano_centavos)}>{mi(m.acumulado_ano_centavos)}</span>
-          <span className="numero__apoio"><span className="num">{brl(m.acumulado_ano_centavos)}</span> · previsto até {fmtCompetencia(m.mes)}:{" "}
+        <li className="cartao cart-numero">
+          <span className="cart-numero__rotulo">Medido no ano</span>
+          <span className="cart-numero__valor num" title={brl(m.acumulado_ano_centavos)}>{mi(m.acumulado_ano_centavos)}</span>
+          <span className="cart-numero__apoio"><span className="num">{brl(m.acumulado_ano_centavos)}</span> · previsto até {fmtCompetencia(m.mes)}:{" "}
             <span className="num">{mi(m.previsto_ano_centavos)}</span></span>
         </li>
-        <li className="cartao numero">
-          <span className="numero__rotulo">Faturado no mês</span>
-          <span className="numero__valor num" title={brl(m.faturado_mes_centavos)}>{mi(m.faturado_mes_centavos)}</span>
-          <span className="numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "medição faturada", "medições faturadas")} em {fmtCompetencia(m.mes)}
-            {" "}· medições faturadas no mês (com nota emitida), pelo valor atestado, na cota — mesma regra da coluna Faturado do QDOP</span>
+        <li className="cartao cart-numero">
+          <span className="cart-numero__rotulo">Faturado no mês</span>
+          <span className="cart-numero__valor num" title={brl(m.faturado_mes_centavos)}>{mi(m.faturado_mes_centavos)}</span>
+          <span className="cart-numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "medição faturada", "medições faturadas")} em {fmtCompetencia(m.mes)}
+            {" "}· medições faturadas no mês (com nota emitida), pelo valor atestado, na cota — mesma regra da coluna Faturado do QDOP; medição sem data da nota não entra em nenhum mês</span>
         </li>
       </ul>
 
@@ -313,8 +313,8 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
         </div>
       </Secao>
 
-      <h2 className="titulo-secao">Por contratante</h2>
-      {k.por_orgao.length === 0 ? <p className="nota-resumo">Nenhum contratante com saldo a executar.</p> : (
+      <h2 className="cart-titulo-secao">Por contratante</h2>
+      {k.por_orgao.length === 0 ? <p className="cart-nota-resumo">Nenhum contratante com saldo a executar.</p> : (
         <ul className="cart-contratantes" aria-label="Por contratante">
           {k.por_orgao.map(o => {
             const feito = o.vigente_centavos > 0 ? Math.max(0, Math.min(1, o.medido_centavos / o.vigente_centavos)) : 0;
@@ -338,7 +338,7 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
           })}
         </ul>
       )}
-      <p className="nota-resumo">
+      <p className="cart-nota-resumo">
         {problema.total} de {p.obras.length} obras com farol em Ação, Atenção ou Crítico ·{" "}
         <Link para={{ tela: "carteira", aba: "qdop" }} ir={ir}>ver no QDOP</Link> · o mês, o dinheiro e os próximos meses estão em{" "}
         <Link para={{ tela: "carteira", aba: "producao" }} ir={ir}>Produção</Link>.
@@ -372,14 +372,14 @@ function Qdop({ p, ir }: { p: Painel; ir: Ir }) {
       <Secao id="dir-problema" titulo="Obras pelo farol"
         dica={`${problema.total} de ${p.obras.length} obras (${baseObras(p.obras_base)}) com farol em Ação, Atenção ou Crítico`}>
         <div className="cartao__corpo pilha">
-          <div className="farois" role="group" aria-label="Filtrar o QDOP pelo farol">
+          <div className="cart-farois" role="group" aria-label="Filtrar o QDOP pelo farol">
             {FILTROS.map(f => (
-              <button key={f.id} type="button" className="farol-btn" aria-pressed={filtro === f.id} onClick={() => setFiltro(f.id)}>
+              <button key={f.id} type="button" className="cart-farol-btn" aria-pressed={filtro === f.id} onClick={() => setFiltro(f.id)}>
                 {f.rotulo} <span className="num">{f.n}</span>
               </button>
             ))}
           </div>
-          <div className="qdop-lado">
+          <div className="cart-qdop-lado">
             <div>
               <p className="campo__rotulo">Terminam</p>
               <ul className="lista-simples">
@@ -483,7 +483,7 @@ function Producao({ p, ir }: { p: Painel; ir: Ir }) {
   return (
     <>
       <Secao id="dir-mes" titulo="O mês" dica={`Competência ${fmtCompetencia(m.mes)}`}>
-        <ul className="kpis kpis--quebra" aria-label="O mês">
+        <ul className="kpis cart-kpis--quebra" aria-label="O mês">
           <Kpi valorTexto={brl(m.medido_mes_centavos)} rotulo="medido no mês"
             comparacoes={[{ rotulo: "previsto no mês", valor: brl(m.previsto_mes_centavos) },
               { rotulo: "mesmo mês do ano anterior", valor: brl(m.mesmo_mes_ano_anterior_centavos) }]} />
@@ -495,7 +495,7 @@ function Producao({ p, ir }: { p: Painel; ir: Ir }) {
 
       <Secao id="dir-dinheiro" titulo="Onde está o dinheiro"
         dica={p.total_a_receber_liberado ? "medido, faturado, protocolado e recebido, na cota da Lotufo" : "Valores do protocolado a conciliar com a controladoria."}>
-        <ul className="kpis kpis--quebra" aria-label="Onde está o dinheiro">
+        <ul className="kpis cart-kpis--quebra" aria-label="Onde está o dinheiro">
           <Kpi valorTexto={brl(d.medido_esperando_nota.valor_centavos)} rotulo={`medido esperando nota (${d.medido_esperando_nota.quantidade})`} />
           <Kpi valorTexto={brl(d.nota_esperando_protocolo.valor_centavos)} rotulo={`nota emitida esperando protocolo (${d.nota_esperando_protocolo.quantidade})`} />
           <Kpi valorTexto={valor(d.protocolado.valor_centavos)} rotulo={`protocolado esperando pagamento (${d.protocolado.quantidade})`} />
@@ -570,7 +570,7 @@ function Producao({ p, ir }: { p: Painel; ir: Ir }) {
         </Secao>
 
         <Secao id="dir-saldo" titulo="Saldo a executar" dica="Vigente − medido. O saldo do QDOP é outra conta: contratual − faturado.">
-          <ul className="kpis kpis--quebra" aria-label="Saldo a executar">
+          <ul className="kpis cart-kpis--quebra" aria-label="Saldo a executar">
             <Kpi valorTexto={brl(k.saldo_centavos)} rotulo="saldo a executar" />
             <Kpi valorTexto={brl(k.ritmo_mensal_centavos)} rotulo="ritmo (média dos últimos 6 meses)" />
             <Kpi valorTexto={k.meses_de_producao === null ? "—" : `${k.meses_de_producao.toLocaleString("pt-BR")} meses`}

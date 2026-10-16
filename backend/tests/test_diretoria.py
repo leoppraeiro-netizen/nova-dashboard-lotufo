@@ -186,6 +186,18 @@ def test_faturado_no_mes_e_a_regra_do_qdop_fatiada_pelo_mes_da_nota(cenario):
     assert c.execute("SELECT COUNT(*) FROM notas_fiscais").fetchone()[0] == 0
 
 
+def test_medicao_faturada_sem_data_da_nota_nao_entra_em_mes_nenhum(cenario):
+    c, ids = cenario
+    c.execute("UPDATE medicoes SET nota_emitida_em='2026-09-05' WHERE contrato_id=? AND numero=14", (ids["propria"],))
+    c.commit()
+    assert diretoria.painel(c, HOJE)["mes_ano"]["faturado_mes_centavos"] == 700_000
+    c.execute("UPDATE medicoes SET nota_emitida_em=NULL WHERE contrato_id=? AND numero=14", (ids["propria"],))   # protocolada, sem data da nota
+    c.commit()
+    assert diretoria.painel(c, HOJE)["mes_ano"]["faturado_mes_centavos"] == 0
+    # mas ela segue no "Faturado" acumulado do QDOP
+    assert any(l["faturados"] >= 700_000 for l in qdop.linhas(c, HOJE) if l["contrato_id"] == ids["propria"])
+
+
 def test_faturado_no_mes_bate_com_a_coluna_faturado_do_qdop(cenario):
     c, ids = cenario
     c.execute("UPDATE medicoes SET nota_emitida_em='2026-09-15'")      # todas as medicoes com nota no mesmo mes
