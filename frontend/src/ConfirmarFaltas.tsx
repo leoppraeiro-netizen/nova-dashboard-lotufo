@@ -11,7 +11,14 @@ export default function ConfirmarFaltas({ itens, mudou = false, aoCancelar, aoCo
 }) {
   const caixa = useRef<HTMLDivElement>(null);
   const [antes] = useState(() => document.activeElement as HTMLElement | null);
-  const cancelar = () => { aoCancelar(); antes?.focus(); };
+  // reaberto depois da recusa do servidor, o foco estava no Enviar desabilitado ("Enviando…") ou no <body>: volta
+  // ao botao de envio do e-mail, que ja' esta' habilitado de novo quando o Cancelar e' clicado
+  const cancelar = () => {
+    aoCancelar();
+    const alvo = antes && antes !== document.body && !(antes as HTMLButtonElement).disabled ? antes
+      : document.querySelector<HTMLElement>(".ol-enviar");
+    alvo?.focus();
+  };
   function teclas(ev: React.KeyboardEvent<HTMLDivElement>) {
     if (ev.key === "Escape") { ev.stopPropagation(); cancelar(); return; }
     if (ev.key !== "Tab") return;

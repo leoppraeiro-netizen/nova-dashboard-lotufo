@@ -114,12 +114,14 @@ class ConfirmarPendencias(ValueError):
     de agora, o envio e' recusado antes da reserva; `pendencias` e' a lista de agora, para a tela pedir de novo."""
     codigo = "CONFIRMAR_PENDENCIAS"
 
-    def __init__(self, mensagem: str, pendencias: list[str]):
+    def __init__(self, mensagem: str, itens: list[dict]):
         super().__init__(mensagem)
-        self.pendencias = pendencias
+        self.itens = [{"codigo": x["codigo"], "mensagem": x["mensagem"]} for x in itens]
+        self.pendencias = [x["mensagem"] for x in itens]
 
     def detalhe(self) -> dict:
-        return {"codigo": self.codigo, "mensagem": str(self), "pendencias": self.pendencias}
+        # `itens` leva o codigo, para a tela manter o nivel de cada linha (certidao e' critico)
+        return {"codigo": self.codigo, "mensagem": str(self), "pendencias": self.pendencias, "itens": self.itens}
 
 
 class AnexosMudaram(ValueError):
@@ -859,15 +861,17 @@ def _pendencias_envio(conn, ps: list[dict], hoje: datetime.date) -> list[dict]:
             if not (q["codigo"] == "irma_fora" and q["medicao_id"] in juntas)]
 
 
-def _conferir_confirmacao(faltam: list[str], confirmadas: list[str] | None) -> None:
-    """Issue #213: a lista confirmada no aviso tem de ser a de agora (os mesmos itens, em qualquer ordem)."""
-    if sorted(confirmadas or []) == sorted(faltam):
+def _conferir_confirmacao(pend: list[dict], confirmadas: list[str] | None) -> None:
+    """Issue #213: a lista confirmada no aviso tem de ser a de agora (os mesmos itens, em qualquer ordem). Nada
+    faltando agora passa, mesmo com uma confirmacao antiga: nao ha' o que confirmar (code-review da PR)."""
+    faltam = [x["mensagem"] for x in pend]
+    if not faltam or sorted(confirmadas or []) == sorted(faltam):
         return
     if not confirmadas:
         raise ConfirmarPendencias("ATENÇÃO: falta documento neste envio (" + "; ".join(faltam) + "). Confirme para "
-                                  "continuar com o envio", faltam)
+                                  "continuar com o envio", pend)
     raise ConfirmarPendencias("A lista do que falta mudou depois da sua confirmação: confira e confirme de novo",
-                              faltam)
+                              pend)
 
 
 def previa_envio(conn, protocolo_ids: list[int], remetente: str | None = None,
@@ -972,7 +976,7 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
         _conferir_anexos(anexos_previa, pv["anexos"])
     justificativa = (justificativa or "").strip() or None
     faltam = [x["mensagem"] for x in pv["pendencias"]]
-    _conferir_confirmacao(faltam, confirmadas)
+    _conferir_confirmacao(pv["pendencias"], confirmadas)
     # Reserva atomica antes do e-mail (A-02, 10/10/2026): dois cliques simultaneos nao mandam dois e-mails.
     # Todos os protocolos do e-mail numa transacao so': se um ja' esta' em envio, nenhum fica reservado.
     with db.mutacao(conn):
@@ -985,8 +989,7 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
                     if m["estado"] == "nota_emitida":
                         notas_envio.recusar_se_espera(conn, m)
         # Issue #213: a lista do que falta, de novo sob o lock; mudou desde o aviso, recusa e pede nova confirmacao
-        _conferir_confirmacao([q["mensagem"] for q in _pendencias_envio(conn, [_linha(conn, x["id"]) for x in ps],
-                                                                        hoje)], confirmadas)
+        _conferir_confirmacao(_pendencias_envio(conn, [_linha(conn, x["id"]) for x in ps], hoje), confirmadas)
         for x in ps:
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
             if faltam:      # quem confirmou e quando: o usuario e o carimbo da propria linha da auditoria

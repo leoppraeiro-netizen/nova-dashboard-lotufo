@@ -9,7 +9,7 @@ from app import envio_reserva, graph, notas_envio, protocolo
 from app.api_auth import conexao
 from app.api_espelhos import _emails
 from app.api_medicoes import ID, MAX_INT64, _contrato_existe
-from app.api_protocolos import AnexoVistoIn, _existe
+from app.api_protocolos import AnexoVistoIn, Confirmadas, _existe
 from app.permissoes import exigir
 
 router = APIRouter()
@@ -32,7 +32,7 @@ class EnviarIn(BaseModel):
     # Obrigatorio (revisor na PR #141): sem a lista nao ha' o que conferir, e o e-mail nao sai sem conferencia
     anexos: list[AnexoVistoIn] = Field(max_length=200)
     # issue #213: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO"
-    confirmadas: list[str] | None = Field(default=None, max_length=200)
+    confirmadas: Confirmadas = None
 
 
 class NumeroIn(BaseModel):

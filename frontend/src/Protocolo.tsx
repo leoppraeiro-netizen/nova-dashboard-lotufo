@@ -317,9 +317,9 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
     } catch (e) {
       // o que falta mudou depois do aviso: a previa passa a mostrar a lista de agora e o aviso abre de novo com ela
       if (e instanceof ApiErro && e.status === 422 && e.corpo?.codigo === "CONFIRMAR_PENDENCIAS") {
-        const itens: string[] = e.corpo.pendencias ?? [];
-        setPrevia(p => p && { ...p, pendencias: itens.map(x => ({ codigo: "", mensagem: x })) });
-        setConfirmar({ m, itens, mudou: confirmadas.length > 0 });
+        const itens: Pendencia[] = e.corpo.itens ?? [];
+        setPrevia(p => p && { ...p, pendencias: itens });
+        setConfirmar({ m, itens: itens.map(x => x.mensagem), mudou: confirmadas.length > 0 });
       } else setErro(mensagem(e));
     } finally { setOcupado(false); }
   }

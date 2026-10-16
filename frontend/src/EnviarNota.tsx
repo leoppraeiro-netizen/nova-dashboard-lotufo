@@ -260,10 +260,12 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
           confirmadas: confirmadas.length > 0 ? confirmadas : null, anexos: anexosVistos }) });
       } catch (erro) {
         // o que falta mudou depois do aviso (ou da leitura da tela): o servidor manda a lista de agora e o aviso
-        // abre de novo com ela, sem enviar nada
+        // abre de novo com ela, sem enviar nada. So' a lista da tela e' trocada: recarregar o envio inteiro podia
+        // remontar o e-mail e perder o texto editado que o aviso ainda vai mandar
         if (erro instanceof ApiErro && erro.status === 422 && erro.corpo?.codigo === "CONFIRMAR_PENDENCIAS") {
-          await carregar();
-          setConfirmar({ m, itens: erro.corpo.pendencias ?? [], mudou: confirmadas.length > 0 });
+          const itens: string[] = erro.corpo.pendencias ?? [];
+          setDet(d => d && { ...d, pendencias: itens });
+          setConfirmar({ m, itens, mudou: confirmadas.length > 0 });
           return;
         }
         // so' a recusa por anexos mudados (em outra aba, p. ex.) recarrega: a previa com os anexos de agora toma o

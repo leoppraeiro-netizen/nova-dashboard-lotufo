@@ -1,7 +1,7 @@
 """Protocolo de medicao (bloco 5; spec 2026-09-21 §3 passos 4 a 7): criar, pecas, carta, pacote, assinado,
 previa e envio. Tudo o que recusa vem do servico (`protocolo`); aqui so' validacao de entrada e HTTP."""
 import sqlite3
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -38,6 +38,10 @@ class AnexoVistoIn(BaseModel):
     tamanho: int
 
 
+# issue #213: a lista do aviso "ATENÇÃO" confirmada pela pessoa (cada item e' uma linha do que falta)
+Confirmadas = Annotated[list[Annotated[str, Field(max_length=2000)]] | None, Field(default=None, max_length=200)]
+
+
 class EnvioIn(PreviaIn):
     para: list[str] = Field(max_length=30)
     copia: list[str] = Field(max_length=30)
@@ -48,7 +52,7 @@ class EnvioIn(PreviaIn):
     # issue #10: os anexos que a pessoa viu na previa; se o servidor montar outros, o envio e' recusado
     anexos: list[AnexoVistoIn] | None = Field(default=None, max_length=200)
     # issue #213: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO"
-    confirmadas: list[str] | None = Field(default=None, max_length=200)
+    confirmadas: Confirmadas = None
 
 
 class DescartarIn(BaseModel):

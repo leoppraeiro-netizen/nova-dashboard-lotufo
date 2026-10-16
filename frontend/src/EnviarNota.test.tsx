@@ -19,7 +19,7 @@ const det = {
     valor_centavos: 100, emitida_em: "2026-10-08", dias: 2, situacao: "pronto", aviso: null, protocolo_id: 3, itens: [] },
   familia: "sinfra", etapa: "nota", situacao_protocolo: "rascunho", carta: null,
   previa: { para: ["orgao@exemplo.com"], copia: [], assunto: "Notas", corpo: "Bom dia.", anexos: [], links: [] },
-  bloqueio: null, pendencias: [], justificativa_obrigatoria: false, extras: [],
+  bloqueio: null, pendencias: [] as string[], extras: [],
 };
 
 describe("Enviar a nota", () => {

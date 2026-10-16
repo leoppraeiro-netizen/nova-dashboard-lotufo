@@ -752,6 +752,29 @@ def test_lista_diferente_da_confirmada_e_recusada(api):
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0 and _confirmacoes(c) == []
 
 
+def test_confirmacao_antiga_sem_nada_faltando_agora_envia(api):
+    """Code-review da PR: confirmou o que faltava e, antes do clique, tudo foi resolvido; nao ha' o que confirmar."""
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"], "medicao_ids": [
+        ids["sinfra_exec"], ids["sinfra_reaj"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    assert d["pendencias"] == []
+    r = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=["Falta a certidão federal"]))
+    assert r.status_code == 200, r.text
+    assert _confirmacoes(c) == []
+
+
+def test_recusa_traz_o_codigo_de_cada_item_e_limita_o_tamanho(api):
+    cl, c, ids = api
+    pid = cl.post("/api/notas/envio/iniciar", json={"contrato_id": ids["sinfra"],
+                                                    "medicao_ids": [ids["sinfra_exec"]]}).json()["protocolo_id"]
+    d = cl.get(f"/api/notas/envio/{pid}").json()
+    det = cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d)).json()["detail"]
+    assert [x["mensagem"] for x in det["itens"]] == det["pendencias"] and "irma_fora" in [x["codigo"] for x in det["itens"]]
+    assert cl.post(f"/api/notas/envio/{pid}/enviar", json=_corpo(d, confirmadas=["x" * 2001])).status_code == 422
+    assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
 def test_lista_que_muda_ate_a_reserva_e_recusada_sob_o_lock(api, monkeypatch):
     """Issue #213: a conferencia se repete sob o lock da reserva; o que mudou depois da primeira leitura recusa sem
     reservar nem gravar a confirmacao."""
