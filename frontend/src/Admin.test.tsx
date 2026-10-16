@@ -246,7 +246,7 @@ test("Saúde: cartões de situação com a hora, a nota e a tabela das rodadas s
   expect(rm.textContent).toMatch(/deu certo · agendada/);
   expect(await within(cartaoDe("Último backup")).findByText(/48 snapshots guardados/)).toBeTruthy();
   expect(cartaoDe("Última cópia externa dos arquivos").className).toMatch(/situacao--atencao/); // sem cópia dos arquivos ainda
-  expect(cartaoDe("Rodadas com falha").textContent).toMatch(/0 nas últimas 1 rodadas/);
+  expect(cartaoDe("Rodadas com falha").textContent).toMatch(/0 na última rodada/);
   // a tabela não fica atrás de um "abrir": já vem visível, com a duração da rodada
   expect(screen.queryByText(/As últimas \d+ rodadas$/)).toBeNull();
   expect(screen.getByRole("columnheader", { name: "Duração" })).toBeTruthy();
@@ -291,4 +291,23 @@ test("Saúde: falha só na cópia externa dos arquivos também deixa o cartão d
     { ...BACKUP_EM_DIA, ultima_copia_arquivos_erro: "1 arquivo(s) sem cópia" });
   await screen.findByText("Falhou");
   expect(cartaoDe("Último backup").className).toMatch(/situacao--acao/);
+});
+
+test("Saúde: singular com uma rodada e dica sem 'últimas 0 rodadas'; botão desligado enquanto roda", async () => {
+  saudeComRm({ configurado: true, em_andamento: false, ultima_sincronizacao: null, ultimo_erro: null, rodadas: [{ ...RODADA_RUIM }] });
+  await screen.findByText(/Última rodada: falhou em/);
+  expect(document.body.textContent).toMatch(/Nenhuma deu certo na última rodada\./);
+  expect(document.body.textContent).not.toMatch(/últimas 1 rodadas/);
+  cleanup();
+  saudeComRm({ configurado: true, em_andamento: false, ultima_sincronizacao: null, ultimo_erro: null, rodadas: [] });
+  await screen.findByText("as NFs e as baixas do RM");
+  expect(document.body.textContent).not.toMatch(/últimas 0 rodadas/);
+  cleanup();
+  saudeComRm({ configurado: true, em_andamento: true, ultima_sincronizacao: null, ultimo_erro: null, rodadas: [RODADA_BOA] });
+  await screen.findByText("rodando");
+  expect((screen.getByRole("button", { name: "Sincronizar agora" }) as HTMLButtonElement).disabled).toBe(true);
+  cleanup();
+  saudeComRm({ configurado: false, em_andamento: false, ultima_sincronizacao: null, ultimo_erro: null, rodadas: [RODADA_BOA] });
+  await screen.findByText(/Sem RM, o lançamento/);
+  expect(cartaoDe("Rodadas com falha").textContent).not.toMatch(/sem rodadas/);
 });

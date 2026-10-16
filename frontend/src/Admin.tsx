@@ -157,8 +157,8 @@ function Situacoes({ status, erroCarga, rodando, b }: { status: StatusRm | null;
   // 4. rodadas com falha, entre as que a tabela mostra
   const falhas = rodadas.filter(r => r.estado === "failed").length;
   const comFalha: Cartao = status === null || !status.configurado || rodadas.length === 0
-    ? neutro("Rodadas com falha", "—", status?.configurado === false ? "sem rodadas" : "")
-    : ["Rodadas com falha", `${falhas} nas últimas ${rodadas.length} rodadas`, falhas ? "veja o motivo na tabela" : "nenhuma", falhas ? "atencao" : "ok"];
+    ? neutro("Rodadas com falha", "—", rodadas.length === 0 && status?.configurado ? "sem rodadas" : "")
+    : ["Rodadas com falha", `${falhas} ${rodadas.length === 1 ? "na última rodada" : `nas últimas ${rodadas.length} rodadas`}`, falhas ? "veja o motivo na tabela" : "nenhuma", falhas ? "atencao" : "ok"];
   return (
     <ul className="situacoes" aria-label="Situação do servidor">
       {[backup, externa, rm, comFalha].map(([titulo, valor, nota, situacao]) => (
@@ -176,7 +176,8 @@ function Rodadas({ status, erroCarga }: { status: StatusRm | null; erroCarga: st
         <h2 className="cartao__titulo" id="titulo-rm">Rodadas de sincronização com o RM</h2>
         <span className="cartao__dica">
           {status === null ? (erroCarga ? "não foi possível ler o estado do RM" : "carregando…")
-            : status.configurado ? `as NFs e as baixas do RM · ${status.rodadas.length === 1 ? "a última rodada" : `as últimas ${status.rodadas.length} rodadas`}`
+            : status.configurado ? status.rodadas.length === 0 ? "as NFs e as baixas do RM"
+              : `as NFs e as baixas do RM · ${status.rodadas.length === 1 ? "a última rodada" : `as últimas ${status.rodadas.length} rodadas`}`
             : "não configurado neste servidor"}
         </span>
       </div>
@@ -383,13 +384,13 @@ function Saude() {
       {status?.configurado && ultima?.estado === "failed" && !rodando && !erro && (
         <CaixaAviso nivel="critico">
           Última rodada: falhou em {fmtDataHora(ultima.iniciado_em)} ({ultima.disparo}). {ultima.erro ?? "Erro desconhecido."}
-          {quandoBoa ? ` A última que deu certo foi em ${fmtDataHora(quandoBoa)}.` : ` Nenhuma deu certo nas últimas ${status.rodadas.length} rodadas.`}
+          {quandoBoa ? ` A última que deu certo foi em ${fmtDataHora(quandoBoa)}.` : status.rodadas.length === 1 ? " Nenhuma deu certo na última rodada." : ` Nenhuma deu certo nas últimas ${status.rodadas.length} rodadas.`}
           {" "}“Sincronizar agora” tenta de novo; se a falha se repetir, veja o manual de produção.
         </CaixaAviso>
       )}
 
       <div className="acoes-saude">
-        <button type="button" className="btn btn--primario" onClick={sincronizar} disabled={rodando || !status?.configurado}
+        <button type="button" className="btn btn--primario" onClick={sincronizar} disabled={rodando || !status?.configurado || status.em_andamento || ultima?.estado === "running"}
           title={status?.configurado ? "Buscar NFs e baixas no RM agora" : "Configure o acesso ao RM no servidor (manual de produção)"}>
           {rodando ? "Sincronizando…" : "Sincronizar agora"}
         </button>
