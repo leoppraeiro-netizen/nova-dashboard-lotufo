@@ -65,7 +65,7 @@ describe("A receber", () => {
   it("clicar numa obra filtra a tabela e o total; clicar de novo ou em Mostrar todas volta", async () => {
     api.mockResolvedValue(RESPOSTA);
     render(<AReceberPagina />);
-    const tabela = await screen.findByRole("table", { name: /Medições protocoladas esperando pagamento, na cota/ });
+    const tabela = await screen.findByRole("table", { name: /Cobranças esperando pagamento, na cota/ });
     expect(within(tabela).getAllByRole("row")).toHaveLength(1 + 4 + 1);                    // cabeca, 4 cobrancas, rodape
     fireEvent.click(screen.getByRole("button", { name: /Terminal Norte/ }));
     expect(within(tabela).getAllByRole("row")).toHaveLength(1 + 2 + 1);

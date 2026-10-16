@@ -351,3 +351,16 @@ def test_a_receber_recebida_sem_data_do_corte_fica_fora_do_previsto(cenario):
     c.commit(); ids["liberar"]()
     r = diretoria.a_receber(c, HOJE)
     assert r["mes"]["previsto_centavos"] == 700_000            # so' a 14; os 50.000,00 sem data nao entram
+
+
+def test_a_receber_previsao_futura_nao_conta_medicao_ja_paga(cenario):
+    c, ids = cenario
+    ids["liberar"]()
+    antes = {m["competencia"]: m["previsto_centavos"] for m in diretoria.a_receber(c, HOJE)["meses"]}
+    mid = c.execute("INSERT INTO medicoes (contrato_id, numero, tipo, competencia, estado, valor_protocolado_centavos, recebida_em) "
+                    "VALUES (?, 31, 'execucao', '2026-08', 'recebida', 9000000, ?)", (ids["propria"], HOJE.isoformat())).lastrowid
+    c.execute("INSERT INTO medicao_protocolos (medicao_id, data, origem) VALUES (?, ?, 'manual')", (mid, HOJE.isoformat()))
+    c.commit()                       # protocolada e paga em 24/09; SINFRA (10 dias) venceria em 04/10
+    por = {m["competencia"]: m for m in diretoria.a_receber(c, HOJE)["meses"]}
+    assert all(por[k]["previsto_centavos"] == antes[k] for k in por if por[k]["futuro"])
+    assert por["2026-09"]["recebido_centavos"] == 9_000_000

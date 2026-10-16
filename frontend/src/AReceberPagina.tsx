@@ -191,7 +191,7 @@ export default function AReceberPagina() {
         <div className="cartao ar-numero">
           <span className="ar-numero__rotulo">Previsto em {nomeMes}</span>
           <span className="ar-numero__valor num">{valor(mes.previsto_centavos)}</span>
-          <span className="ar-numero__apoio">{liberado ? "o que se esperava receber no mês" : "a conciliar com a controladoria"}</span>
+          <span className="ar-numero__apoio">{liberado ? "vencimentos do mês; o recebido pode incluir vencidos de meses anteriores" : "a conciliar com a controladoria"}</span>
         </div>
         <div className="cartao ar-numero">
           <span className="ar-numero__rotulo">Medições recebidas em {nomeMes}</span>
@@ -231,7 +231,7 @@ export default function AReceberPagina() {
         <section className="cartao" aria-labelledby="t-obras">
           <div className="cartao__cabeca">
             <h2 className="cartao__titulo" id="t-obras">Por obra</h2>
-            <span className="cartao__dica">clique para ver as medições da obra</span>
+            <span className="cartao__dica">clique para ver as cobranças da obra</span>
           </div>
           {p.por_obra.length === 0 ? (
             <div className="vazio vazio--curto"><p>Nenhuma obra com cobrança esperando pagamento.</p></div>
@@ -256,7 +256,7 @@ export default function AReceberPagina() {
 
         <section className="cartao" aria-labelledby="t-medicoes">
           <div className="cartao__cabeca cartao__cabeca--quebra">
-            <h2 className="cartao__titulo" id="t-medicoes">Medições protocoladas esperando pagamento</h2>
+            <h2 className="cartao__titulo" id="t-medicoes">Cobranças esperando pagamento</h2>
             {obraEscolhida && (
               <div className="ar-filtro">
                 <span className="selo"><span className="selo__texto">Só {obraEscolhida.obra}</span></span>
@@ -267,9 +267,9 @@ export default function AReceberPagina() {
           {itens.length === 0 ? (
             <div className="vazio vazio--curto"><p className="vazio__titulo">Nenhuma medição protocolada esperando pagamento.</p></div>
           ) : (
-            <Rolagem rotulo="Medições protocoladas esperando pagamento">
+            <Rolagem rotulo="Cobranças esperando pagamento">
               <table className="tabela ar-tabela">
-                <caption className="sr-only">Medições protocoladas esperando pagamento, na cota</caption>
+                <caption className="sr-only">Cobranças esperando pagamento, na cota</caption>
                 <thead>
                   <tr>
                     <th scope="col">Obra</th><th scope="col">Medição</th><th scope="col">Protocolada em</th>

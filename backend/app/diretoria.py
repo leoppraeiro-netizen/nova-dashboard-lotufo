@@ -369,6 +369,9 @@ def a_receber(conn, hoje: datetime.date | None = None) -> dict:
         if m["orgao_id"] not in prazos:
             prazos[m["orgao_id"]] = _prazo(ms, m["orgao_id"], hoje, QUARTIL)
         mes = _mes(base + datetime.timedelta(days=prazos[m["orgao_id"]]))
+        # meses futuros: so' o que ainda nao foi pago; a recebida conta se o vencimento nao e' posterior ao mes do recebimento
+        if m["estado"] == "recebida" and mes > _mes(hoje) and mes > m["recebida_em"][:7]:
+            continue
         if mes in previsto:
             previsto[mes] += _cota(m)
     recebido = dict.fromkeys(previsto, 0)
