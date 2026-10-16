@@ -263,7 +263,6 @@ Fora do escopo do loop (mexem em API, lógica, navegação ou regra), com a orig
 ## Fase 4 (mergeada em master em 2026-09-02; sem gate Sol por decisão do Leonardo)
 
 - 2026-09-02 Entregue: migração 013 (nº, objeto, observação, ressalva de reajuste, snapshot anterior/novo, assinado_por, cancelamento); `aditivos.py` (rascunho editável e cancelável; assinar confere `novo = vigente + delta` dentro da transação e datas posteriores às vigentes; assinado congela); rotas `/api/contratos/{id}/aditivos`, `/api/aditivos/{id}` (PUT, conferencia, assinar, cancelar) e `ler-pdf`; `leitura_termo.py` (valores e datas com papel por rótulo, só sugestão); aba Aditivos na página do contrato.
-- 2026-09-02 Fora do escopo desta fase (itens do parecer para a 4): documentos de habilitação com validade (garantia, ART) — emenda ao §5 a decidir; município/CNO/regime e estados "paralisada"/"aguardando OS"; baseline nomeado do cronograma. Alerta de vigência já usa o vigente com aditivos.
 - 2026-09-02 A leitura do termo depende do PDF ter texto (digitalizado não lê) e de rótulos comuns (acréscimo, supressão, prorrogação, "passa a ser"); com mais de um candidato por papel nada é preenchido, só listado.
 
 ## Pendências externas (Leonardo)
