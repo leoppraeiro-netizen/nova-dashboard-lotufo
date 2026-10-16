@@ -192,7 +192,86 @@ describe("MinhaConta › redesenho", () => {
     expect(campo.type).toBe("password");
     fireEvent.click(screen.getByRole("button", { name: "Mostrar a senha atual" }));
     expect(campo.type).toBe("text");
-    expect(screen.getByRole("button", { name: "Esconder a senha atual" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mostrar a senha atual" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("depois de trocar a senha, os olhos voltam a esconder", async () => {
+    api.mockImplementation(async (url: string) => url === "/api/correio/status" ? status() : { ok: true });
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não conectada");
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar a senha nova" }));
+    fireEvent.change(screen.getByLabelText("Senha atual"), { target: { value: "velha-123456" } });
+    fireEvent.change(screen.getByLabelText(/^Senha nova/), { target: { value: "senha-nova-456" } });
+    fireEvent.change(screen.getByLabelText("Confirmar a senha nova"), { target: { value: "senha-nova-456" } });
+    fireEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
+    await screen.findByText(/Senha trocada/);
+    expect((screen.getByLabelText(/^Senha nova/) as HTMLInputElement).type).toBe("password");
+  });
+
+  const png = () => new File([new Uint8Array([1, 2, 3])], "a.png", { type: "image/png" });
+  const alvo = () => screen.getByRole("button", { name: "Colar ou arrastar a imagem da assinatura" });
+  // apiForm nao e' mockado (so' `api`): o envio da imagem aparece como chamada ao fetch
+
+  it("colar imagem envia para /api/correio/assinatura; colar sem imagem avisa", async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(new Response(JSON.stringify(status({ conectado: true, assinatura: true })),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchFalso);
+    api.mockResolvedValue(status({ conectado: true }));
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não cadastrada");
+    fireEvent.paste(alvo(), { clipboardData: { files: [] } });
+    expect(screen.getByText(/A área de transferência não tem imagem/)).toBeTruthy();
+    fireEvent.paste(alvo(), { clipboardData: { files: [png()] } });
+    await waitFor(() => expect(fetchFalso).toHaveBeenCalled());
+    expect(String(fetchFalso.mock.calls[0][0])).toContain("/api/correio/assinatura");
+    expect(await screen.findByAltText("Sua assinatura")).toBeTruthy();
+    expect(screen.getByText("Trocar a imagem")).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it("soltar PNG envia; soltar outro arquivo avisa", async () => {
+    const fetchFalso = vi.fn().mockResolvedValue(new Response(JSON.stringify(status({ assinatura: true })),
+      { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchFalso);
+    api.mockResolvedValue(status());
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não cadastrada");
+    fireEvent.drop(alvo(), { dataTransfer: { files: [new File(["x"], "a.txt", { type: "text/plain" })] } });
+    expect(screen.getByText("Arraste um arquivo PNG ou JPG.")).toBeTruthy();
+    expect(fetchFalso).not.toHaveBeenCalled();
+    fireEvent.drop(alvo(), { dataTransfer: { files: [png()] } });
+    await waitFor(() => expect(fetchFalso).toHaveBeenCalled());
+    vi.unstubAllGlobals();
+  });
+
+  it("arquivo .gif pelo seletor é recusado sem chamar a API", async () => {
+    api.mockResolvedValue(status());
+    render(<MinhaConta usuario={ENG} />);
+    await screen.findByText("Não cadastrada");
+    api.mockClear();
+    const gif = new File(["x"], "a.gif", { type: "image/gif" });
+    fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [gif] } });
+    expect(await screen.findByText("A imagem precisa ser PNG ou JPG.")).toBeTruthy();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it("'Pedir outro código' chama /api/correio/conectar", async () => {
+    api.mockResolvedValueOnce(status({}, { estado: "aguardando", user_code: "ABCD-1234", verification_uri: "https://microsoft.com/devicelogin" }));
+    api.mockResolvedValue(status());
+    render(<MinhaConta usuario={ENG} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Pedir outro código" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/correio/conectar", { method: "POST" }));
+  });
+
+  it("erro do e-mail de teste aparece no cartão da assinatura", async () => {
+    api.mockImplementation(async (url: string) => {
+      if (url === "/api/correio/status") return status({ conectado: true });
+      throw new ApiErro(502, "A Microsoft não respondeu.");
+    });
+    render(<MinhaConta usuario={ENG} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Enviar e-mail de teste" }));
+    const msg = await screen.findByText("A Microsoft não respondeu.");
+    expect(msg.closest("section")?.querySelector("h2")?.textContent).toBe("Assinatura de e-mail");
   });
 
   it("não conectada: o e-mail de teste fica desabilitado e a tela diz o motivo", async () => {

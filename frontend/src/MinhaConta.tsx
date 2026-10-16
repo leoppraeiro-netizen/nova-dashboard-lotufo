@@ -123,6 +123,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
     try {
       await api("/api/auth/senha", { method: "POST", body: JSON.stringify({ senha_atual: senha.atual, senha_nova: senha.nova }) });
       setSenha({ atual: "", nova: "", confirmar: "" });
+      setVendo({ atual: false, nova: false, confirmar: false });
       setSenhaTrocada("Senha trocada. As outras sessões abertas com a sua conta foram encerradas.");
     } catch (e) { setErroSenha(mensagemDeErro(e)); }
     finally { setOcupado(false); setTrocandoSenha(false); }
@@ -141,7 +142,7 @@ export default function MinhaConta({ usuario }: { usuario: Usuario }) {
                aria-describedby={[errosCampo[campo] ? `${id}-erro` : "", nota ? `${id}-nota` : ""].filter(Boolean).join(" ") || undefined}
                onChange={e => digitar(campo, e.target.value)} />
         <button type="button" className="btn olho" aria-pressed={vendo[campo]}
-                aria-label={`${vendo[campo] ? "Esconder" : "Mostrar"} ${nomeOlho}`}
+                aria-label={`Mostrar ${nomeOlho}`}
                 onClick={() => setVendo(v => ({ ...v, [campo]: !v[campo] }))}>
           {vendo[campo] ? <IconeOlhoFechado /> : <IconeOlho />}
         </button>
