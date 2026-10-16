@@ -75,6 +75,8 @@ function pct(f: number): string {
 }
 /** "R$ 12,3 mi": o numero grande do Resumo; o valor exato vai no title e na linha de apoio. */
 function mi(centavos: number): string {
+  // abaixo de 1 milhao "R$ 0,0 mi" pareceria zero: nesse caso, em mil
+  if (Math.abs(centavos) < 100_000_000) return `R$ ${(centavos / 100_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil`;
   return `R$ ${(centavos / 100_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
 }
 function data(iso: string | null | undefined): string {
@@ -316,7 +318,7 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
             const feito = o.vigente_centavos > 0 ? Math.max(0, Math.min(1, o.medido_centavos / o.vigente_centavos)) : 0;
             return (
               <li key={o.orgao}>
-                <Link className="cartao contratante" para={{ tela: "obras" }} busca={{ orgao: o.orgao }} ir={ir}>
+                <Link className="cartao contratante" para={{ tela: "obras" }} busca={o.orgao === "sem órgão" ? undefined : { orgao: o.orgao }} ir={ir}>
                   <h3 className="contratante__nome">{o.orgao}</h3>
                   <span className="contratante__rotulo">Saldo a executar</span>
                   <span className="contratante__valor num" title={brl(o.saldo_centavos)}>{mi(o.saldo_centavos)}</span>

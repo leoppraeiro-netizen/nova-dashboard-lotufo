@@ -186,6 +186,7 @@ def test_faturado_no_mes_soma_notas_emitidas_no_mes_na_cota(cenario):
     nota(5, 1, "2026-10-01", 9_000_000)                         # emitida em outubro: fora
     nota(6, 1, "2026-09-15", 9_000_000, situacao="cancelada", centro="CC-P")
     nota(7, 1, "2026-09-16", 9_000_000, centro="CC-DESCONHECIDO")  # obra nao identificada: fora
+    nota(8, 3, "2026-09-17", 9_000_000, centro="CC-P")          # coligada diferente da entidade da obra: fora
     c.commit()
     m = diretoria.painel(c, HOJE)["mes_ano"]
     assert m["faturado_mes_centavos"] == 1_000_000 + 250_000 + 500_001
