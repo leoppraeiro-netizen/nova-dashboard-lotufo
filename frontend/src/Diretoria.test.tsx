@@ -44,7 +44,7 @@ describe("Carteira", () => {
     expect(within(numeros).getAllByRole("listitem")).toHaveLength(3);
     expect(within(numeros).getByText("Saldo a executar")).toBeTruthy();
     expect(within(numeros).getByText("Medido no ano")).toBeTruthy();
-    expect(within(numeros).getByText("Faturado no mês")).toBeTruthy();
+    expect(within(numeros).getByText("Notas emitidas no mês")).toBeTruthy();
     // o faturado do mês vem do servidor, em milhões, com o valor exato e a contagem de notas na linha de apoio
     expect(within(numeros).getByText("R$ 1,2 mi")).toBeTruthy();
     expect(within(numeros).getByText(/2 notas emitidas em 09\/2026/)).toBeTruthy();
@@ -57,7 +57,7 @@ describe("Carteira", () => {
     const cartao = screen.getByRole("link", { name: /SINFRA/ });
     expect(cartao.getAttribute("href")).toContain("orgao=SINFRA");
     expect(within(cartao).getByText("75%")).toBeTruthy();
-    expect(within(cartao).getByText(/3 obras · 100,0% do saldo da carteira/)).toBeTruthy();
+    expect(within(cartao).getByText(/3 obras em execução · 100,0% do saldo da carteira/)).toBeTruthy();
     // a linha das obras com problema leva ao QDOP; o que saiu do Resumo não está mais lá
     expect(screen.getByText(/1 de 1 obras com farol em Ação, Atenção ou Crítico/)).toBeTruthy();
     expect(screen.queryByText("Onde está o dinheiro")).toBeNull();

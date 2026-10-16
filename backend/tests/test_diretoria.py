@@ -187,10 +187,17 @@ def test_faturado_no_mes_soma_notas_emitidas_no_mes_na_cota(cenario):
     nota(6, 1, "2026-09-15", 9_000_000, situacao="cancelada", centro="CC-P")
     nota(7, 1, "2026-09-16", 9_000_000, centro="CC-DESCONHECIDO")  # obra nao identificada: fora
     nota(8, 3, "2026-09-17", 9_000_000, centro="CC-P")          # coligada diferente da entidade da obra: fora
+    # NFS-e da coligada 1 ligada a medicao de consorcio (coligada 2): repassada pelo consorcio, fora
+    n9 = nota(9, 1, "2026-09-18", 9_000_000)
+    c.execute("INSERT INTO nf_alocacoes (medicao_id, nota_id, valor_alocado_centavos, origem, regra) "
+              "SELECT id, ?, 9000000, 'detectado', 't' FROM medicoes WHERE contrato_id=? AND numero=1", (n9, ids["consorcio"]))
+    # nota so' do PDF (sem idmov), pelo centro de custo: entra
+    c.execute("INSERT INTO notas_fiscais (coligada, idmov, numero, emissao, valor_centavos, situacao, centro_custo, origem) "
+              "VALUES (1, NULL, '77', '2026-09-20', 100000, 'ativa', 'CC-P', 'pdf')")
     c.commit()
     m = diretoria.painel(c, HOJE)["mes_ano"]
-    assert m["faturado_mes_centavos"] == 1_000_000 + 250_000 + 500_001
-    assert m["notas_faturadas_mes"] == 3
+    assert m["faturado_mes_centavos"] == 1_000_000 + 250_000 + 500_001 + 100_000
+    assert m["notas_faturadas_mes"] == 4
 
 
 def test_carteira_por_orgao_traz_vigente_medido_e_obras_para_o_cartao(cenario):

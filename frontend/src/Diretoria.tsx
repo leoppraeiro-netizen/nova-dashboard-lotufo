@@ -75,6 +75,7 @@ function pct(f: number): string {
 }
 /** "R$ 12,3 mi": o numero grande do Resumo; o valor exato vai no title e na linha de apoio. */
 function mi(centavos: number): string {
+  if (centavos === 0) return "R$ 0";
   // abaixo de 1 milhao "R$ 0,0 mi" pareceria zero: nesse caso, em mil
   if (Math.abs(centavos) < 100_000_000) return `R$ ${(centavos / 100_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mil`;
   return `R$ ${(centavos / 100_000_000).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mi`;
@@ -297,9 +298,10 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
             <span className="num">{mi(m.previsto_ano_centavos)}</span></span>
         </li>
         <li className="cartao numero">
-          <span className="numero__rotulo">Faturado no mês</span>
+          <span className="numero__rotulo">Notas emitidas no mês</span>
           <span className="numero__valor num" title={brl(m.faturado_mes_centavos)}>{mi(m.faturado_mes_centavos)}</span>
-          <span className="numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "nota emitida", "notas emitidas")} em {fmtCompetencia(m.mes)}</span>
+          <span className="numero__apoio"><span className="num">{brl(m.faturado_mes_centavos)}</span> · {contar(m.notas_faturadas_mes, "nota emitida", "notas emitidas")} em {fmtCompetencia(m.mes)}
+            {" "}· soma das notas fiscais ativas emitidas no mês, na cota</span>
         </li>
       </ul>
 
@@ -322,13 +324,13 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
                   <h3 className="contratante__nome">{o.orgao}</h3>
                   <span className="contratante__rotulo">Saldo a executar</span>
                   <span className="contratante__valor num" title={brl(o.saldo_centavos)}>{mi(o.saldo_centavos)}</span>
-                  <span className="contratante__obras">{contar(o.obras, "obra", "obras")} · {fmtPercentual(o.fracao, 1, true)} do saldo da carteira</span>
+                  <span className="contratante__obras">{contar(o.obras, "obra em execução", "obras em execução")} · {fmtPercentual(o.fracao, 1, true)} do saldo da carteira</span>
                   <span className="progresso">
                     <span className="progresso__rotulo">% executado</span>
-                    <span className="progresso__trilho" role="img" aria-label={`${fmtPercentual(feito, 0)} executado`}>
+                    <span className="progresso__trilho" role="img" aria-label={`${Math.floor(feito * 100)}% executado`}>
                       <span className="progresso__feito" style={{ width: `${(feito * 100).toFixed(1)}%` }} />
                     </span>
-                    <span className="progresso__pct num">{fmtPercentual(feito, 0)}</span>
+                    <span className="progresso__pct num">{Math.floor(feito * 100)}%</span>
                   </span>
                 </Link>
               </li>
