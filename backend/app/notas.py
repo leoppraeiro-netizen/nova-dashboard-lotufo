@@ -286,8 +286,8 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
     lida = (leitura_nfse.ler(leitura_pdf.texto_de_pdf_com_limite(pdf)) if tipo_doc == "nfs"
             else {"ok": False, "motivo": "fatura", "leiaute": None})
     # issue #169: a assinada fica ligada a' FRC vigente que ela assina (conferida pelo texto do PDF); sem FRC gerada,
-    # desatualizada ou PDF de outra versao, recusa
-    frc_id = frc.para_assinar(conn, medicao_id, pdf) if tipo_doc == "fatura" else None
+    # desatualizada ou PDF de outra versao, recusa. O texto e' lido aqui, fora da transacao; a conferencia, dentro.
+    assinada = frc.ler_assinada(pdf) if tipo_doc == "fatura" and frc.de_consorcio(conn, medicao_id) else None
     caminho, sha = arquivos.gravar_bytes("notas", pdf, "pdf")      # disco ANTES do envelope (ver _gravar_documento)
     with db.mutacao(conn):
         m = medicoes.detalhe(conn, medicao_id)
@@ -295,6 +295,8 @@ def anexar_pdf(conn, usuario: dict, medicao_id: int, pdf: bytes, nome: str, tipo
             raise ValueError("Medição não encontrada")
         if m["estado"] in ("cancelada", "desistida"):
             raise ValueError(f"Medição {m['estado']} não recebe nota")
+        # rodada 3 da PR #179: sob o BEGIN IMMEDIATE, sem janela entre a conferencia e o INSERT
+        frc_id = frc.para_assinar(conn, medicao_id, assinada) if tipo_doc == "fatura" else None
         documento_id, repetido = _gravar_documento(conn, usuario, medicao_id, caminho, sha, len(pdf), nome, tipo_doc, lida,
                                                    frc_id)
         nota_id, difs = None, []

@@ -385,18 +385,81 @@ def test_conferencia_da_assinada_por_palavra_inteira_e_falha_de_leitura_com_a_fr
     assert _assinar(conn, usuario, mid, _texto, "FRC docusign.pdf", texto=certo.replace(" ", "\n"))["documento_id"]
 
 
-def test_sem_espelho_e_sem_frc_gerada_a_assinada_feita_a_mao_vale(conn, usuario, consorcio14, _texto):  # noqa: F811
-    """Revisor adversarial na PR #179 (aviso 3): medicao de consorcio sem espelho vigente nao gera FRC; a assinada
-    feita a' mao entra sem vinculo e vale, como no consorcio sem formulario (senao o e-mail sairia sem FRC)."""
+def test_numero_e_valor_quebrados_pelo_docusign_conferem_sem_aceitar_pedaco(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Rodada 3 da PR #179 (S2): o DocuSign quebra numero e valor na coluna estreita ("10.000.\\n000,07", "22 84");
+    a conferencia junta os pedacos, mas segue por palavra inteira: "122 84" nao e' a nota 2284."""
+    _, mid = consorcio14
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    certo = _texto_da_frc(conn, mid)
+    bruto = espelho._fmt(_soma(3))
+    assert bruto == "10.000.000,07" and bruto in certo and "\n2284 " in certo and "00041" in certo
+    quebrado = certo.replace(bruto, "10.000.\n000,0 7").replace("\n2284 ", "\n22 84 ").replace("00041", "000\n41")
+    with pytest.raises(ValueError, match="Este PDF não é a FRC nº"):
+        _assinar(conn, usuario, mid, _texto, "FRC pedaco.pdf", texto=quebrado.replace("\n22 84 ", "\n122 84 "))
+    with pytest.raises(ValueError, match="Este PDF não é a FRC nº"):
+        _assinar(conn, usuario, mid, _texto, "FRC colada.pdf", texto=quebrado.replace("\n22 84 ", "\n22 84,5 "))
+    assert _assinar(conn, usuario, mid, _texto, "FRC docusign quebrada.pdf", texto=quebrado)["documento_id"]
+
+
+def test_assinada_conferida_dentro_da_transacao_do_anexo(conn, usuario, consorcio14, _texto, monkeypatch):  # noqa: F811
+    """Rodada 3 da PR #179 (S3): a FRC fica desatualizada entre a leitura do PDF e a gravacao (outra pessoa troca
+    uma nota); a conferencia roda sob o BEGIN IMMEDIATE, depois disso, e recusa: nada fica ligado a' versao velha."""
+    _, mid = consorcio14
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+    gravar = notas.arquivos.gravar_bytes
+
+    def no_meio(*a, **k):                  # roda entre a leitura do texto (fora) e a transacao do anexo
+        conn.execute("UPDATE frcs SET notas='[]' WHERE medicao_id=? AND substituida_em IS NULL", (mid,))
+        conn.commit()
+        return gravar(*a, **k)
+    monkeypatch.setattr(notas.arquivos, "gravar_bytes", no_meio)
+    with pytest.raises(ValueError, match="As notas mudaram depois da FRC nº"):
+        _assinar(conn, usuario, mid, _texto, "FRC assinada.pdf")
+    assert conn.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura'",
+                        (mid,)).fetchone()[0] == 0
+
+
+def test_pdf_corrompido_da_assinada_vira_frase_em_portugues(conn, usuario, consorcio14, _texto, monkeypatch):  # noqa: F811
+    """Rodada 3 da PR #179 (aviso): PDF que o leitor nao abre nao mostra "PDF inválido (PdfReadError): ..."; a falha
+    de fila (leitor ocupado) segue com a frase dela, que manda tentar de novo."""
+    _, mid = consorcio14
+    _anexar(conn, usuario, mid, _texto, NOTAS_FRC)
+
+    def corrompido(pdf):                   # o que leitura_pdf.com_limite levanta quando o pypdf nao abre o arquivo
+        raise ValueError("PDF inválido (PdfReadError): EOF marker not found")
+    monkeypatch.setattr(notas.leitura_pdf, "texto_de_pdf_com_limite", corrompido)
+    with pytest.raises(ValueError) as erro:
+        notas.anexar_pdf(conn, usuario, mid, b"%PDF-1.4\nquebrado", "FRC quebrada.pdf", tipo_doc="fatura")
+    assert str(erro.value) == frc.CORROMPIDO and not isinstance(erro.value, leitura_pdf.TextoInadequado)
+    assert conn.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura'",
+                        (mid,)).fetchone()[0] == 0
+
+
+def test_sem_espelho_a_assinada_feita_a_mao_e_recusada_e_o_envio_bloqueia(conn, usuario, consorcio14, _texto):  # noqa: F811
+    """Rodada 3 da PR #179 (S1, decisao do Leo de 15/10/2026): medicao de consorcio sem espelho vigente nao gera FRC
+    e a feita a' mao nao vale (a marca "sem formulario" nao existe no cadastro): o anexo e o envio ficam bloqueados."""
     cid, _ = consorcio14
     mid = medicoes.criar(conn, 1, {"contrato_id": cid, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
     assert frc.situacao(conn, mid)["bloqueio"] == "A medição não tem espelho vigente com as notas esperadas."
-    doc = _assinar(conn, usuario, mid, _texto, "FRC 9 feita a mão.pdf", texto="")["documento_id"]
-    assert conn.execute("SELECT frc_id FROM medicao_documentos WHERE id=?", (doc,)).fetchone()[0] is None
+    with pytest.raises(ValueError, match="não tem espelho vigente com as notas esperadas: sem ele a dashboard não gera"):
+        _assinar(conn, usuario, mid, _texto, "FRC 9 feita a mão.pdf", texto="FRC 00009 qualquer")
+    assert conn.execute("SELECT COUNT(*) FROM medicao_documentos WHERE medicao_id=? AND tipo_doc='fatura'",
+                        (mid,)).fetchone()[0] == 0
     a = frc.assinada(conn, mid)
-    assert (a["controla"], a["documento"], a["recusa"]) == (False, {"id": doc, "nome": "FRC 9 feita a mão.pdf"}, None)
+    assert (a["controla"], a["documento"], a["recusa"]) == (True, None, frc.SEM_ESPELHO)
     item, faltas = _item_frc(conn, cid, mid)
-    assert item["estado"] == "ok" and not [f for f in faltas if "FRC" in f]
+    assert (item["estado"], item["bloqueia"], item["detalhe"]) == ("falta", True, frc.SEM_ESPELHO)
+    assert not [f for f in faltas if "FRC" in f]           # nao e' pendencia justificavel: e' bloqueio
+    # anexada antes desta regra (sem vinculo) tambem nao vale nem vai no e-mail
+    conn.execute("INSERT INTO medicao_documentos (medicao_id, fonte, tipo_doc, nome, item_id, arquivo) VALUES "
+                 "(?, 'operacao', 'fatura', 'velha.pdf', 'velha', 'notas/velha.pdf')", (mid,))
+    conn.commit()
+    assert frc.assinada(conn, mid)["documento"] is None
+    assert not [d for d in protocolo._docs_nota(conn, [mid]) if d["tipo_doc"] == "fatura"]
+    m = dict(conn.execute("SELECT * FROM medicoes WHERE id=?", (mid,)).fetchone())
+    p = {"id": protocolo.criar(conn, 1, cid, "nota", [mid], None)}
+    p = dict(conn.execute("SELECT * FROM protocolos WHERE id=?", (p["id"],)).fetchone())
+    assert protocolo.frc_recusadas(conn, p) == [f"{medicoes.titulo(m)}: {frc.SEM_ESPELHO}"]
 
 
 def test_baixar_frc_desatualizada_e_recusado(client_admin, _texto):  # noqa: F811
@@ -429,13 +492,19 @@ def test_consorcio_sem_formulario_e_obra_propria(conn, usuario):  # noqa: F811
     assert frc.situacao(conn, mid) == {"disponivel": False, "consorcio": "Consórcio Exemplo", "motivo": frc.INDISPONIVEL}
     with pytest.raises(ValueError, match="ainda não disponível"):
         frc.gerar(conn, usuario, mid, 1)
-    # issue #169: sem FRC pela dashboard nao ha' versao a conferir: a assinada entra sem vinculo e vale, como antes
-    doc = notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), "FRC 9.pdf", tipo_doc="fatura")["documento_id"]
-    assert frc.assinada(conn, mid) == {"controla": False, "documento": {"id": doc, "nome": "FRC 9.pdf"}, "recusa": None,
-                                       "frc": None}
+    # rodada 3 da PR #179 (S1): consorcio sem a FRC no cadastro nao aceita a feita a' mao e o envio bloqueia
+    with pytest.raises(ValueError, match="A FRC deste consórcio não está no cadastro"):
+        notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("assinada"), "FRC 9.pdf", tipo_doc="fatura")
+    assert frc.assinada(conn, mid) == {"controla": True, "documento": None, "recusa": frc.SEM_CADASTRO, "frc": None}
+    item, faltas = _item_frc(conn, consorcio, mid)
+    assert (item["estado"], item["bloqueia"]) == ("falta", True) and not [f for f in faltas if "FRC" in f]
     propria = conn.execute("SELECT id FROM contratos WHERE nome_curto='Obra Própria'").fetchone()[0]
     mid = medicoes.criar(conn, 1, {"contrato_id": propria, "numero": 50, "tipo": "execucao", "competencia": "2026-09"})
     assert frc.situacao(conn, mid)["disponivel"] is False and frc.situacao(conn, mid)["motivo"] is None
+    # obra propria: a `fatura` entra como antes, sem vinculo e sem ler o PDF
+    doc = notas.anexar_pdf(conn, usuario, mid, _pdf_com_texto("fatura"), "Fatura.pdf", tipo_doc="fatura")["documento_id"]
+    assert frc.assinada(conn, mid) == {"controla": False, "documento": {"id": doc, "nome": "Fatura.pdf"}, "recusa": None,
+                                       "frc": None}
 
 
 def test_rotas_da_frc(client_admin):

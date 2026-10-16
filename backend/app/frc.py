@@ -17,6 +17,7 @@ import collections
 import datetime
 import io
 import json
+import re
 from pathlib import Path
 
 from fpdf import FPDF
@@ -227,24 +228,32 @@ def situacao(conn, medicao_id: int) -> dict:
                "desatualizada": atuais != antes}
     itens = [{k: v for k, v in i.items() if not k.startswith("_")} for i in ck["itens"]]
     bloqueio = _bloqueio(ck)
-    # Revisor adversarial na PR #179: sem espelho vigente (ou sem notas esperadas) e sem FRC gerada, a dashboard nao
-    # tem como gerar a FRC; a assinada feita a' mao entra sem vinculo e vale, como no consorcio sem formulario.
-    controla = vig is not None or bool(itens)
-    faturas = _faturas(conn, medicao_id)
-    doc, recusa = _escolher_assinada(faturas, vig, bool(frc and frc["desatualizada"])) if controla else \
-        ({"id": faturas[-1]["id"], "nome": faturas[-1]["nome"]} if faturas else None, None)
+    # Rodada 3 da PR #179 (decisao do Leo, 15/10/2026): sem espelho vigente com as notas esperadas e sem FRC gerada,
+    # a dashboard nao gera a FRC e a feita a' mao nao vale: o anexo e o envio ficam bloqueados (SEM_ESPELHO).
+    doc, recusa = (None, SEM_ESPELHO) if vig is None and not itens else \
+        _escolher_assinada(_faturas(conn, medicao_id), vig, bool(frc and frc["desatualizada"]))
     return {"disponivel": True, "consorcio": ent["nome"], "motivo": None, "itens": itens,
             "nao_lidas": ck["nao_lidas"], "sobras": ck["sobras"],
             "completa": bool(itens) and all(i["situacao"] == "anexada" for i in itens),
             "bloqueio": bloqueio, "ultima": ult, "sugerido": vig["numero"] if vig else ult + 1, "frc": frc,
             "assinada": doc is not None, "assinada_documento": doc, "assinada_recusa": recusa,
-            "assinada_controla": controla}
+            "assinada_controla": True}
 
 
 # --- FRC assinada (issue #169) --------------------------------------------------------------------------------
 # A assinada (documento `fatura`) guarda a linha de `frcs` vigente quando foi anexada (migracao 038) e so' vale para
 # o envio enquanto essa linha for a vigente e nao estiver desatualizada: a assinada de uma FRC substituida (notas
 # trocadas, FRC gerada de novo) nao sai ao orgao com os valores velhos.
+
+# Rodada 3 da PR #179 (decisao do Leo, 15/10/2026): FRC feita a' mao so' valeria em contrato marcado "sem formulario",
+# e essa marca nao existe no cadastro; entao obra de consorcio sem a FRC no cadastro, ou medicao sem espelho vigente,
+# bloqueia o anexo da assinada e o envio.
+SEM_CADASTRO = ("A FRC deste consórcio não está no cadastro: a FRC feita à mão não vale para o envio, que fica "
+                "bloqueado até o formulário da FRC entrar no cadastro")
+SEM_ESPELHO = ("A medição não tem espelho vigente com as notas esperadas: sem ele a dashboard não gera a FRC e a FRC "
+               "feita à mão não vale para o envio; gere o espelho e depois a FRC na etapa 3 (Nota fiscal)")
+CORROMPIDO = ("O PDF da FRC assinada está inválido ou corrompido: baixe de novo do DocuSign o PDF assinado e anexe "
+              "aqui")
 
 DESATUALIZADA = "As notas mudaram depois desta FRC: gere de novo na etapa 3 (Nota fiscal) antes de baixar"
 
@@ -273,12 +282,15 @@ def _escolher_assinada(docs: list[dict], vig: dict | None, desatualizada: bool) 
 
 
 def assinada(conn, medicao_id: int) -> dict:
-    """A FRC assinada que vai no envio. `controla`: o consorcio tem FRC gerada pela dashboard e so' vale a assinada
-    da FRC vigente (`recusa` diz por que a anexada nao vale). Consorcio sem FRC pela dashboard: a ultima anexada."""
+    """A FRC assinada que vai no envio. `controla`: obra de consorcio, so' vale a assinada da FRC vigente (`recusa`
+    diz por que a anexada nao vale, ou por que nenhuma vale: sem espelho, sem a FRC no cadastro). Obra propria: a
+    ultima anexada, como antes."""
     s = situacao(conn, medicao_id)
     if s["disponivel"]:
         return {"controla": s["assinada_controla"], "documento": s["assinada_documento"],
                 "recusa": s["assinada_recusa"], "frc": s["frc"]}
+    if s["consorcio"] is not None:                     # consorcio sem a FRC no cadastro (rodada 3 da PR #179)
+        return {"controla": True, "documento": None, "recusa": SEM_CADASTRO, "frc": None}
     docs = _faturas(conn, medicao_id)
     return {"controla": False, "documento": {"id": docs[-1]["id"], "nome": docs[-1]["nome"]} if docs else None,
             "recusa": None, "frc": None}
@@ -288,31 +300,64 @@ SEM_TEXTO = ("O PDF da FRC assinada não tem texto para conferir com a FRC gerad
              "não uma digitalização")
 
 
-def para_assinar(conn, medicao_id: int, pdf: bytes) -> int | None:
-    """A FRC (frcs.id) que o PDF assinado assina. Sem FRC gerada, ou desatualizada, recusa: nao ha' o que assinar.
-    Revisor adversarial na PR #179: a FRC gerada de novo pode manter o numero, entao o PDF tem que trazer, no TEXTO,
-    o numero, o total bruto, o total liquido e o numero de cada nota da FRC vigente; a assinada da versao anterior
-    (outra nota, outro valor) e' recusada. Consorcio sem FRC pela dashboard: None (entra sem vinculo, como antes)."""
+def de_consorcio(conn, medicao_id: int) -> bool:
+    return _contexto(conn, medicao_id)[1] is not None
+
+
+def ler_assinada(pdf: bytes) -> dict:
+    """O texto do PDF assinado, lido FORA da transacao (a leitura roda num subprocesso e leva ate' segundos; dentro do
+    BEGIN IMMEDIATE seguraria os outros escritores). A falha fica guardada e sobe em `para_assinar`: a de leitura
+    (leitor ocupado, tempo estourado) com a frase dela, que manda tentar de novo; PDF corrompido com CORROMPIDO
+    (rodada 3 da PR #179: nada de "PDF inválido (PdfReadError): ..." na tela)."""
+    try:
+        return {"texto": leitura_pdf.texto_de_pdf_com_limite(pdf), "erro": None}
+    except leitura_pdf.TextoInadequado as e:
+        return {"texto": None, "erro": e}
+    except ValueError:
+        return {"texto": None, "erro": ValueError(CORROMPIDO)}
+
+
+def _no_texto(texto: str, esperado: str) -> bool:
+    """`esperado` como palavra inteira no texto, aceitando espaco ou quebra de linha DENTRO dele (o DocuSign quebra
+    numero e valor na coluna estreita: "10.000.\n000,07"). Palavra inteira: antes e depois nao pode vir letra, digito,
+    ponto, virgula, barra ou hifen; a nota 3456 nao passa por estar dentro da inscricao 123456 (rodada 3 da PR #179)."""
+    padrao = r"\s*".join(re.escape(ch) for ch in esperado)
+    return re.search(rf"(?<![\w.,/-]){padrao}(?![\w.,/-])", texto) is not None
+
+
+def para_assinar(conn, medicao_id: int, lida: dict | None) -> int | None:
+    """A FRC (frcs.id) que o PDF assinado assina; `lida` e' o `ler_assinada` do PDF (None em obra propria). Chamada
+    DENTRO da transacao do anexo (rodada 3 da PR #179): a FRC gerada de novo ou desatualizada entre a conferencia e o
+    INSERT nao deixa o anexo ligado a' versao velha. Sem FRC gerada, desatualizada, sem espelho ou sem a FRC no
+    cadastro, recusa. Revisor adversarial na PR #179: a FRC gerada de novo pode manter o numero, entao o PDF tem que
+    trazer, no TEXTO, o numero, o total bruto, o total liquido e o numero de cada nota da FRC vigente; a assinada da
+    versao anterior (outra nota, outro valor) e' recusada. Obra propria: None (entra sem vinculo, como antes)."""
     s = situacao(conn, medicao_id)
-    if not s["disponivel"] or not s["assinada_controla"]:
+    if s["consorcio"] is None:
         return None
+    if not s["disponivel"]:
+        raise ValueError(SEM_CADASTRO)
     if s["frc"] is None:
+        if s["assinada_recusa"] == SEM_ESPELHO:
+            raise ValueError(SEM_ESPELHO)
         raise ValueError("Gere a FRC na etapa 3 (Nota fiscal) antes de anexar a assinada")
     n = s["frc"]["numero"]
     if s["frc"]["desatualizada"]:
         raise ValueError(f"As notas mudaram depois da FRC nº {n}: gere de novo na etapa 3 (Nota fiscal), assine no "
                          "DocuSign e anexe a nova")
     vig = _vigente(conn, medicao_id)
-    # Falha de leitura (leitor ocupado, tempo estourado, PDF invalido) sobe com a frase dela, que manda tentar de novo;
-    # SEM_TEXTO so' quando o PDF foi lido e nao tem texto (revisor adversarial na PR #179, rodada 2).
-    palavras = set(leitura_pdf.texto_de_pdf_com_limite(pdf).split())
-    if not palavras:
+    # Falha de leitura sobe com a frase dela; SEM_TEXTO so' quando o PDF foi lido e nao tem texto (revisor adversarial
+    # na PR #179, rodada 2).
+    if lida is None:
+        raise ValueError("Leia o PDF da FRC assinada antes de conferir")       # defesa: chamador sem ler_assinada
+    if lida["erro"] is not None:
+        raise lida["erro"]
+    texto = lida["texto"]
+    if not texto.strip():
         raise ValueError(SEM_TEXTO)
-    # Cada numero e valor como palavra inteira (as quebras de linha do DocuSign viram espaco): a nota 3456 nao passa
-    # por estar dentro da inscricao 123456 da versao anterior.
     esperados = [f"{n:05d}", _br(vig["bruto_centavos"]), _br(vig["liquido_centavos"]),
                  *(str(x["numero"]) for x in json.loads(vig["notas"]))]
-    if any(e not in palavras for e in esperados):
+    if not all(_no_texto(texto, e) for e in esperados):
         raise ValueError(f"Este PDF não é a FRC nº {n} vigente (número, notas ou valores não batem): baixe a FRC "
                          "gerada, assine no DocuSign e anexe a assinada dela")
     return vig["id"]
