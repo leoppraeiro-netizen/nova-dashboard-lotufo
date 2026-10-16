@@ -60,4 +60,4 @@ gh issue comment <N> --body "PR #$M aberta"
 
 Responder na sessão com o link da PR e as linhas de "Como testar no navegador". Não mergear nem ligar o
 auto-merge aqui: numa sessão manual o merge é do Leo; numa trabalhadora, quem liga o auto-merge é a
-orquestradora, depois dos gates dela (skill `orquestrar`).
+orquestradora, depois dos gates dela (skill `orquestrar`), em qualquer PR aprovada.

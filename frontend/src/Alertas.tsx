@@ -107,9 +107,9 @@ export function contagem(itens: Aviso[]): string {
 
 // `verTodos`: onde o resto mora (a tela de Avisos, filtrada); sem ele, o resto abre no lugar.
 export default function Alertas({ itens, ir, titulo = "Avisos", limite = LIMITE, id = "titulo-alertas",
-                                  vazio = "Nenhum aviso. Tudo em dia.", verTodos }:
+                                  vazio = "Nenhum aviso. Tudo em dia.", verTodos, lateral = false }:
     { itens: Aviso[] | null | undefined; ir: Ir; titulo?: string; limite?: number; id?: string; vazio?: string;
-      verTodos?: { para: Rota; busca?: Busca; rotulo: string } }) {
+      verTodos?: { para: Rota; busca?: Busca; rotulo: string }; lateral?: boolean }) {
   const [todos, setTodos] = useState(false);
   // A ordem e' a de quem chama: a do servidor (nivel, dias, obra; `avisos.listar`) ou `porAtraso`.
   const lista = itens ?? [];
@@ -141,7 +141,7 @@ export default function Alertas({ itens, ir, titulo = "Avisos", limite = LIMITE,
           <p className="vazio__titulo">{vazio}</p>
         </div>
       ) : (
-        <ul className="alertas">
+        <ul className={lateral ? "alertas alertas--lateral" : "alertas"}>
           {visiveis.map((a, i) => {
             const selo = SELO[a.nivel] ?? SELO.atencao;
             const destino = destinoDoAviso(a);

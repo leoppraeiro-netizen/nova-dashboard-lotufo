@@ -271,11 +271,19 @@ export function irHref(href: string) {
   ir(parseRota(u.pathname), { busca: Object.fromEntries(u.searchParams), secao: u.hash.replace(/^#/, "") || undefined });
 }
 
-/** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). */
-export function substituir(destino: Rota, opcoes: { semBusca?: boolean } = {}) {
+/** Troca a tela no lugar, mantendo filtros, secao e origem (redirect de rota antiga, raiz -> entrada). Com `busca`,
+ *  os filtros passam a ser esses (a rota antiga que muda de dono, como Avisos dentro de Obras). */
+export function substituir(destino: Rota, busca?: Busca) {
+  const q = busca ? new URLSearchParams(busca).toString() : window.location.search.replace(/^\?/, "");
   window.history.replaceState(window.history.state, "",
-    opcoes.semBusca ? caminhoDe(destino) : `${caminhoDe(destino)}${window.location.search}${window.location.hash}`);
+    `${caminhoDe(destino)}${q ? `?${q}` : ""}${window.location.hash}`);
   avisar();
+}
+
+/** Os filtros com que a rota antiga /avisos abre no lugar novo: os Avisos dentro de Obras, de todas as obras, com os
+ *  filtros que o link tinha (?familia= ?nivel= ?obra= ?agrupar=). */
+export function buscaDosAvisosEmObras(busca: Busca): Busca {
+  return { c: "todas", avisos: "1", ...busca };
 }
 
 /** Muda filtros da tela no lugar: `null` ou "" tira o filtro da URL. */
