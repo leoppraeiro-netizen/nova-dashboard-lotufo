@@ -630,7 +630,10 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
                         protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
             auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
                                 {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel,
-                                 **({"confirmadas": faltam} if faltam else {})})
+                                 # revisor adversarial da PR #237: o registro do protocolo da medicao so' grava a
+                                 # justificativa com certidao pendente; a ressalva "<observacao>; <lista>" fica aqui
+                                 **({"confirmadas": faltam, "ressalva": f"{obs}; {protocolo.CONFIRMADO_COM_FALTA}"
+                                     + "; ".join(faltam)} if faltam else {})})
         except BaseException:
             # gate Sol S1 (PR #199): ainda sob o lock de escrita, antes do ROLLBACK. O arquivo que ESTE registro criou
             # ninguem mais cita (so' este caminho grava .eml em evidencias, sempre sob o lock): sai sem consultar o

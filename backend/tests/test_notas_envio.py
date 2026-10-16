@@ -921,6 +921,21 @@ def test_registro_por_fora_confirmado_grava_a_lista_e_junta_observacao_e_lista(a
     assert depois["confirmadas"] == lista and depois["observacao"] == "Pelo Outlook, ao fiscal do contrato"
 
 
+def test_ressalva_do_registro_confirmado_fica_gravada_mesmo_com_certidoes_em_dia(api):
+    """Revisor adversarial da PR #237: so' a nota falta e as certidoes estao em dia; o registro do protocolo da medicao
+    nao grava a justificativa nesse caso (o checklist nao acha pendencia), entao a ressalva "<observacao>; <lista>"
+    tem de ficar na auditoria do registro por fora."""
+    cl, c, ids = api
+    mid = ids["mtpar_exec"]
+    _sem_nota(c, mid)
+    lista = _fora(cl, mid).json()["detail"]["pendencias"]
+    assert lista and all("vencida" not in x for x in lista)
+    assert _fora(cl, mid, confirmadas=lista).status_code == 200
+    depois = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert depois["ressalva"] == ("Pelo Outlook, ao fiscal do contrato; " + protocolo.CONFIRMADO_COM_FALTA
+                                  + "; ".join(lista))
+
+
 def test_registro_por_fora_sem_nada_faltando_nao_pede_nem_grava_confirmacao(api, monkeypatch):
     cl, c, ids = api
     original, recebidas = medicoes.registrar_protocolo, []
