@@ -53,17 +53,25 @@ próprio servidor. O resto do deploy (`scripts\deploy.ps1`, rollback automático
    e escolhe `-SemFrontend` se nada em `frontend/` mudou.
 4. **Segunda chamada, o deploy**: criar o sentinela do watchdog (`New-Item -ItemType File -Path C:\DashboardLotufo\watchdog.pause -Force | Out-Null`),
    `& .\scripts\deploy.ps1` (ou com `-SemFrontend`), **sem redirecionar stderr** dentro do PowerShell, e ler a linha final:
-   `DEPLOY OK`, `ROLLBACK OK`, `ROLLBACK TAMBEM FALHOU` ou `BACKUP PRE-MIGRACAO FALHOU` seguido de `deploy abortado antes do
-   checkout` (nada mudou na produção).
+   `DEPLOY OK`, `ROLLBACK OK`, `ROLLBACK TAMBEM FALHOU`, `BACKUP PRE-MIGRACAO FALHOU` seguido de `deploy abortado antes do
+   checkout` (nada mudou na produção), `deploy abortado no build; producao segue no commit anterior ...` (a produção segue no
+   commit anterior) ou `deploy abortado no build E a volta para ... falhou ... - intervir a mao`. Nos dois casos de
+   "intervir a mao" (`ROLLBACK TAMBEM FALHOU` e este último), **não apagar o sentinela** antes de o diretório pinado voltar ao
+   commit anterior.
 5. **Terceira chamada, conferência**: `Invoke-WebRequest http://localhost/api/health -UseBasicParsing` (200 com `banco: ok`),
    `git -C C:\DashboardLotufo\app rev-parse --short HEAD` igual ao `origin/master`, e apagar o sentinela
    (`Remove-Item C:\DashboardLotufo\watchdog.pause -Force -ErrorAction SilentlyContinue`; `Test-Path` deve dar `False`).
    Apagar o sentinela também quando o deploy der `ROLLBACK` ou `BACKUP PRE-MIGRACAO FALHOU`.
 6. **Se a chamada do deploy cair** (conexão SSH perdida, timeout da ferramenta) **ou não trouxer a linha final**: o PowerShell
-   remoto pode ter morrido sem rodar o `finally` do `deploy.ps1`, deixando o sentinela e o watchdog pausado. Reconectar e conferir
-   `Test-Path C:\DashboardLotufo\watchdog.pause`, `/api/health` e o `rev-parse` do diretório pinado; ler
-   `C:\DashboardLotufo\logs\dashboard.log`; só então apagar o sentinela. Para evitar o problema, o deploy pode rodar
-   desacoplado (`Start-Process powershell` com a saída num arquivo de log) e o log ser lido depois, em outra chamada.
+   remoto pode ter morrido sem rodar o `finally` do `deploy.ps1`, deixando o sentinela e o watchdog pausado. **`/api/health` 200 e
+   `rev-parse` igual ao `origin/master` não provam deploy concluído**: se a queda foi no `npm run build`, o pinado já está no
+   commit novo com o `dist` pela metade e o processo antigo segue no ar (o health só olha o banco). E `DEPLOY OK`/`ROLLBACK`
+   saem na tela, não em `logs\dashboard.log`, que portanto não serve de prova. O que fazer: reconectar, conferir
+   `Test-Path C:\DashboardLotufo\watchdog.pause`, manter (ou recriar) o sentinela e **rodar de novo `& .\scripts\deploy.ps1`**
+   (repetível: checkout, build, reinício, conferência e rollback), até vir a linha final; só então a chamada 3 e apagar o sentinela.
+   Um caminho desacoplado seria uma tarefa agendada avulsa (`Register-ScheduledTask` como SYSTEM, disparada e removida depois),
+   porque o OpenSSH do Windows provavelmente mata os processos da sessão ao fechá-la e `Start-Process` não escapa disso.
+   **Não testado.**
 
 ## Saúde
 `GET /api/health` toca o banco (503 se não responder) e devolve a última rodada de backup: `ultimo_snapshot`, `ultimo_snapshot_erro`, `ultima_copia_arquivos`, `ultima_copia_arquivos_erro`, `ultima_copia_externa`, `ultima_copia_externa_erro`, `ultima_copia_externa_arquivos`, `ultima_copia_externa_arquivos_erro`. Cópia externa com data de ontem ou erro preenchido = olhar o log.
