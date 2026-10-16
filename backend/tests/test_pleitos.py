@@ -122,3 +122,30 @@ def test_falha_do_graph_nao_muda_o_pleito(cenario, monkeypatch):
                        justificativa="teste de falha do Graph")
     assert pleitos.detalhe(c, pid)["situacao"] == "montado"
     assert c.execute("SELECT COUNT(*) FROM envios").fetchone()[0] == 0
+
+
+def test_pleito_de_reajuste_exige_as_pecas_do_orgao(cenario):
+    """Issue #50: o apostilamento de reajuste da Prefeitura de Cuiaba pede falencia, contrato social, documento do
+    representante e balanco; o orgao declara isso no cadastro (`pecas_pleito_reajuste`) e o pleito cobra as quatro."""
+    c, ids = cenario
+    c.execute("UPDATE orgaos SET regras=json_set(regras, '$.pecas_pleito_reajuste', json(?))",
+              ('["falencia", "contrato_social", "documento_representante", "balanco"]',)); c.commit()
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "reajuste", "122")
+    p = pleitos.detalhe(c, pid)
+    assert [x["tipo"] for x in p["exigidos"]] == ["planilha_calculo", "cronograma", "falencia", "contrato_social",
+                                                 "documento_representante", "balanco"]
+    faltam = [x["mensagem"] for x in p["pendencias"] if x["codigo"] == "anexo"]
+    for rotulo in ("Certidão de falência", "Contrato social", "Documento do representante legal",
+                   "Balanço patrimonial"):
+        assert f"{rotulo}: não anexado" in faltam
+    pleitos.adicionar_anexo(c, ids["uid"], pid, "falencia", "falencia.pdf", b"%PDF-1.4 falencia", "pdf")
+    faltam = [x["mensagem"] for x in pleitos.detalhe(c, pid)["pendencias"] if x["codigo"] == "anexo"]
+    assert "Certidão de falência: não anexado" not in faltam and len(faltam) == 5
+
+
+def test_pecas_do_orgao_so_valem_no_pleito_de_reajuste(cenario):
+    c, ids = cenario
+    c.execute("UPDATE orgaos SET regras=json_set(regras, '$.pecas_pleito_reajuste', json(?))",
+              ('["falencia"]',)); c.commit()
+    pid = pleitos.criar(c, ids["uid"], ids["contrato"], "prazo", "310", dias=60, justificativa="Interferências na via")
+    assert [x["tipo"] for x in pleitos.detalhe(c, pid)["exigidos"]] == ["cronograma"]

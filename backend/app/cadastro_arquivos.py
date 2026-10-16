@@ -37,6 +37,8 @@ TIPOS_CONTRATANTE = ("PÚBLICO", "PRIVADO")
 # Bloco 7: marcos do encerramento (aba Prazos) e tipos de pleito enviados antes do sistema.
 MARCOS = ("conclusao", "provisorio", "definitivo", "baixa_garantia")
 TIPOS_PLEITO = ("reajuste", "prazo", "conclusao")
+# Pecas que o orgao pode pedir no pleito de reajuste (mesma lista de `pleitos.PECAS_ORGAO`).
+PECAS_PLEITO = ("falencia", "contrato_social", "documento_representante", "balanco")
 _CICLO = re.compile(r"^([0-9]{4})(-[0-9]{2})?$")
 
 
@@ -80,6 +82,10 @@ def _protocolo_do_orgao(o: dict, onde: str, erros: list[str]) -> None:
         if nat is not None and (not isinstance(nat, list) or not nat
                                 or any(x not in ("execucao", "reajuste", "projeto") for x in nat)):
             erros.append(f"{onde}: pecas[{i}].naturezas: use uma lista de execucao, reajuste, projeto")
+    # Bloco 7 (issue #50): pecas que o pleito de reajuste leva alem da memoria de calculo e do cronograma.
+    pp = o.get("pecas_pleito_reajuste")
+    if pp is not None and (not isinstance(pp, list) or any(x not in PECAS_PLEITO for x in pp) or len(set(pp)) != len(pp)):
+        erros.append(f"{onde}: pecas_pleito_reajuste: use uma lista, sem repetição, de {', '.join(PECAS_PLEITO)}")
     ordem = o.get("ordem_certidoes")
     if ordem is not None and (not isinstance(ordem, list) or any(x not in DOCUMENTOS[:6] for x in ordem)):
         erros.append(f"{onde}: ordem_certidoes: use uma lista de {DOCUMENTOS[:6]}")

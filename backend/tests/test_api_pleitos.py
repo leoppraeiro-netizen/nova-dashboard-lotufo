@@ -56,6 +56,18 @@ def test_pleito_de_reajuste_pela_api(api):
     assert ciclo["situacao"] == "apostilamento_pendente"
 
 
+def test_pecas_do_orgao_entram_como_anexo_pela_api(api):
+    """Issue #50: a API aceita as pecas que o orgao pede no pleito de reajuste (falencia, contrato social, ...)."""
+    cl, cid, _ = api
+    pid = cl.post(f"/api/contratos/{cid}/pleitos", json={"tipo": "reajuste", "numero_oficio": "122"}).json()["id"]
+    for tipo in ("falencia", "contrato_social", "documento_representante", "balanco"):
+        r = cl.post(f"/api/pleitos/{pid}/anexos", data={"tipo": tipo},
+                    files=_arquivo(f"{tipo}.pdf", b"%PDF-1.4 " + tipo.encode(), "application/pdf"))
+        assert r.status_code < 300, r.text
+    assert cl.post(f"/api/pleitos/{pid}/anexos", data={"tipo": "inventado"},
+                   files=_arquivo("x.pdf", b"%PDF-1.4 x", "application/pdf")).status_code == 422
+
+
 def test_medicao_final_pela_api_poe_o_contrato_em_encerramento(api):
     cl, cid, mid = api
     assert cl.post(f"/api/medicoes/{mid}/final", json={"data": "2026-09-10"}).json()["final"] == 1
