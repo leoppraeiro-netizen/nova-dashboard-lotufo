@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Sobe o master do GitHub para a produção neste servidor, seguindo docs/runbook.md seção "Subir e derrubar" - sentinela do watchdog, scripts\deploy.ps1 com rollback automático, conferência do /api/health e registro do commit. Usar quando o Leo pedir "deploy", "sobe para produção" ou "põe no ar", depois de a PR estar mergeada.
+description: Sobe o master do GitHub para a produção (no próprio servidor ou do Mac por SSH), seguindo docs/runbook.md seção "Subir e derrubar" - sentinela do watchdog, scripts\deploy.ps1 com rollback automático, conferência do /api/health e registro do commit. Usar quando o Leo pedir "deploy", "sobe para produção" ou "põe no ar", depois de a PR estar mergeada.
 ---
 
 # Deploy em produção
@@ -25,6 +25,21 @@ detached HEAD) e não do tree de desenvolvimento. `scripts\deploy.ps1` atualiza 
 4. **Sessão elevada** (o script para e inicia a tarefa agendada):
    `([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)`
    → `True`. Se `False`, pedir ao Leo para rodar o deploy num PowerShell aberto como administrador.
+
+## Dois caminhos: local elevado ou SSH
+
+- **Local elevado**: a sessão roda no próprio servidor, num PowerShell como administrador. As pré-condições 3 e 4
+  se conferem direto ali; os comandos abaixo valem como estão.
+- **SSH, a partir do Mac**: runbook, subseção "Deploy a partir do Mac (SSH)". Entrar com `ssh <servidor>` na conta
+  local administradora de deploy (a conta Azure AD não serve); a sessão já vem elevada. Mandar os comandos como
+  **script pelo stdin** (`ssh <servidor> 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' < script.ps1`),
+  nunca inline (aspas e `&` quebram no PowerShell 5.1). As pré-condições 3 e 4 se conferem no começo do próprio
+  script: `Set-Location` na pasta principal, `git pull --ff-only`, `git rev-parse master origin/master` iguais e o
+  `IsInRole(...Administrator)` acima dando `True` (senão o script para). As pré-condições 1 e 2 (`gh`) rodam no Mac.
+  Os trechos "Antes de rodar" e "Rodar" entram no script na mesma ordem; a conferência de saúde e o sentinela do
+  fim podem ir numa segunda chamada pelo mesmo caminho.
+- Nos dois: nome de máquina, usuário e IP não entram em texto, commit nem registro (repositório público); usar
+  `<servidor>` e "conta de deploy".
 
 ## Antes de rodar: o que vai subir
 

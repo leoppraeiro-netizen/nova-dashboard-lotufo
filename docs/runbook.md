@@ -33,6 +33,26 @@ Uma vez só, como administrador, com o servidor de dev e qualquer uvicorn parado
 - Autostart: `scripts\instalar_autostart.ps1 [-AppDir C:\DashboardLotufo\app] [-SemTls] [-Raiz ...] [-BackupExterno ...] [-RmUrl ... -RmUsuario ... -RmSenhaArquivo ... -RmHttpInseguro]` (sem os parâmetros do RM a tarefa sobe com o RM desligado; ver "TOTVS RM") registra a tarefa agendada apontando para o `rodar_producao.ps1` do diretório PINADO `-AppDir` (SYSTEM, no boot, reinício automático 3× a 1 min). Parar: `Stop-ScheduledTask -TaskName <tarefa>`; iniciar: `Start-ScheduledTask -TaskName <tarefa>`.
 - Watchdog: `scripts\instalar_watchdog.ps1` registra a tarefa do watchdog (SYSTEM, a cada 3 min) que roda `scripts\watchdog.ps1` — confere `/api/health` e, se cair, reinicia a tarefa principal (o reinício automático embutido da tarefa não cobriu a queda de 2026-09-10: timeout, não "falha"). **Antes de qualquer parada/deploy manual, crie o sentinela `C:\DashboardLotufo\watchdog.pause` para o watchdog não reerguer no meio; apague ao terminar.** Log: `C:\DashboardLotufo\logs\watchdog.log`. Remover: `Unregister-ScheduledTask -TaskName <tarefa-do-watchdog> -Confirm:$false`.
 
+### Deploy a partir do Mac (SSH)
+
+Caminho usado em 15/10/2026 (produção 109c887 para 8954dca, health 200). Vale quando não há sessão PowerShell elevada no
+próprio servidor. O resto do deploy (`scripts\deploy.ps1`, rollback automático, backup pré-migração) é o descrito acima.
+
+1. **Conta.** `ssh <servidor>` com a conta local administradora de deploy: a sessão já chega elevada. A conta Azure AD
+   não serve ao OpenSSH do Windows.
+2. **Comandos como script pelo stdin**, nunca inline: `ssh <servidor> 'powershell -NoProfile -ExecutionPolicy Bypass -Command -' < deploy.ps1`
+   (aspas e `&` inline quebram no PowerShell 5.1). O `deploy.ps1` desse comando é um arquivo temporário no Mac, fora do repositório.
+3. **Conteúdo do script**, nesta ordem:
+   - `Set-Location` na pasta principal do projeto no servidor e `git pull --ff-only`;
+   - conferir administrador (`IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)` deve dar `True`; senão, parar);
+   - criar o sentinela do watchdog: `New-Item -ItemType File -Path C:\DashboardLotufo\watchdog.pause -Force | Out-Null`;
+   - `& .\scripts\deploy.ps1` (ou com `-SemFrontend`), **sem redirecionar stderr** dentro do PowerShell;
+   - ler a linha final: `DEPLOY OK`, `ROLLBACK OK` ou `ROLLBACK TAMBEM FALHOU`.
+4. **Depois**, numa segunda chamada pelo mesmo caminho: `Invoke-WebRequest http://localhost/api/health -UseBasicParsing`
+   (200 com `banco: ok`), `git -C C:\DashboardLotufo\app rev-parse --short HEAD` igual ao `origin/master`, e apagar o
+   sentinela (`Remove-Item C:\DashboardLotufo\watchdog.pause -Force -ErrorAction SilentlyContinue`; `Test-Path` deve dar `False`).
+   Apagar o sentinela também quando o deploy der `ROLLBACK`.
+
 ## Saúde
 `GET /api/health` toca o banco (503 se não responder) e devolve a última rodada de backup: `ultimo_snapshot`, `ultimo_snapshot_erro`, `ultima_copia_arquivos`, `ultima_copia_arquivos_erro`, `ultima_copia_externa`, `ultima_copia_externa_erro`, `ultima_copia_externa_arquivos`, `ultima_copia_externa_arquivos_erro`. Cópia externa com data de ontem ou erro preenchido = olhar o log.
 
