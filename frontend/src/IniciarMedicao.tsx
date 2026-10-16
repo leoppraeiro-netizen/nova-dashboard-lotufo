@@ -129,7 +129,7 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
         <div className="iniciar__aviso iniciar__aviso--info" role="status"><Icone d="M12 11v5M12 8h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
           <span>{o.obra} tem a {serie.prevista_numero}ª{de} prevista pelo cronograma ({fmtCompetencia(serie.prevista_competencia)}). O processo começa por ela, sem criar outra medição.</span></div>
         <div className="iniciar__campos">
-          <label className="iniciar__campo"><span>Nº da medição</span><input value={serie.prevista_numero ?? ""} readOnly /></label>
+          <label className="iniciar__campo"><span>Nº da medição</span><input name="iniciar-numero-prevista" autoComplete="off" spellCheck={false} value={serie.prevista_numero ?? ""} readOnly /></label>
           <label className="iniciar__campo"><span>Competência</span><input value={porExtenso(serie.prevista_competencia)} readOnly /></label>
         </div>
         <div className="iniciar__botoes">{cancelar}
@@ -144,7 +144,7 @@ export default function IniciarMedicao({ obras, aoFechar }: { obras: ObraResumo[
         : <>Esta obra ainda não tem medição{de} lançada. Informe o número e a competência.</>}</p>
       <div className="iniciar__campos">
         <label className="iniciar__campo" htmlFor="iniciar-numero"><span>Nº da medição{de}</span>
-          <input id="iniciar-numero" inputMode="numeric" autoComplete="off" value={numero}
+          <input id="iniciar-numero" name="iniciar-numero" inputMode="numeric" autoComplete="off" spellCheck={false} value={numero}
             onChange={ev => setNumero(ev.target.value.replace(/\D/g, "").slice(0, 3))} /></label>
         <div className="iniciar__campo"><label htmlFor="iniciar-competencia"><span>Competência</span></label>
           <CampoCompetencia id="iniciar-competencia" value={competencia} onChange={setCompetencia} /></div>
