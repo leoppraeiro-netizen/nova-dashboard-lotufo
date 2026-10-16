@@ -192,6 +192,19 @@ def test_emails_faturamento_da_entidade_normalizados(tmp_path):
     assert cad["geral"] is None and cad["espelho"] == []
 
 
+def test_copia_extras_do_contrato_normalizada_e_validada(tmp_path):
+    cad = ca.preparar(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": [" Eng.Obra@Lotufo.com ", "eng.obra@lotufo.com"]}]))
+    assert cad["contratos"][0]["copia_extras"] == ["eng.obra@lotufo.com"]
+    assert ca.preparar(_escrever(tmp_path))["contratos"][0]["copia_extras"] == []
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": "eng@lotufo.com"}]))
+    assert any("copia_extras" in e and "lista" in e for e in erros)
+    for vazio_errado in ("", False, {}):
+        erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": vazio_errado}]))
+        assert any("copia_extras" in e and "lista" in e for e in erros)
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "copia_extras": ["eng@lotufo"]}]))
+    assert any("copia_extras" in e and "inválido" in e for e in erros)
+
+
 def test_orgao_com_cnpj_valido_normaliza_e_invalido_e_erro(tmp_path):
     cad = ca.preparar(_escrever(tmp_path, orgaos=[{**ORGAO, "cnpj": "31.300.101/0001-01"}]))
     assert cad["orgaos"][0]["cnpj"] == "31300101000101"
@@ -264,6 +277,18 @@ def test_pecas_ordem_e_destinatario_da_carta_no_orgao(tmp_path):
     erros = _erros(_escrever(tmp_path / "b", orgaos=[ruim]))
     for campo in ("carta_destinatario", "ordem_certidoes", "pecas[0].tipo", "pecas[1].naturezas"):
         assert any(campo in e for e in erros), campo
+
+
+def test_pecas_do_pleito_de_reajuste_no_orgao(tmp_path):
+    """Issue #50: o orgao lista as pecas que o pleito de reajuste leva alem da memoria de calculo e do cronograma."""
+    ok = {**ORGAO, "pecas_pleito_reajuste": ["falencia", "contrato_social", "documento_representante", "balanco"]}
+    regras = ca.preparar(_escrever(tmp_path / "a", orgaos=[ok]))["orgaos"][0]["regras"]
+    assert regras["pecas_pleito_reajuste"] == ["falencia", "contrato_social", "documento_representante", "balanco"]
+    for ruim in (["falencia", "falencia"], ["certidao-inventada"], "balanco"):
+        erros = _erros(_escrever(tmp_path / "b", orgaos=[{**ORGAO, "pecas_pleito_reajuste": ruim}]))
+        assert any("pecas_pleito_reajuste" in e for e in erros), ruim
+    from app import pleitos
+    assert ca.PECAS_PLEITO == pleitos.PECAS_ORGAO        # copia de proposito: o cadastro nao importa o envio
 
 
 def test_cno_inexistente_e_tratamento_invalido_sao_erro(tmp_path):
@@ -358,3 +383,62 @@ def test_cobranca_de_certidoes_no_geral(tmp_path):
         "para": [], "enviada_por": ["nao-e-email"]}}), "utf-8")
     erros = "\n".join(_erros(raiz))
     assert "cobranca_certidoes.para" in erros and "cobranca_certidoes.enviada_por" in erros
+
+
+# --- issue #65: garantia com vigencia, ART com numero e PDF, endosso que traz a nova vigencia ----------
+
+def test_garantia_e_art_do_contrato_normalizadas(tmp_path):
+    raiz = tmp_path / "cad"
+    (raiz / "anexos").mkdir(parents=True)
+    (raiz / "anexos" / "art.pdf").write_bytes(b"%PDF-1.4 art")
+    (raiz / "anexos" / "gar.pdf").write_bytes(b"%PDF-1.4 gar")
+    c = {**CONTRATO, "art": {"numero": " 1234567 ", "arquivo": "anexos/art.pdf"},
+         "garantia": {"apolice": "AP-9", "vigencia_fim": "2027-03-31", "arquivo": "anexos/gar.pdf"},
+         "instrumentos": [*CONTRATO["instrumentos"], {"chave": "end-1", "tipo": "endosso_garantia",
+                                                      "data": "2026-09-01", "vigencia_fim": "2027-09-30", "apolice": "AP-9"}]}
+    got = ca.preparar(_escrever(raiz, contratos=[c]))["contratos"][0]
+    assert got["art"] == "1234567" and got["art_caminho"].endswith("art.pdf")
+    assert (got["garantia_apolice"], got["garantia_vigencia_fim"]) == ("AP-9", "2027-03-31")
+    assert got["garantia_caminho"].endswith("gar.pdf")
+    assert got["instrumentos"][1]["dados"]["vigencia_fim"] == "2027-09-30"
+
+
+def test_art_em_texto_continua_valendo(tmp_path):
+    got = ca.preparar(_escrever(tmp_path, contratos=[{**CONTRATO, "art": "98765"}]))["contratos"][0]
+    assert got["art"] == "98765" and got["art_caminho"] is None and got["garantia_vigencia_fim"] is None
+
+
+def test_garantia_sem_data_arquivo_inexistente_e_endosso_com_data_ruim_sao_erro(tmp_path):
+    c = {**CONTRATO, "garantia": {"apolice": "AP-9", "arquivo": "anexos/nao-existe.pdf"},
+         "instrumentos": [{"chave": "end-1", "tipo": "endosso_garantia", "data": "2026-09-01",
+                           "vigencia_fim": "amanha"}]}
+    erros = _erros(_escrever(tmp_path, contratos=[c]))
+    assert any("garantia.vigencia_fim" in e for e in erros)
+    assert any("garantia.arquivo" in e for e in erros)
+    assert any("end-1" in e and "vigencia_fim" in e for e in erros)
+
+
+def test_endosso_com_vigencia_sem_apolice_e_recusado(tmp_path):
+    c = {**CONTRATO, "instrumentos": [{"chave": "end-1", "tipo": "endosso_garantia", "data": "2026-09-01",
+                                       "vigencia_fim": "2027-09-30"}]}
+    erros = _erros(_escrever(tmp_path, contratos=[c]))
+    assert any("end-1" in e and "apolice" in e and "apólice" in e for e in erros)
+
+
+def _endosso(apolice):
+    return {"chave": "end-1", "tipo": "endosso_garantia", "data": "2026-09-01", "vigencia_fim": "2027-09-30",
+            "apolice": apolice}
+
+
+def test_endosso_com_vigencia_em_contrato_sem_apolice_e_erro(tmp_path):
+    erros = _erros(_escrever(tmp_path, contratos=[{**CONTRATO, "instrumentos": [_endosso("AP-1")]}]))
+    assert any("end-1" in e and "garantia.apolice" in e for e in erros)
+
+
+def test_endosso_de_outra_apolice_gera_aviso_nao_erro(tmp_path):
+    c = {**CONTRATO, "garantia": {"apolice": "AP-1", "vigencia_fim": "2027-03-31"},
+         "instrumentos": [_endosso("AP 1")]}
+    cad = ca.preparar(_escrever(tmp_path, contratos=[c]))
+    assert any("end-1" in a and "'AP 1'" in a and "diferente da apólice do contrato" in a for a in cad["avisos"])
+    c["instrumentos"] = [_endosso("AP-1")]
+    assert ca.preparar(_escrever(tmp_path, contratos=[c]))["avisos"] == []

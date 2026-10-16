@@ -2,6 +2,7 @@ import { useRascunho } from "./rascunho";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { api } from "./api";
+import EditorCorpo from "./EditorCorpo";
 import ErroCampo from "./ErroCampo";
 import { fmtTamanho as tamanho } from "./formato";
 
@@ -258,6 +259,7 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
   // issue #28: descartar o que a pessoa escreveu pede confirmacao; sem nada mudado desde que abriu, nao ha' o
   // que perder e fecha direto. Confirmado, o e-mail volta ao que abriu (quem esta' embutido nao fecha a janela).
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const [versaoCorpo, setVersaoCorpo] = useState(0);
   const mexido = JSON.stringify(m) !== JSON.stringify(inicial);
   const avisarMexido = useRef(aoMexer);
   useEffect(() => { avisarMexido.current = aoMexer; });
@@ -272,6 +274,7 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
     flushSync(() => {
       setConfirmarDescarte(false);
       setM(inicial); setComCco(inicial.cco.length > 0); setTentou(false);
+      setVersaoCorpo(v => v + 1);          // o editor do corpo nao e' controlado: remonta com o texto do inicio
     });
     aoDescartar();
   }
@@ -327,8 +330,7 @@ export default function ComporEmail({ inicial, anexos, ocupado, bloqueado, antes
         </ul>
       )}
       <div className="ol-corpo">
-        <textarea value={m.corpo} aria-label="Corpo da mensagem" rows={Math.max(6, m.corpo.split("\n").length + 1)}
-          onChange={e => setM({ ...m, corpo: e.target.value })} />
+        <EditorCorpo key={versaoCorpo} inicial={inicial.corpo} aoMudar={corpo => setM(x => ({ ...x, corpo }))} />
         <div className="ol-assinatura">
           {assinatura !== "nao" && (
             <img src={`/api/correio/assinatura?v=${versao}`} alt="Sua assinatura"

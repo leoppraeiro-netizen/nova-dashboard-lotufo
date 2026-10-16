@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import AbaAguardandoNota from "./AbaAguardandoNota";
 import { api, mensagemDeErro } from "./api";
+import AbaFaturamento from "./AbaFaturamento";
 import AbaSemMedicao from "./AbaSemMedicao";
 import AguardandoPagamento from "./AguardandoPagamento";
 import { brl, contar } from "./formato";
@@ -21,7 +23,7 @@ import "./medicoes.css";
 // /api/medicoes/resumo (`medicoes.resumo`); a tela so' desenha.
 //
 // As abas "Enviar nota" e "Aguardando pagamento" sao as telas de Notas que ja' existiam. "Sem medição aberta",
-// "Enviar ao faturamento" e "Aguardando nota" sao PROVISORIAS (a tabela do Resumo filtrada) ate' o desenho proprio.
+// "Enviar ao faturamento" sao PROVISORIAS (a tabela do Resumo filtrada) ate' o desenho proprio.
 
 /** A pilula da situacao (cores do prototipo, medicoes.css). */
 function Pilula({ s }: { s: SituacaoOuSem }) {
@@ -147,9 +149,8 @@ function Quadro({ id, titulo, legenda, linhas, sem, gruposAbertos, vazio }:
   );
 }
 
-const VAZIO: Record<Situacao, string> = {
+const VAZIO: Record<Exclude<Situacao, "aguardando-nota">, string> = {
   faturamento: "Nenhuma medição para enviar ao faturamento.",
-  "aguardando-nota": "Nenhuma medição aguardando a nota.",
   "enviar-nota": "Nenhuma nota a enviar.",
   "aguardando-pagamento": "Nenhuma medição aguardando pagamento.",
 };
@@ -223,6 +224,12 @@ export default function MedicoesPagina({ aba, busca, usuario }: { aba: AbaMedico
     conteudo = <Resumo dados={dados} podeIniciar={podeIniciar} aoIniciar={() => setIniciando(true)} />;
   } else if (aba === "sem-medicao") {
     conteudo = <AbaSemMedicao obras={dados.obras.filter(o => !o.aberta)} podeIniciar={podeIniciar} aoIniciar={() => setIniciando(true)} />;
+  } else if (aba === "faturamento") {
+    conteudo = <AbaFaturamento linhas={dados.linhas.filter(l => l.situacao === "faturamento")} podeIniciar={podeIniciar}
+      aoIniciar={() => setIniciando(true)} />;
+  } else if (aba === "aguardando-nota") {
+    conteudo = <AbaAguardandoNota linhas={dados.linhas.filter(l => l.situacao === aba)} podeIniciar={podeIniciar}
+      aoIniciar={() => setIniciando(true)} />;
   } else {
     const linhas = dados.linhas.filter(l => l.situacao === aba);
     conteudo = <Quadro id="medicoes-aba" titulo={rotuloSituacao(aba)} legenda={contar(linhas.length, "medição", "medições")}

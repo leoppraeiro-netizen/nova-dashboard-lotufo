@@ -95,15 +95,16 @@ def enviar(pid: ID, dados: EnviarIn, usuario: dict = Depends(exigir("editar_cada
 @router.post("/api/notas/envio-externo")
 def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(..., max_length=10),
                   observacao: str = Form(..., max_length=2000), eml: UploadFile | None = File(None),
+                  irma_ids: list[int] = Form(default=[]),       # issue #172: a irma marcada no formulario
                   usuario: dict = Depends(exigir("editar_cadastros")), conn: sqlite3.Connection = Depends(conexao)):
-    for mid in medicao_ids:
+    for mid in [*medicao_ids, *irma_ids]:
         _medicao_existe(conn, mid)
     arquivo = None
     if eml is not None and eml.filename:
         dados = eml.file.read(notas_envio.TETO_EML + 1)
         arquivo = (eml.filename, dados)
     try:
-        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo)
+        notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids)
     except ValueError as e:
         raise HTTPException(422, str(e)) from None
     return {"ok": True}

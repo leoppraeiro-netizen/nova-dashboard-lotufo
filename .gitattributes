@@ -4,5 +4,6 @@
 *.woff2 binary
 # Hooks de git sao scripts sh: com autocrlf=true sairiam com CRLF no checkout e o sh quebraria no \r.
 .githooks/* text eol=lf
+*.sh text eol=lf
 *.png binary
 *.jpg binary

@@ -1414,8 +1414,32 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
   -webkit-line-clamp: 2; line-clamp: 2; }
 .ol-anexo__tamanho { color: #616161; font-size: 12px; }
 .ol-corpo { padding: 12px 12px 16px; }
-.ol-corpo textarea { width: 100%; box-sizing: border-box; border: 0; resize: vertical;
+.ol-corpo .ol-editor { width: 100%; box-sizing: border-box; border: 0; min-height: 160px; overflow-wrap: anywhere;
   font: 11pt "Aptos", "Calibri", "Segoe UI", sans-serif; color: #000; line-height: 1.35; background: transparent; }
+.ol-corpo .ol-editor:focus-visible { outline: 2px solid #0f6cbd; outline-offset: 2px; }
+.ol-corpo .ol-editor p { margin: 0; }
+.ol-corpo .ol-editor ul, .ol-corpo .ol-editor ol { margin: 4px 0; padding-left: 28px; }
+/* barra de formatacao (issue #191): fixa acima do corpo e a mesma, flutuante, perto da selecao */
+.ol-editor-caixa { position: relative; }
+.ol-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 0 0 8px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--ol-linha); }
+.ol-barra--flutuante { position: absolute; z-index: 20; transform: translateY(calc(-100% - 6px)); margin: 0; padding: 4px;
+  max-width: 100%; box-sizing: border-box;
+  background: #fff; border: 1px solid #d1d1d1; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); }
+.ol-formato { min-width: 30px; height: 30px; padding: 0 6px; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: #242424; font: 14px "Aptos", "Segoe UI", sans-serif; cursor: pointer;
+  display: inline-grid; place-items: center; }
+.ol-formato:hover { background: #f0f0f0; }
+.ol-formato:focus-visible { outline: 2px solid #0f6cbd; outline-offset: 1px; }
+.ol-formato__cor { display: grid; line-height: 1; font-weight: 600; }
+.ol-formato__cor > span { display: block; width: 14px; height: 3px; margin-top: 1px; }
+.ol-formato__realce { background: #FFFF00; padding: 0 2px; line-height: 1.2; }
+.ol-paleta { position: relative; display: inline-block; }
+.ol-paleta__cores { position: absolute; z-index: 21; top: calc(100% + 4px); left: 0; display: flex; gap: 4px; padding: 6px;
+  background: #fff; border: 1px solid #d1d1d1; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.14); }
+.ol-cor { width: 22px; height: 22px; padding: 0; border: 1px solid #c7c7c7; border-radius: 3px; background: #fff;
+  cursor: pointer; font-size: 11px; color: #616161; }
+.ol-cor:focus-visible { outline: 2px solid #0f6cbd; outline-offset: 1px; }
 .ol-assinatura img { display: block; max-width: 600px; width: 100%; height: auto; margin-top: 8px; }
 .ol-sem-assinatura { color: #616161; font-size: 12px; border: 1px dashed var(--ol-linha); border-radius: 4px;
   padding: 8px 10px; max-width: 60ch; }
@@ -1448,7 +1472,7 @@ a.alerta:hover { background: var(--hover); color: var(--texto); }
 }
 .ol-pendencias { padding: 12px; border-bottom: 1px solid #e1dfdd; background: #fffbf0; border-radius: 8px 8px 0 0; }
 .assinatura-previa { display: block; max-width: 600px; width: 100%; height: auto; border: 1px solid var(--linha, #e1dfdd); border-radius: 4px; }
-.ol-corpo textarea { height: auto; min-height: 160px; padding: 0; border-radius: 0; max-width: none; }
+.ol-corpo .ol-editor { height: auto; padding: 0; border-radius: 0; max-width: none; }
 .ol-janela input, .ol-janela textarea { box-shadow: none; }
 .ol-entrada { height: auto; padding: 4px 0; border-radius: 0; }
 .ol-assunto input { height: auto; border-radius: 0; padding: 8px 0; }

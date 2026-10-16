@@ -13,10 +13,11 @@ describe("página Medições (regras de apresentação)", () => {
     expect(textoParada(null)).toBe("\u2014");
   });
 
-  it("limiares: aguardando pagamento acende depois de 30 e 45 dias; o resto, depois de 7 e 15", () => {
-    expect(nivelParada(30, "aguardando-pagamento")).toBeNull();
-    expect(nivelParada(31, "aguardando-pagamento")).toBe("atencao");
-    expect(nivelParada(46, "aguardando-pagamento")).toBe("acao");
+  it("limiares: aguardando pagamento acende a partir de 30 e de 45 dias; o resto, depois de 7 e 15", () => {
+    expect(nivelParada(29, "aguardando-pagamento")).toBeNull();
+    expect(nivelParada(30, "aguardando-pagamento")).toBe("atencao");
+    expect(nivelParada(44, "aguardando-pagamento")).toBe("atencao");
+    expect(nivelParada(45, "aguardando-pagamento")).toBe("acao");
     expect(nivelParada(7, "enviar-nota")).toBeNull();
     expect(nivelParada(8, "enviar-nota")).toBe("atencao");
     expect(nivelParada(16, "faturamento")).toBe("acao");

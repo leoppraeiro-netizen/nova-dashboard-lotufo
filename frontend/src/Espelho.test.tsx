@@ -58,7 +58,7 @@ describe("Espelho", () => {
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: /Gerar espelho/ }));
     fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
-    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "2026-05" } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "052026" } });
     fireEvent.change(screen.getByLabelText("Valor da medição"), { target: { value: "634.529,58" } });
     fireEvent.change(screen.getByLabelText("Valor do reajuste"), { target: { value: "38.655,83" } });
     fireEvent.click(screen.getByRole("button", { name: "Conferir" }));
@@ -86,6 +86,35 @@ describe("Espelho", () => {
     expect(JSON.parse(api.mock.lastCall![1].body)).toMatchObject({ periodo_inicio: "2026-02-05", periodo_fim: "2026-02-28" });
   });
 
+  // issue #190: valor como em caixa registradora; o que vai ao servidor e' o mesmo texto de antes
+  it("digitar 5000000 no valor mostra 50.000,00 e manda \"50.000,00\"; o campo vazio segue vazio (vale zero)", async () => {
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
+    api.mockResolvedValueOnce(PREVIA);
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gerar espelho/ }));
+    fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "2026-05" } });
+    const valor = screen.getByLabelText("Valor da medição") as HTMLInputElement;
+    for (const c of "5000000") fireEvent.input(valor, { target: { value: valor.value + c }, inputType: "insertText", data: c });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Conferir" }));
+    await screen.findByRole("button", { name: "Gerar" });
+    expect(JSON.parse(api.mock.lastCall![1].body).entradas).toEqual({ medicao: "50.000,00", reajuste: "" });
+  });
+
+  // rodada 2 da PR #193 (C3): colar invalido segura o Conferir; o campo vazio nao vira zero calado
+  it("colar em formato inválido bloqueia o Conferir", async () => {
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gerar espelho/ }));
+    fireEvent.change(screen.getByLabelText("Nº da medição"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "2026-05" } });
+    fireEvent.paste(screen.getByLabelText("Valor da medição"), { clipboardData: { getData: () => "8900000.00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Conferir" }));
+    expect(api).toHaveBeenCalledTimes(1);   // so' a carga da regra
+    expect(screen.getByRole("alert").textContent).toContain("formato inválido");
+  });
+
   it("trocar a competência volta o período ao mês inteiro dela", async () => {
     api.mockResolvedValueOnce({ regra: REGRA, espelhos: [] });
     render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} />);
@@ -107,6 +136,29 @@ describe("Espelho", () => {
     fireEvent.click(screen.getByRole("button", { name: "Gerar de novo" }));
     expect((screen.getByLabelText("Valor da medição") as HTMLInputElement).value).toBe("634.529,58");
     expect((screen.getByLabelText("Nº da medição") as HTMLInputElement).value).toBe("10");
+  });
+
+  // issue #208: na medicao de Projeto, o misto antigo (superado para ela) nao aparece nem como "mora na execucao"
+  it("na medição, o espelho superado por uma versão mais nova dela não aparece", async () => {
+    const misto = { ...ESPELHO, id: 7, versao: 1, medicoes: [{ id: 1, tipo: "execucao", estado: "protocolada" },
+      { id: 2, tipo: "projeto", estado: "espelho_gerado", superado: true }] };
+    const novo = { ...ESPELHO, id: 8, versao: 2, medicoes: [{ id: 2, tipo: "projeto", estado: "espelho_gerado" }],
+      arquivos: [{ documento_id: 4, saida: "projeto", nome: "ESPELHO - MT-388 - 10ª Medição de Projeto.docx", tamanho: 1 }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [novo, misto] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
+    expect(await screen.findByRole("link", { name: /Medição de Projeto/ })).toBeTruthy();
+    expect(screen.queryByText(/mora/)).toBeNull();
+    expect(screen.getAllByRole("article")).toHaveLength(1);
+  });
+
+  // issue #208: desmembramento inverso, a execucao tem espelho novo e o misto antigo mora no Projeto protocolado
+  it("na medição de Projeto, o misto superado para a execução mora nela, sem aviso de lar", async () => {
+    const misto = { ...ESPELHO, medicoes: [{ id: 1, tipo: "execucao", estado: "espelho_gerado", superado: true },
+      { id: 2, tipo: "projeto", estado: "protocolada" }] };
+    api.mockResolvedValueOnce({ regra: REGRA, espelhos: [misto] });
+    render(<Espelho contratoId={1} podeEditar aoMudar={() => {}} medicao={{ id: 2, tipo: "projeto" }} />);
+    expect(await screen.findByRole("link", { name: /ESPELHO - MT-388/ })).toBeTruthy();
+    expect(screen.queryByText(/mora/)).toBeNull();
   });
 
   it("versão já enviada: reenvio só com a confirmação marcada (S8)", async () => {

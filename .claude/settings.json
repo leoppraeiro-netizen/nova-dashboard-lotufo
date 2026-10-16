@@ -20,6 +20,10 @@
       "Bash(python -m ruff *)",
       "Bash(.venv/Scripts/ruff *)",
       "Bash(backend/.venv/Scripts/ruff *)",
+      "Bash(.venv/bin/python -m pytest *)",
+      "Bash(backend/.venv/bin/python -m pytest *)",
+      "Bash(.venv/bin/ruff *)",
+      "Bash(backend/.venv/bin/ruff *)",
       "Bash(git status *)",
       "Bash(git diff *)",
       "Bash(git log *)",
@@ -147,7 +151,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/formatar.ps1\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rodar.sh\" formatar",
             "timeout": 120
           }
         ]
@@ -158,7 +162,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/preparar-worktree.ps1\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rodar.sh\" preparar-worktree",
             "timeout": 60
           }
         ]
@@ -169,7 +173,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/preparar-worktree.ps1\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rodar.sh\" preparar-worktree",
             "timeout": 60
           }
         ]
@@ -180,7 +184,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/desfazer-juncoes.ps1\"",
+            "command": "sh \"${CLAUDE_PROJECT_DIR}/.claude/hooks/rodar.sh\" desfazer-juncoes",
             "timeout": 30
           }
         ]

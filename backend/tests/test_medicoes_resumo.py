@@ -109,6 +109,7 @@ def test_resumo_linhas_marcos_e_contagens(conn, cenario):
     assert par["medicao_id"] == ids["a24"] and par["medicao_ids"] == [ids["a24"], ids["a24r"]]
     assert par["contratante"] == "SINFRA" and par["orgao_sub"] == "SUEF II" and par["marco"] == "2026-10-01"
     assert par["proximo_passo"] == "protocolar"
+    assert {x["competencia"] for x in r["linhas"]} == {"2026-09"}   # #155: a competencia da medicao (AAAA-MM)
     assert r["contagens"] == {"sem-medicao": 1, "faturamento": 1, "aguardando-nota": 2, "enviar-nota": 2,
                               "aguardando-pagamento": 1}
     # obras ativas (a suspensa fica fora); a D so' tem prevista: sem medicao aberta, com a prevista mais antiga

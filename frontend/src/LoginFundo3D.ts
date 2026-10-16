@@ -28,17 +28,6 @@ const cota = (a: V, b: V, off: V, k = 2) => {
   const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], lu = Math.hypot(...u) || 1, on = Math.hypot(...off) || 1, t = [(u[0] / lu + off[0] / on) * .45, (u[1] / lu + off[1] / on) * .45, (u[2] / lu + off[2] / on) * .45];
   for (const P of [A, B]) L([P[0] - t[0], P[1] - t[1], P[2] - t[2]], [P[0] + t[0], P[1] + t[1], P[2] + t[2]], k);
 };
-// referencial local (x ao longo de f, z para a esquerda) para veiculos
-type T3 = (p: V) => V;
-const ref = (o: V, f: V): T3 => { const n = Math.hypot(f[0], f[2]), fx = f[0] / n, fz = f[2] / n; return p => [o[0] + p[0] * fx - p[2] * fz, o[1] + p[1], o[2] + p[0] * fz + p[2] * fx]; };
-const caixaR = (T: T3, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, k: number) => { const c = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]; poly(c.map(([x, z]) => T([x, y0, z])), true, k); for (const [x, z] of c) L(T([x, y0, z]), T([x, y1, z]), k); poly(c.map(([x, z]) => T([x, y1, z])), true, k); };
-const caminhao = (T: T3, k = 1) => {
-  caixaR(T, -4.6, 1.1, -1.25, 2.4, 3.7, 1.25, k);
-  poly([T([2.6, 1.1, -1.2]), T([4.4, 1.1, -1.2]), T([4.6, 2.2, -1.2]), T([4.2, 3.3, -1.2]), T([2.6, 3.3, -1.2])], true, k);
-  poly([T([2.6, 1.1, 1.2]), T([4.4, 1.1, 1.2]), T([4.6, 2.2, 1.2]), T([4.2, 3.3, 1.2]), T([2.6, 3.3, 1.2])], true, k);
-  for (const p of [[4.6, 2.2], [4.2, 3.3], [2.6, 3.3]]) L(T([p[0], p[1], -1.2]), T([p[0], p[1], 1.2]), k);
-  for (const x of [-3.6, -2.4, 3.6]) for (const z of [-1.25, 1.25]) poly(Array.from({ length: 12 }, (_, i) => { const a = i / 12 * Math.PI * 2; return T([x + .5 * Math.cos(a), .5 + .5 * Math.sin(a), z]); }), true, k);
-};
 // arvore: copa irregular em dois niveis e tronco
 const arvore = (x: number, z: number, r: number, sem = 1) => { for (const [y, f] of [[3.4, .8], [5, 1]]) { const p: V[] = []; for (let i = 0; i < 14; i++) { const a = i / 14 * Math.PI * 2, rr = r * f * (1 + .18 * Math.sin(3 * a + sem) + .1 * Math.cos(5 * a + sem * 2)); p.push([x + rr * Math.cos(a), y + Math.sin(a * 2 + sem) * .3, z + rr * Math.sin(a)]); } poly(p, true, 2); } L([x - .15, 0, z], [x - .15, 3.2, z], 2); L([x + .15, 0, z], [x + .15, 3.2, z], 2); };
 // escada em U entre y0 e y1, caixa x0..x1, z0..z1 (lances ao longo de z)
@@ -105,49 +94,33 @@ function ponte() {
   // cotas: vaos e altura do pilar
   for (let i = 0; i < 4; i++) { const a = -70 + 35 * i, b = a + 35; cota([a, 9.8, -9], [b, 9.8, -9], [0, -3.4, 0]); }
   cota([38, g(35), -9], [38, 8, -9], [3, 0, 0]);
-  // veiculos de escala
-  caminhao(ref([-18, YD, -3.3], [1, 0, 0]), 0); caminhao(ref([26, YD, 3.3], [-1, 0, 0]), 0);
   return S;
 }
 
 // ================= 2. RODOVIA =================
-function rodovia() {
+// pista=true: as linhas da pista seguem 0,5 rad alem da obra para cada lado, num traco so', ate sumir
+// na neblina; com false sai so' a obra, usada para enquadrar a camera.
+function rodovia(pista = true) {
   S = [];
-  const R = 350, t0 = -.3, t1 = .3, N = 120, E = .07;
+  const R = 350, t0 = -.3, t1 = .3, N = 120, E = .07, X = pista ? .5 : 0, a0 = t0 - X, a1 = t1 + X, NA = Math.round(N * (a1 - a0) / (t1 - t0));
   const P = (t: number, o: number, y: number): V => [Math.sin(t) * (R + o), y, R - Math.cos(t) * (R + o)];
-  const st = (i: number) => t0 + (t1 - t0) * i / N, sup = (o: number) => o * E;
-  const ao = (o: number, y: number, k: number, i0 = 0, i1 = N) => { const p: V[] = []; for (let i = i0; i <= i1; i++) p.push(P(st(i), o, y)); poly(p, false, k); };
-  const aoT = (o: number, y: number, traco: number, vao: number, k: number) => { const tot = (t1 - t0) * (R + o); for (let s = 0; s < tot; s += traco + vao) { const p: V[] = []; for (let j = 0; j <= 4; j++) { const ss = Math.min(s + traco * j / 4, tot); p.push(P(t0 + ss / (R + o), o, y)); } poly(p, false, k); } };
+  const st = (i: number) => t0 + (t1 - t0) * i / N, sa = (i: number) => a0 + (a1 - a0) * i / NA, sup = (o: number) => o * E;
+  const ao = (o: number, y: number, k: number, n = NA, t = sa) => { const p: V[] = []; for (let i = 0; i <= n; i++) p.push(P(t(i), o, y)); poly(p, false, k); };
+  const aoT = (o: number, y: number, traco: number, vao: number, k: number) => { const tot = (a1 - a0) * (R + o); for (let s = 0; s < tot; s += traco + vao) { const p: V[] = []; for (let j = 0; j <= 4; j++) { const ss = Math.min(s + traco * j / 4, tot); p.push(P(a0 + ss / (R + o), o, y)); } poly(p, false, k); } };
   // secao transversal: corte (lado interno) e aterro (lado externo)
   const secao = [[-48, 2.21], [-17.5, 2.21], [-17.1, 1.81], [-16.7, 1.81], [-16.3, 2.21], [-15.3, 2.21], [-12.3, -.79], [-12, -1.09], [-11.6, -1.09], [-11.3, sup(-11.3)], [11.3, sup(11.3)], [16.99, -3], [18.2, -3], [18.6, -3.4], [19, -3.4], [19.4, -3], [48, -3]];
-  for (const [o, y] of secao) if (Math.abs(o) !== 11.3) ao(o, y, [-15.3, -12.3, 16.99].includes(o) ? 1 : 2);
-  for (let i = 0; i <= N; i += 10) { const t = st(i); poly(secao.slice(0, 10).map(([o, y]) => P(t, o, y)), false, 2); poly(secao.slice(10).map(([o, y]) => P(t, o, y)), false, 2); }
-  // secao aberta na ponta: camadas do pavimento (espessuras x2 para leitura)
-  const D = [0, -.2, -.6, -1, -1.5];
-  for (let c = 0; c < D.length; c++) { poly([P(t0, -11.3, sup(-11.3) + D[c]), P(t0, 11.3, sup(11.3) + D[c])], false, c === 0 ? 0 : 1); for (const o of [-11.3, 11.3]) ao(o, sup(o) + D[c], 2, 0, 8); }
-  for (const o of [-11.3, 11.3]) { L(P(t0, o, sup(o)), P(t0, o, sup(o) - 1.5), 1); L(P(st(8), o, sup(o)), P(st(8), o, sup(o) - 1.5), 2); }
-  for (let o = -11; o <= 10.6; o += .8) L(P(t0, o, sup(o) - .2), P(t0, o + .4, sup(o + .4) - .6), 2);
-  for (let o = -10.8; o <= 11; o += 1.2) L(P(t0, o, sup(o) - 1), P(t0, o - .5, sup(o - .5) - .6), 2);
-  trac(P(t0, 11.3, sup(11.3) - 1.5), P(t0, 16.99, -3), .6, .4, 2); trac(P(t0, 0, -3), P(t0, 16.99, -3), .6, .4, 2);
-  for (let o = 1; o <= 15; o += 1.6) L(P(t0, o, -3), P(t0, Math.min(o + 1.4, 16.99), Math.max(-3, -1.5 - (o + 1.4) * .12)), 2);
-  trac(P(t0, -15.3, 2.21), P(t0, 16.99, -3), .6, .6, 2);
-  cota(P(t0, -11.3, sup(-11.3)), P(t0, 11.3, sup(11.3)), [0, 3.2, 0]);
-  // plataforma
-  for (const o of [-11.3, 11.3]) ao(o, sup(o), 0);
-  for (const o of [-8.8, -1.6, 1.6, 8.8]) ao(o, sup(o), 1);
+  // linhas longitudinais: terreno, plataforma, faixas, eixo e barreira central
+  const longas = [...secao.filter(([o]) => Math.abs(o) !== 11.3).map(([o, y]) => [o, y, [-15.3, -12.3, 16.99].includes(o) ? 1 : 2]),
+    ...[-11.3, 11.3].map(o => [o, sup(o), 0]), ...[-8.8, -1.6, 1.6, 8.8].map(o => [o, sup(o), 1]), ...[-.45, .45].map(o => [o, sup(o), 2]),
+    [-.15, .87, 1], [.15, .87, 1]];
+  for (const [o, y, k] of longas) ao(o, y, k);
+  for (let i = 0; i <= NA; i += 10) { const t = sa(i); poly(secao.slice(0, 10).map(([o, y]) => P(t, o, y)), false, 2); poly(secao.slice(10).map(([o, y]) => P(t, o, y)), false, 2); }
   for (const o of [-5.2, 5.2]) aoT(o, sup(o) + .01, 4, 12, 2);
-  for (const s of [-1, 1]) ao(s * .45, sup(s * .45), 2);
-  // barreira central New Jersey
-  ao(-.15, .87, 1); ao(.15, .87, 1);
-  const nj = [[-.45, 0], [-.38, .08], [-.18, .33], [-.15, .87], [.15, .87], [.18, .33], [.38, .08], [.45, 0]];
-  for (const t of [t0, t1]) poly(nj.map(([o, y]) => P(t, o, sup(o) + y)), true, 1);
-  // defensa no bordo do aterro
-  ao(11.55, sup(11.3) + .75, 2); for (let i = 0; i <= N; i += 2) L(P(st(i), 11.55, sup(11.3)), P(st(i), 11.55, sup(11.3) + .75), 2);
+  // defensa no bordo do aterro, so' na obra (na pista os montantes viram uma faixa hachurada)
+  ao(11.55, sup(11.3) + .75, 2, N, st); for (let i = 0; i <= N; i += 2) L(P(st(i), 11.55, sup(11.3)), P(st(i), 11.55, sup(11.3) + .75), 2);
   // iluminacao no canteiro e portico de sinalizacao
   for (let i = 8; i < N; i += 17) { const t = st(i); L(P(t, 0, .87), P(t, 0, 12), 1); for (const s of [-1, 1]) { L(P(t, 0, 12), P(t, s * 2.6, 12), 1); L(P(t, s * 2.6, 11.8), P(t, s * 3.2, 11.8), 1); } }
   { const t = st(78); for (const o of [1, 11]) L(P(t, o, sup(o)), P(t, o, 7.4), 1); for (const y of [7.4, 6.8]) L(P(t, 1, y), P(t, 11, y), 1); poly([P(t, 2.6, 4.8), P(t, 9.6, 4.8), P(t, 9.6, 6.6), P(t, 2.6, 6.6)], true, 1); }
-  // veiculos de escala
-  for (const [i, o, dir] of [[52, 7, 1], [88, -3.4, -1]]) { const t = st(i); caminhao(ref(P(t, o, sup(o)), [dir * Math.cos(t), 0, dir * Math.sin(t)])); }
   return S;
 }
 
@@ -233,14 +206,15 @@ function hospital() {
 
 const OBRAS = [
   { f: ponte, elev: .3, az0: -1.0, zoom: .55, alvo: [0, 4, 0] },
-  { f: rodovia, elev: .55, az0: -1.25, zoom: .44, alvo: [-10, 0, 4] },
+  { f: rodovia, quadro: () => rodovia(false), elev: .55, az0: -1.25, zoom: .44, alvo: [-10, 0, 4] },
   { f: predio, elev: .23, az0: -.75, zoom: .78, alvo: [0, 13, 0] },
   { f: hospital, elev: .4, az0: .6, zoom: .6, alvo: [6, 5, 8] },
 ];
 
 const ESTILO = [{ cor: "#E0E7FF", w: 1.8, op: 1 }, { cor: "#8B93F5", w: 1.1, op: 1 }, { cor: "#5753C9", w: .8, op: .9 }];
-const DES = 10, PARA = 3, SAI = 1.4, CICLO = DES + PARA + SAI;
-const ease = (t: number) => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+// sem arranco: senoide em vez de cubica (pico de velocidade ~pela metade)
+const DES = 16, PARA = 4, SAI = 2, CICLO = DES + PARA + SAI;
+const ease = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
 
 /**
  * Liga o fundo no canvas e devolve a funcao de limpeza.
@@ -267,8 +241,9 @@ export function iniciarFundo(canvas: HTMLCanvasElement, parado: boolean, aoFalha
     const porTipo: number[][] = [[], [], []], acum = [new Int32Array(n + 1), new Int32Array(n + 1), new Int32Array(n + 1)], todas = new Float32Array(n * 6);
     segs.forEach(([a, b, k], i) => {
       porTipo[k].push(...a, ...b); todas.set(a, i * 6); todas.set(b, i * 6 + 3); for (let j = 0; j < 3; j++) acum[j][i + 1] = acum[j][i] + (j === k ? 1 : 0);
-      bb.expandByPoint(new THREE.Vector3(a[0], a[1], a[2])); bb.expandByPoint(new THREE.Vector3(b[0], b[1], b[2]));
     });
+    // a camera enquadra a obra; a pista que segue alem dela nao conta
+    for (const [a, b] of o.quadro?.() ?? segs) { bb.expandByPoint(new THREE.Vector3(a[0], a[1], a[2])); bb.expandByPoint(new THREE.Vector3(b[0], b[1], b[2])); }
     const grupo = new THREE.Group();
     const camadas = porTipo.map((arr, k) => {
       if (!arr.length) return null;
@@ -305,8 +280,8 @@ export function iniciarFundo(canvas: HTMLCanvasElement, parado: boolean, aoFalha
     const ini = Math.max(0, n - CAUDA), m = n - ini;
     const buf = (o.gc.attributes.instanceStart as THREE.InterleavedBufferAttribute).data;
     (buf.array as Float32Array).set(o.todas.subarray(ini * 6, n * 6)); buf.needsUpdate = true; o.gc.instanceCount = m;
-    o.mc.opacity = lt < DES ? 1 : Math.max(0, 1 - (lt - DES) / .8);
-    const az = o.az0 + lt * .035, d = o.raio / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * o.zoom, e = o.elev;
+    o.mc.opacity = lt < DES ? 1 : Math.max(0, 1 - (lt - DES) / 1.5);
+    const az = o.az0 + lt * .02, d = o.raio / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * o.zoom, e = o.elev;
     fog.near = d - o.raio * .3; fog.far = d + o.raio * 1.4;
     const c = new THREE.Vector3(o.alvo[0], o.alvo[1], o.alvo[2]);
     camera.position.set(c.x + d * Math.cos(e) * Math.cos(az), c.y + d * Math.sin(e), c.z + d * Math.cos(e) * Math.sin(az)); camera.lookAt(c);
@@ -318,8 +293,8 @@ export function iniciarFundo(canvas: HTMLCanvasElement, parado: boolean, aoFalha
     catch { parou = true; aoFalhar(); return false; }
   }
 
-  // Parado: primeira obra completa, ja sem a cauda branca (lt = DES + 1).
-  const T_PARADO = DES + 1;
+  // Parado: primeira obra completa, ja sem a cauda branca (lt = DES + 2; ela some em 1,5 s).
+  const T_PARADO = DES + 2;
   function quadro(agora: number) {
     if (parou) return;
     // o clamp em 0 evita tempo negativo no 1o quadro (bug do Edge visto no prototipo)

@@ -9,6 +9,9 @@ municipio: Rondonópolis
 lei: '14.133'
 cno: null
 art: null
+garantia:
+  apolice: AP-EXEMPLO-001
+  vigencia_fim: '2027-01-15'
 numero_processo: null
 centro_custo_rm: 9.001.001
 valor_original: 10.000.000,00
@@ -28,6 +31,7 @@ fiscais:
   email: fiscal@exemplo.gov.br
   desde: '2025-03-10'
 destinatarios_extras: []
+copia_extras: []
 instrumentos:
 - chave: ta-01
   tipo: aditivo_valor

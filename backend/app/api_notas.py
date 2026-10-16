@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app import arquivos, dinheiro, frc, leitura_pdf, medicoes, notas, sincronizacao_rm
+from app import arquivos, dinheiro, frc, leitura_pdf, medicoes, notas, notas_envio, sincronizacao_rm
 from app.api_auth import conexao
 from app.api_medicoes import ID, MAX_INT64, _erro_do_cliente, _medicao_existe
 from app.permissoes import exigir
@@ -86,6 +86,46 @@ def completa(medicao_id: ID, dados: JustificativaIn, usuario: dict = Depends(exi
     except ValueError as e:
         raise _erro_do_cliente(conn, e)
     return {"ok": True, "estado": medicoes.detalhe(conn, medicao_id)["estado"]}
+
+
+class DesfazerIn(BaseModel):
+    motivo: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/api/medicoes/{medicao_id}/notas/alocacoes/{alocacao_id}/desfazer")
+def desfazer_vinculo(medicao_id: ID, alocacao_id: ID, dados: DesfazerIn, usuario: dict = Depends(exigir("administrar")),
+                     conn: sqlite3.Connection = Depends(conexao)):
+    """Issue #71: so' o admin desfaz o vinculo de uma nota com a medicao, com motivo (auditado)."""
+    _medicao_existe(conn, medicao_id)
+    try:
+        sincronizacao_rm.desalocar(conn, usuario["id"], medicao_id, alocacao_id, dados.motivo)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"ok": True, "estado": medicoes.detalhe(conn, medicao_id)["estado"]}
+
+
+class LiberarIn(BaseModel):
+    justificativa: str = Field(max_length=2000)
+
+
+@router.get("/api/medicoes/{medicao_id}/par")
+def par(medicao_id: ID, _=Depends(exigir("ver_paineis", com_csrf=False)),
+        conn: sqlite3.Connection = Depends(conexao)):
+    """Issue #188: a execucao e o reajuste da mesma competencia na pagina da medicao (notas, espera, liberacao)."""
+    _medicao_existe(conn, medicao_id)
+    return notas_envio.par(conn, medicao_id)
+
+
+@router.post("/api/medicoes/{medicao_id}/envio-sem-a-outra")
+def envio_sem_a_outra(medicao_id: ID, dados: LiberarIn, usuario: dict = Depends(exigir("editar_cadastros")),
+                      conn: sqlite3.Connection = Depends(conexao)):
+    """Issue #188: saida de emergencia, com justificativa; a metade pronta segue sem esperar a outra."""
+    _medicao_existe(conn, medicao_id)
+    try:
+        notas_envio.liberar_sem_a_outra(conn, usuario["id"], medicao_id, dados.justificativa)
+    except ValueError as e:
+        raise _erro_do_cliente(conn, e)
+    return {"ok": True}
 
 
 class FrcIn(BaseModel):

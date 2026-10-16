@@ -9,7 +9,7 @@ export type SituacaoOuSem = "sem-medicao" | Situacao;
 
 export type LinhaResumo = {
   situacao: Situacao; contrato_id: number; obra: string; contratante: string; orgao_sub: string | null;
-  medicao_id: number; medicao_ids: number[]; numero: number; titulo: string; proximo_passo: string;
+  medicao_id: number; medicao_ids: number[]; numero: number; competencia: string; titulo: string; proximo_passo: string;
   valor_centavos: number | null; marco: string | null; dias: number | null;
 };
 export type ObraResumo = {
@@ -49,12 +49,12 @@ export function textoParada(dias: number | null): string {
   return dias === 1 ? "1\u00a0dia" : `${dias.toLocaleString("pt-BR")}\u00a0dias`;
 }
 
-/** Cor do "Parada há": o orgao leva 30+ dias para pagar, entao "aguardando pagamento" so' acende depois disso
- *  (ambar acima de 30, vermelho acima de 45); as outras situacoes dependem da Lotufo (acima de 7 e de 15). */
+/** Cor do "Parada há": o orgao leva 30+ dias para pagar, entao "aguardando pagamento" so' acende a partir disso
+ *  (ambar a partir de 30, vermelho a partir de 45); as outras situacoes dependem da Lotufo (acima de 7 e de 15). */
 export function nivelParada(dias: number | null, situacao: SituacaoOuSem): "atencao" | "acao" | null {
   if (dias === null) return null;
-  const [ambar, vermelho] = situacao === "aguardando-pagamento" ? [30, 45] : [7, 15];
-  return dias > vermelho ? "acao" : dias > ambar ? "atencao" : null;
+  if (situacao === "aguardando-pagamento") return dias >= 45 ? "acao" : dias >= 30 ? "atencao" : null;
+  return dias > 15 ? "acao" : dias > 7 ? "atencao" : null;
 }
 
 /** "23ª · 01/2026" (numero e competencia "2026-01"); medicao de projeto: "1ª de Projeto · 09/2026". */

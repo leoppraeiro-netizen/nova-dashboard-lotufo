@@ -11,7 +11,7 @@ const usuario = { id: 1, nome: "Leonardo Praeiro", email: "l@l.com", perfil: "ad
 
 const linha = (extra: Partial<LinhaResumo>): LinhaResumo => ({
   situacao: "enviar-nota", contrato_id: 12, obra: "Estações BRT", contratante: "SINFRA", orgao_sub: "SAGPM / SUOESP",
-  medicao_id: 70, medicao_ids: [70, 71], numero: 7, titulo: "7ª Medição + Reajuste", proximo_passo: "protocolar",
+  medicao_id: 70, medicao_ids: [70, 71], numero: 7, competencia: "2026-09", titulo: "7ª Medição + Reajuste", proximo_passo: "protocolar",
   valor_centavos: 997926492, marco: "2026-10-07", dias: 2, ...extra });
 
 const RESUMO: ResumoMedicoes = {
@@ -96,11 +96,16 @@ describe("Medições com abas", () => {
     expect(screen.queryByRole("button", { name: /Iniciar processo/ })).toBeNull();
   });
 
-  it("aba provisória: a tabela filtrada, com estado vazio", async () => {
+  it("aba Aguardando nota: estado vazio sem medição, e a linha da medição que espera a nota", async () => {
     api.mockResolvedValue(RESUMO);
-    render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
-    expect(await screen.findByText("Nenhuma medição aguardando a nota.")).toBeTruthy();
+    const { unmount } = render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
+    expect(await screen.findByText("Nenhuma medição esperando nota.")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Medições por situação" })).toBeNull();
+    unmount();
+    api.mockResolvedValue({ ...RESUMO, linhas: [linha({ situacao: "aguardando-nota", proximo_passo: "anexar as notas" })] });
+    render(<MedicoesPagina aba="aguardando-nota" busca={{}} usuario={usuario} />);
+    const quadro = await screen.findByRole("region", { name: "Aguardando nota" });
+    expect(within(quadro).getByText("R$ 9.979.264,92")).toBeTruthy();
   });
 
   it("Iniciar processo: a obra com medição prevista abre essa medição; as outras, a nova medição", async () => {

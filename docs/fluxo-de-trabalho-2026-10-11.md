@@ -47,7 +47,7 @@ Mapeando no pipeline do comentário:
 | subagentes | subagentes só quando lembrado | Sessões trabalhadoras em worktree (Opus) + agente revisor (Fable) + gate Sol (codex) |
 | PR | merge local, sem PR | PR pelo app, com resumo em português e "como testar" |
 | gates | CI depois do fato; revisão manual | CI obrigatória para mergear + `/code-review` + revisor adversarial + gate Sol nos temas de risco |
-| fila de merge | não existe | Não precisa (projeto de uma pessoa). Basta "PR só mergeia com CI verde" + auto-merge |
+| fila de merge | não existe | Não precisa (projeto de uma pessoa). Basta "PR só mergeia com CI verde" + auto-merge. **Revisto em 15/10/2026:** ligada no ruleset (repositório movido para a organização `lotufo-dev`, a fila não existe em conta pessoal), para várias trabalhadoras em paralelo não quebrarem o `master` juntas; o `ci.yml` roda também em `merge_group` |
 | produção | `deploy.ps1` manual no `<servidor>`, worktree pinado, rollback automático, watchdog | Mantém. Vira uma skill `deploy` para rodar o runbook sem erro |
 
 Conclusão: **uns 40% já estão prontos** (git-flow na prática, CI, testes, gates humanos, deploy

@@ -201,4 +201,86 @@ describe("Notas: só o botão da ação em curso troca o rótulo", () => {
     expect(botao.disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Declarar completas" }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  // issue #188: na pagina da medicao, a execucao e o reajuste em dois blocos; cada um anexa na sua medicao
+  it("dois blocos: o título e o anexo de cada um vão para a medição do bloco", async () => {
+    api.mockImplementation(async (url: string) => url === "/api/medicoes/1/notas" ? DADOS : { ...DADOS, faltam: 2,
+      esperadas: [DADOS.esperadas[0], { ...DADOS.esperadas[0], chave: "reajuste-2", municipio: "Várzea Grande" }] });
+    apiForm.mockResolvedValue({ documento_id: 9, repetido: false, nota_id: 4, conferencia: [], faltam: 1,
+      estado: "espelho_enviado", leitura: { ok: true, motivo: null, leiaute: "cuiaba", numero: 2301 } });
+    const reajuste = { ...medicao, id: 2, tipo: "reajuste" };
+    render(<>
+      <Notas medicao={medicao} rotulo="Execução · 27ª Medição" podeEditar aoMudar={() => {}} />
+      <Notas medicao={reajuste} rotulo="Reajuste da 27ª Medição" podeEditar aoMudar={() => {}} />
+    </>);
+    expect(await screen.findByText("Execução · 27ª Medição — falta 1 nota")).toBeTruthy();
+    expect(await screen.findByText("Reajuste da 27ª Medição — faltam 2 notas")).toBeTruthy();
+    const arquivo = new File(["x"], "nota.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Anexar notas: Reajuste da 27ª Medição"), { target: { files: [arquivo] } });
+    await waitFor(() => expect(apiForm).toHaveBeenCalledWith("/api/medicoes/2/notas", expect.any(FormData)));
+    expect(apiForm).toHaveBeenCalledTimes(1);
+  });
+});
+
+// issue #190: o valor da nota manual se digita como em caixa registradora e vai ao servidor no mesmo formato
+describe("Notas: valor da nota manual (CampoValor)", () => {
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
+
+  it("digitar 5000000 manda \"50.000,00\", como antes", async () => {
+    apiForm.mockResolvedValue({ documento_id: 9, repetido: false, nota_id: null, conferencia: [], faltam: 1,
+      estado: "espelho_enviado", leitura: { ok: false, motivo: "ilegível" } });
+    api.mockImplementation((_url: string, opts?: { method?: string }) =>
+      opts?.method === "POST" ? new Promise(() => {}) : Promise.resolve(DADOS));
+    render(<Notas medicao={medicao} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/Cuiabá/)).toBeTruthy());
+    const arquivo = new File(["x"], "nota.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText(/Anexar notas à medição/), { target: { files: [arquivo] } });
+    await screen.findByRole("button", { name: "Registrar nota" });
+    fireEvent.change(screen.getByLabelText("Número da nota"), { target: { value: "2290" } });
+    fireEvent.change(screen.getByLabelText("Emissão"), { target: { value: "2026-09-14" } });
+    const valor = screen.getByLabelText(/^Valor/) as HTMLInputElement;
+    for (const c of "5000000") fireEvent.input(valor, { target: { value: valor.value + c }, inputType: "insertText", data: c });
+    expect(valor.value).toBe("50.000,00");
+    fireEvent.click(screen.getByRole("button", { name: "Registrar nota" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/manual", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ documento_id: 9, numero: 2290, emissao: "2026-09-14", valor: "50.000,00" }) })));
+  });
+
+  // issue #71: so' o admin desfaz o vinculo, e com motivo
+  const COM_NOTA = {
+    ...DADOS, faltam: 0, pode_declarar: false,
+    esperadas: [{ ...DADOS.esperadas[0], nota_id: 5 }],
+    notas: [{ alocacao_id: 77, nota_id: 5, coligada: 1, numero: "2288", serie: null, emissao: "2026-09-14",
+              valor_centavos: 71919072, valor_pdf_centavos: 71919072, origem_nota: "rm", confirmacao: "so_rm",
+              documento_id: null, conferencia: [], justificativa: null, leitura: null, municipio: "Cuiabá",
+              regra: "valor_exato", recebido_centavos: 0 }],
+  };
+
+  it("sem ser admin, não oferece desfazer o vínculo da nota", async () => {
+    api.mockResolvedValueOnce(COM_NOTA);
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
+  });
+
+  it("nota que veio do PDF anexado na medição não oferece desfazer o vínculo (o servidor recusa)", async () => {
+    api.mockResolvedValueOnce({ ...COM_NOTA, notas: [{ ...COM_NOTA.notas[0], documento_id: 3, origem_nota: "pdf" }] });
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar podeDesfazer aoMudar={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/notas completas/)).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Desfazer vínculo/ })).toBeNull();
+  });
+
+  it("o admin desfaz o vínculo informando o motivo", async () => {
+    api.mockResolvedValueOnce(COM_NOTA);
+    const aoMudar = vi.fn();
+    render(<Notas medicao={{ ...medicao, estado: "nota_emitida" }} podeEditar={false} podeDesfazer aoMudar={aoMudar} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Desfazer vínculo/ }));
+    fireEvent.change(screen.getByLabelText(/Motivo para desfazer o vínculo/), { target: { value: "NF de outra obra" } });
+    api.mockResolvedValueOnce({ ok: true, estado: "nota_emitida" });
+    api.mockResolvedValueOnce({ ...COM_NOTA, notas: [], faltam: 1, esperadas: DADOS.esperadas });
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer o vínculo" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/medicoes/1/notas/alocacoes/77/desfazer", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ motivo: "NF de outra obra" }) })));
+    await waitFor(() => expect(aoMudar).toHaveBeenCalled());
+  });
 });
