@@ -97,6 +97,20 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     await waitFor(() => expect(leituras("/api/notas/envio/3")).toHaveLength(2));
   });
 
+  // issue #208: o espelho misto que ficou vigente para outra medicao (superado para esta) nao e' o espelho dela
+  it("a etapa do espelho mostra a versão mais nova da medição, não o misto superado", async () => {
+    responder();
+    const base = api.getMockImplementation()!;
+    const esp = (id: number, versao: number, superado: boolean) => ({ id, numero: 23, versao, situacao: "vigente",
+      criado_em: "2026-10-15 12:00:00", criado_por_nome: null, envio: null,
+      medicoes: [{ id: 5, tipo: "execucao", superado }] });
+    api.mockImplementation(async (url: string, opcoes?: unknown) =>
+      url === "/api/contratos/1/espelho" ? { espelhos: [esp(7, 1, true), esp(8, 2, false)] } : base(url, opcoes));
+    render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);
+    expect(await screen.findByText(/nº 23 · versão 2/)).toBeTruthy();
+    expect(screen.queryByText(/nº 23 · versão 1/)).toBeNull();
+  });
+
   it("depois de enviar um protocolo, a medição é lida de novo", async () => {
     responder();
     render(<MedicaoPagina contratoId={1} medicaoId={5} usuario={usuario} origem={null} />);

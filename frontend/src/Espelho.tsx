@@ -35,7 +35,7 @@ type EspelhoDetalhe = {
   id: number; numero: number; competencia: string; versao: number; situacao: "vigente" | "substituido";
   entradas: Record<string, number>; periodo_inicio: string | null; periodo_fim: string | null;
   criado_em: string; criado_por_nome: string | null; motivo: string | null; saidas: Saida[];
-  medicoes: { id: number; tipo: string; estado: string }[]; arquivos: Arquivo[]; envio: Envio | null;
+  medicoes: { id: number; tipo: string; estado: string; superado?: boolean }[]; arquivos: Arquivo[]; envio: Envio | null;
 };
 type PreviaEnvio = { para: string[]; copia: string[]; assunto: string; corpo: string;
   anexos: { nome: string; tamanho: number }[]; total: number; limite: number; avisos: string[] };
@@ -234,7 +234,8 @@ export default function Espelho({ contratoId, podeEditar, aoMudar, aoSaberRegra,
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); input.value = ""; }
   };
 
-  const daMedicao = medicao ? espelhos.filter(e => e.medicoes.some(x => x.id === medicao.id)) : espelhos;
+  // #208: espelho com versao mais nova para esta medicao (superado) nao aparece nela
+  const daMedicao = medicao ? espelhos.filter(e => e.medicoes.some(x => x.id === medicao.id && !x.superado)) : espelhos;
   // na medicao, o espelho mora na de execucao da competencia: as outras mostram o resumo com o link
   const deOutra = medicao ? daMedicao.filter(e => e.situacao === "vigente" && larDoEspelho(e) !== medicao.id) : [];
   const vigentes = daMedicao.filter(e => e.situacao === "vigente" && !deOutra.includes(e));
