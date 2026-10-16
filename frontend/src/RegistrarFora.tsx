@@ -73,7 +73,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
     } catch (x) {
       setErro(feitos.length > 0 ? `${mensagem(x)} Já registrados: ${escolhidos.filter(e => feitos.includes(e.chave)).map(e => e.descricao).join(", ")}.`
         : mensagem(x));
-      if (feitos.length > 0) { setMarcados(marcados.filter(c => !feitos.includes(c))); setParcial(true); aoRecarregar(); }
+      if (feitos.length > 0) { setMarcados(marcados.filter(c => !feitos.includes(c))); setParcial(true); }
       setOcupado(false);
       return;
     }
@@ -118,7 +118,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
             <div key={e.chave} className="pilha">
               <label className="campo--linha">
                 <input type="checkbox" checked={marcados.includes(e.chave)}
-                  onChange={ev => setMarcados(ev.target.checked ? [...marcados, e.chave] : marcados.filter(c => c !== e.chave))} />
+                  onChange={ev => { const novo = ev.target.checked ? [...marcados, e.chave] : marcados.filter(c => c !== e.chave); setMarcados(novo); if (novo.length > 1) setProcesso(""); }} />
                 {e.descricao} · {notasDe(e)}
               </label>
               {(e.irmas ?? []).map(i => (

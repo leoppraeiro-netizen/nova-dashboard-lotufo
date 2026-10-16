@@ -191,7 +191,7 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     await waitFor(() => expect(apiForm).toHaveBeenCalledTimes(2));
   });
 
-  it("falha no segundo envio: o primeiro fica dito como registrado e a página lê de novo (no erro e ao fechar)", async () => {
+  it("falha no segundo envio: o primeiro fica dito como registrado e a página só lê de novo ao fechar a janela", async () => {
     const p = await abrir(dois());
     fireEvent.click(screen.getAllByRole("checkbox")[1]);
     fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
@@ -200,10 +200,21 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     const alerta = await screen.findByRole("alert");
     expect(alerta.textContent).toContain("não está com a nota emitida");
     expect(alerta.textContent).toContain("Já registrados: 7ª medição");
-    expect(p.aoMudar).toHaveBeenCalledTimes(1);   // leitura de novo, sem aviso de sucesso
-    expect((p.aoMudar as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([]);
+    expect(p.aoMudar).not.toHaveBeenCalled();   // recarregar agora trocaria a etapa e levaria o erro junto
     fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
-    expect(p.aoMudar).toHaveBeenCalledTimes(2);
+    expect(p.aoMudar).toHaveBeenCalledTimes(1);
+    expect((p.aoMudar as ReturnType<typeof vi.fn>).mock.calls[0]).toEqual([]);
+  });
+
+  it("o nº do processo digitado é limpo quando passa a haver mais de um envio marcado", async () => {
+    await abrir(dois());
+    const processo = screen.getByLabelText("Nº do processo no órgão (opcional)") as HTMLInputElement;
+    fireEvent.change(processo, { target: { value: "0001234" } });
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    expect(processo.value).toBe("");
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    expect(processo.value).toBe("");
+    expect(processo.disabled).toBe(false);
   });
 
   it("desmarcada a irmã, o registro leva só a medição do envio", async () => {

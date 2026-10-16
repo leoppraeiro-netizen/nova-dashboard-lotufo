@@ -4,8 +4,8 @@ import { ApiErro } from "./api";
 import type { Usuario } from "./Login";
 import MedicaoPagina from "./MedicaoPagina";
 
-const { api } = vi.hoisted(() => ({ api: vi.fn() }));
-vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm: vi.fn() }));
+const { api, apiForm } = vi.hoisted(() => ({ api: vi.fn(), apiForm: vi.fn() }));
+vi.mock("./api", async (original) => ({ ...(await original<typeof import("./api")>()), api, apiForm }));
 // Cada cartao tem fluxo proprio; aqui so' importa que, ao avisar a pagina, ela releia o que os outros mostram.
 vi.mock("./Espelho", () => ({
   default: ({ parte }: { parte?: string }) => <div data-espelho={parte} />,
@@ -289,6 +289,49 @@ describe("Página da medição: as etapas se atualizam entre si", () => {
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/notas/5/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "SEI-1" }) }));
     expect((await screen.findByText(/O número já ficou na 23ª Medição/)).textContent).toContain("Medição sem envio registrado");
     await waitFor(() => expect(leituras("/api/contratos/1/medicoes").length).toBeGreaterThan(1));   // recarregou
+  });
+});
+
+// rodada 2 do revisor: a falha parcial do registro fora nao some com a janela quando a pagina passa da etapa 4 para a 5
+describe("Página da medição: registrar fora com falha parcial (MTPAR)", () => {
+  beforeEach(() => window.history.replaceState(null, "", "/obras/1/medicoes/5"));
+  afterEach(() => { cleanup(); api.mockReset(); apiForm.mockReset(); });
+
+  it("a medição vira protocolada depois do primeiro envio e o segundo falha: o alerta fica até a pessoa fechar", async () => {
+    const REAJ = { ...MEDICAO, id: 6, tipo: "reajuste", estado: "nota_emitida" };
+    const EXEC = { ...MEDICAO, estado: "nota_emitida" };
+    const envio = (chave: string, id: number, desc: string) => ({ chave, contrato_id: 1, medicao_ids: [id], protocolo_id: null, notas: [], itens: [],
+      situacao: "pronto", descricao: desc, valor_centavos: 1, familia: "mtpar", aviso: null, irmas: [] });
+    const metade = (id: number, tipo: string, estado: string) => ({ medicao_id: id, tipo, titulo: "x", estado, faltam: 0, esperadas: [], completa: true,
+      espera: null, liberacao: null });
+    let protocolada = false;
+    api.mockImplementation(async (url: string) => {
+      if (url === "/api/contratos/1/medicoes") return [protocolada ? { ...MEDICAO } : EXEC, REAJ];
+      if (url === "/api/medicoes/5/par") return { junta: false, orgao: "MTPAR", metades: [metade(5, "execucao", protocolada ? "protocolada" : "nota_emitida"), metade(6, "reajuste", "nota_emitida")] };
+      if (url === "/api/notas/a-enviar") return { envios: protocolada ? [envio("b", 6, "Reajuste da 23ª medição")]
+        : [envio("a", 5, "23ª medição"), envio("b", 6, "Reajuste da 23ª medição")], contadores: {} };
+      if (url.endsWith("/cabecalho")) return { obra: "Hospital", orgao: "SES", instrumento: "CT 1/2026", percentual_lotufo_bp: 10000 };
+      if (url === "/api/contratos/1/protocolos") return LISTA;
+      if (url.startsWith("/api/contratos/1/checklist")) return { itens: [] };
+      if (url === "/api/contratos/1/espelho") return { espelhos: [] };
+      return [];
+    });
+    apiForm.mockImplementationOnce(async () => { protocolada = true; return { ok: true }; })
+      .mockRejectedValueOnce(new ApiErro(422, "Medição 6 não está com a nota emitida"));
+    pagina();
+    fireEvent.click(await screen.findByText("Registrar envio feito fora do sistema"));
+    fireEvent.click(screen.getAllByRole("checkbox")[1]);
+    fireEvent.change(screen.getByLabelText("Como e para quem a nota foi enviada"), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent).toContain("Já registrados: 23ª medição");
+    // a pagina nao foi relida: o erro continua a' vista, ainda na etapa 4
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.getByRole("alert").textContent).toContain("Já registrados");
+    expect(screen.getByRole("heading", { name: "Envio ao órgão", level: 2 })).toBeTruthy();
+    const antes = leituras("/api/contratos/1/medicoes").length;
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(leituras("/api/contratos/1/medicoes").length).toBeGreaterThan(antes));
   });
 });
 
