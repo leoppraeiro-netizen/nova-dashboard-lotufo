@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import Admin from "./Admin";
 import { api, setCsrf } from "./api";
 import AReceberPagina from "./AReceberPagina";
-import AvisosPagina from "./AvisosPagina";
 import { ABAS_ADMIN } from "./administracao";
 import { ABAS_CARTEIRA } from "./carteira";
 import { BarraSuperior, Trilho } from "./Casca";
@@ -19,7 +18,7 @@ import NovaMedicao from "./NovaMedicao";
 import Diretoria from "./Diretoria";
 import { entradaDe, itemDe, tituloDaSecao, tituloDe } from "./navegacao";
 import { ABAS_MEDICOES } from "./resumoMedicoes";
-import { caminhoDe, ehDetalhe, useRolarAteSecao, useRota } from "./rota";
+import { buscaDosAvisosEmObras, caminhoDe, ehDetalhe, useRolarAteSecao, useRota } from "./rota";
 
 // Menu e entrada por perfil moram em navegacao.ts (NAVEGACAO.md › Perfis e tela de entrada); o trilho e a barra
 // superior, em Casca.tsx. O App so' escolhe a tela. Todo perfil entra pelo Inicio (decisao do Leonardo, 08/10/2026).
@@ -46,12 +45,15 @@ export default function App() {
     if (!usuario) return;
     if (rota.tela === "raiz" || (rota.tela === "admin" && usuario.perfil !== "admin")) {
       substituir(entradaDe(usuario.perfil));
+    } else if (rota.tela === "avisos") {
+      // os Avisos moram dentro de Obras (09/10/2026): o item do menu e o link de antes levam para la'
+      substituir({ tela: "obras" }, buscaDosAvisosEmObras(busca));
     } else if (caminhoDe(rota) !== window.location.pathname) {
       substituir(rota);
     }
     // `substituir` e' do modulo (estavel); listar so' o que decide o redirecionamento.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuario, rota]);
+  }, [usuario, rota, busca]);
 
   useEffect(() => {
     // A obra e a medicao poem o proprio titulo ("MT-388 · Prazos"), quando o cabecalho delas chega.
@@ -74,7 +76,7 @@ export default function App() {
 
   // A barra superior diz a SECAO; quem tem titulo proprio (o objeto, ou o "Bom dia" do Inicio) fica com o h1 da
   // pagina, e a barra nao repete um segundo h1.
-  const tituloProprio = ehDetalhe(rota) || rota.tela === "notas-envio" || rota.tela === "inicio";
+  const tituloProprio = ehDetalhe(rota) || rota.tela === "notas-envio" || rota.tela === "inicio" || rota.tela === "obras";
 
   return (
     <div className="shell">
@@ -84,7 +86,7 @@ export default function App() {
         ev.preventDefault();
         document.getElementById("conteudo")?.focus();
       }}>Pular para o conteúdo</a>
-      <Trilho perfil={usuario.perfil} marcado={itemDe(rota)} ir={ir} />
+      <Trilho perfil={usuario.perfil} marcado={itemDe(rota, busca)} ir={ir} />
 
       <div className="coluna">
         <BarraSuperior titulo={tituloDaSecao(rota)} ehH1={!tituloProprio} usuario={usuario} ir={ir} />
@@ -92,7 +94,6 @@ export default function App() {
           {rota.tela === "inicio" && <div className="pagina"><Inicio usuario={usuario} ir={ir} /></div>}
           {rota.tela === "medicoes" && <MedicoesPagina aba={rota.aba ?? "resumo"} busca={busca} usuario={usuario} />}
           {rota.tela === "notas-envio" && <EnviarNota key={rota.id} protocoloId={rota.id} podeEditar={usuario.perfil === "engenharia" || usuario.perfil === "admin"} />}
-          {rota.tela === "avisos" && <AvisosPagina busca={busca} perfil={usuario.perfil} />}
           {rota.tela === "a-receber" && (
             <div className="pagina">
               <p className="pagina__descricao">Quanto os órgãos devem, e há quanto tempo · na cota da Lotufo</p>
@@ -105,12 +106,7 @@ export default function App() {
               <Diretoria ir={ir} aba={rota.aba ?? "resumo"} />
             </div>
           )}
-          {rota.tela === "obras" && (
-            <div className="pagina">
-              <p className="pagina__descricao">A situação e o término de cada obra · valores cheios</p>
-              <Contratos ir={ir} busca={busca} />
-            </div>
-          )}
+          {rota.tela === "obras" && <Contratos ir={ir} busca={busca} perfil={usuario.perfil} />}
           {rota.tela === "obra" && (
             // `key` no id: trocar de obra REMONTA a pagina em vez de reaproveitar a
             // instancia. Sem isso, o painel aberto e os rascunhos de formulario da
