@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import Checklist, { CartaRecolhivel, type ItemChecklist } from "./Checklist";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
-import ErroCampo from "./ErroCampo";
+import ConfirmarPendencias, { pendenciasDoErro } from "./ConfirmarPendencias";
 import { api, apiForm, mensagemDeErro } from "./api";
 import { IconeAlerta, IconeSeta } from "./icones";
 import { FormMotivo } from "./MedicaoAtos";
@@ -20,8 +20,6 @@ import Pendencias from "./Pendencias";
 // regras moram em `app/protocolo.py`, nao aqui.
 
 type Etapa = { chave: string; rotulo: string; carta: boolean };
-// Enviar com pendencia exige uma frase (o servidor recusa menos que isso: protocolo.MIN_JUSTIFICATIVA).
-const MIN_JUSTIFICATIVA = 10;
 type PecaCfg = { tipo: string; rotulo: string; exigida: boolean; solto: boolean; naturezas?: string[] };
 type Medicao = { id: number; numero: number; tipo: string; titulo: string; estado: string;
   competencia: string; valor_protocolado_centavos: number | null };
@@ -50,7 +48,7 @@ function mensagem(e: unknown): string {
 }
 
 // As pecas do orgao como checklist (F-67). "Falta" e' Atencao: peca exigida sem anexo e' pendencia que se envia
-// com justificativa (app/protocolo.py), nao bloqueio. Peca anexada de um tipo que a etapa nao pede aparece em
+// com a confirmacao (issue #213), nao bloqueio. Peca anexada de um tipo que a etapa nao pede aparece em
 // "Outras pecas", so' para remover.
 function itensDoProtocolo(p: ProtocoloDet, pecasCfg: PecaCfg[]): ItemChecklist[] {
   const arquivosDe = (tipo: string) => p.pecas.filter(x => x.tipo === tipo).map(x => ({ id: x.id, nome: x.nome, tamanho: x.tamanho }));
@@ -276,8 +274,8 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
   const idNota = useId();
   // a previa guarda os protocolos com que foi montada: o Enviar manda esses, nao os marcados na hora do clique
   const [previa, setPrevia] = useState<(Previa & { ids: number[]; marca: string }) | null>(null);
-  const [justificativa, setJustificativa] = useState("");
-  const [tentou, setTentou] = useState(false);   // clicou em Enviar: so' ai' o campo mostra o que falta
+  // issue #213: o e-mail esperando a confirmacao do que falta (`mudou`: o servidor recusou a lista confirmada antes)
+  const [confirmar, setConfirmar] = useState<{ m: Mensagem; pendencias: string[]; mudou: boolean } | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState("");
   const [feito, setFeito] = useState("");
@@ -294,34 +292,38 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
     try {
       const p = await api<Previa>("/api/protocolos/envio/previa", { method: "POST", body: JSON.stringify({ protocolo_ids: ids }) });
       setPrevia({ ...p, ids, marca });
-      setJustificativa("");
-      setTentou(false);
+      setConfirmar(null);
     } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
   }
 
-  async function enviar(m: Mensagem) {
-    setOcupado(true); setErro("");
+  // issue #213: com algo faltando, o clique so' abre a confirmacao "ATENCAO: ... Deseja continuar com o envio?"
+  function enviar(m: Mensagem) {
+    const faltas = previa?.pendencias.map(p => p.mensagem) ?? [];
+    if (faltas.length > 0) { setConfirmar({ m, pendencias: faltas, mudou: false }); return; }
+    void postar(m, null);
+  }
+
+  async function postar(m: Mensagem, confirmadas: string[] | null) {
+    setOcupado(true); setErro(""); setConfirmar(null);
     try {
       await api("/api/protocolos/envio", { method: "POST", body: JSON.stringify({
-        protocolo_ids: previa!.ids, ...m, justificativa: justificativa || null,
+        protocolo_ids: previa!.ids, ...m, ...(confirmadas ? { pendencias_confirmadas: confirmadas } : {}),
         // revisor R3 (PR #92): os anexos vistos; documento anexado depois da previa faz o servidor recusar
         anexos: previa!.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho })) }) });
       setPrevia(null);
       setFeito("Enviado. O e-mail saiu da sua conta Microsoft e ficou registrado.");
       await aoEnviado();
-    } catch (e) { setErro(mensagem(e)); } finally { setOcupado(false); }
+    } catch (e) {
+      // issue #213: o que falta mudou desde a confirmacao: a lista de agora entra na previa e pede outra confirmacao
+      const novas = pendenciasDoErro(e);
+      if (novas) {
+        setPrevia(p => (p ? { ...p, pendencias: novas.map(texto => ({ codigo: "pendencia", mensagem: texto })) } : p));
+        setConfirmar({ m, pendencias: novas, mudou: true });
+      } else setErro(mensagem(e));
+    } finally { setOcupado(false); }
   }
 
-  const precisaJustificativa = (previa?.pendencias.length ?? 0) > 0;
-  const faltaJustificativa = precisaJustificativa && justificativa.trim().length < MIN_JUSTIFICATIVA;
-  const erroJustificativa = tentou && faltaJustificativa
-    ? `Escreva a justificativa, com pelo menos ${MIN_JUSTIFICATIVA} caracteres.` : undefined;
-  // o clique em Enviar chega aqui antes do envio: a justificativa que falta aparece junto do campo, com o foco nele
-  function validarAntes(): boolean {
-    setTentou(true);
-    if (faltaJustificativa) document.getElementById("prot-just")?.focus();
-    return !faltaJustificativa;
-  }
+  const temFaltas = (previa?.pendencias.length ?? 0) > 0;
 
   return (
     <>
@@ -345,25 +347,23 @@ function EnvioProtocolos({ marcados, protocolos, podeEditar, aoEnviado, nivel = 
           </div>
           <div className="cartao__corpo">
             <ComporEmail ocupado={ocupado} anexos={previa.anexos}
-              validarAntes={validarAntes}
               inicial={{ para: previa.para, copia: previa.copia, cco: [], assunto: previa.assunto, corpo: previa.corpo }}
-              antes={precisaJustificativa && (
+              antes={temFaltas && (
                 <div className="campo ol-pendencias">
                   <span className="campo__rotulo">O que falta</span>
                   <Pendencias itens={previa.pendencias} />
-                  <label className="campo__rotulo" htmlFor="prot-just">Justificativa (obrigatória para enviar assim)</label>
-                  <textarea id="prot-just" name="justificativa" autoComplete="off" rows={2} maxLength={2000} value={justificativa}
-                    aria-invalid={erroJustificativa ? true : undefined} aria-describedby={erroJustificativa ? "prot-just-erro" : undefined}
-                    onChange={e => setJustificativa(e.target.value)} />
-                  <ErroCampo id="prot-just-erro" erro={erroJustificativa} />
-                  {/* F-69: a condicao do Enviar, logo abaixo do campo que a cumpre */}
-                  <span className="campo__nota">Para enviar assim, a justificativa precisa de {MIN_JUSTIFICATIVA} caracteres.</span>
+                  {/* issue #213: sem justificativa escrita; a confirmacao vem no clique em Enviar */}
+                  <span className="campo__nota">Não impede o envio: ao enviar, o sistema pede a sua confirmação.</span>
                 </div>
               )}
               aoEnviar={enviar} aoDescartar={() => setPrevia(null)} />
             <p className="campo__nota">O e-mail sai da sua conta Microsoft. Anexos: {mb(previa.total)} de {mb(previa.limite)} permitidos.</p>
           </div>
         </section>
+      )}
+      {previa && confirmar && (
+        <ConfirmarPendencias pendencias={confirmar.pendencias} mudou={confirmar.mudou} ocupado={ocupado}
+          aoContinuar={() => void postar(confirmar.m, confirmar.pendencias)} aoCancelar={() => setConfirmar(null)} />
       )}
     </>
   );

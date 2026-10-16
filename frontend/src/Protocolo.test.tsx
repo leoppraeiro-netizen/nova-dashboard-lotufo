@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NovoProtocolo, ProtocolosDaMedicao } from "./Protocolo";
 import { ir } from "./rota";
@@ -33,7 +33,7 @@ describe("Protocolo", () => {
     expect(corpo).toEqual({ etapa: "unico", medicao_ids: [5], numero_oficio: "301" });
   });
 
-  it("na medição, mostra o aviso da conferência e só envia com justificativa", async () => {
+  it("na medição, mostra o aviso da conferência e só envia com a confirmação do que falta (issue #213)", async () => {
     render(<ProtocolosDaMedicao contratoId={1} medicaoId={5} dados={{ ...LISTA, protocolos: [PROT] }}
       carregar={async () => {}} podeEditar aoMudar={() => {}} />);
     expect(await screen.findByText(/parece não assinado/)).toBeTruthy();
@@ -43,23 +43,23 @@ describe("Protocolo", () => {
       pendencias: [{ codigo: "conferencia", mensagem: "Nenhuma página tem o carimbo" }] });
     fireEvent.click(screen.getByRole("button", { name: /Prévia do e-mail/ }));
     const enviar = await screen.findByRole("button", { name: "Enviar" });
-    // issue #11: o botão fica clicável; o clique sem justificativa diz o que falta, junto do campo
+    // o botão fica clicável e não há mais justificativa escrita: o clique abre "ATENÇÃO: ... Deseja continuar?"
     expect((enviar as HTMLButtonElement).disabled).toBe(false);
-    const campo = screen.getByLabelText(/Justificativa/);
+    expect(screen.queryByLabelText(/Justificativa/)).toBeNull();
+    const enviou = () => api.mock.calls.filter(c => c[0] === "/api/protocolos/envio");
     fireEvent.click(enviar);
-    const erro = screen.getByText(/Escreva a justificativa/);
-    expect(erro.getAttribute("role")).toBe("alert");
-    expect(campo.getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById(campo.getAttribute("aria-describedby") ?? "")?.contains(erro)).toBe(true);
-    fireEvent.change(campo, { target: { value: "ok" } });
-    fireEvent.click(enviar);
-    expect(screen.getByText(/Escreva a justificativa/)).toBeTruthy();
-    expect(api.mock.calls.some(c => c[0] === "/api/protocolos/envio")).toBe(false);
-    fireEvent.change(campo, { target: { value: "assinado à mão" } });
-    expect(screen.queryByText(/Escreva a justificativa/)).toBeNull();
+    let janela = screen.getByRole("dialog", { name: "Confirmar o envio" });
+    expect(within(janela).getByText(/Nenhuma página tem o carimbo/)).toBeTruthy();
+    expect(within(janela).getByText("ATENÇÃO:")).toBeTruthy();
+    fireEvent.click(within(janela).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(enviou()).toHaveLength(0);
     api.mockResolvedValue({});
     fireEvent.click(enviar);
-    await waitFor(() => expect(api.mock.calls.some(c => c[0] === "/api/protocolos/envio")).toBe(true));
+    janela = screen.getByRole("dialog", { name: "Confirmar o envio" });
+    fireEvent.click(within(janela).getByRole("button", { name: "Continuar com o envio" }));
+    await waitFor(() => expect(enviou()).toHaveLength(1));
+    expect(JSON.parse(enviou()[0][1].body).pendencias_confirmadas).toEqual(["Nenhuma página tem o carimbo"]);
   });
 
   // issue #10: o e-mail leva exatamente os protocolos vistos na prévia

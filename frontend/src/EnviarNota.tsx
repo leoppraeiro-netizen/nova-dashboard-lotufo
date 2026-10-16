@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CaixaAviso from "./CaixaAviso";
 import ComporEmail, { type Mensagem } from "./ComporEmail";
+import ConfirmarPendencias, { pendenciasDoErro } from "./ConfirmarPendencias";
 import ConfirmarRemocao from "./ConfirmarRemocao";
-import ErroCampo from "./ErroCampo";
 import { api, apiForm, ApiErro } from "./api";
 import { brl } from "./formato";
 import { IconeAlerta } from "./icones";
@@ -16,19 +16,20 @@ import { fmtHora } from "./tempo";
 // ao protocolo. O servidor monta a previa do e-mail e diz o que bloqueia (GET /api/notas/envio/{id}).
 // Desde 16/10/2026 so' mora na etapa 4 da pagina da medicao: nao ha' mais pagina avulsa (o endereco antigo
 // /notas/envio/:id abre a etapa 4 da medicao).
-
-const MIN_JUSTIFICATIVA = 10;
+// Issue #213: documento faltando nao pede mais justificativa escrita; o "Enviar o e-mail" abre a confirmacao
+// "ATENCAO: <o que falta>. Deseja continuar com o envio?" (ConfirmarPendencias).
 
 type Det = {
   envio: Envio; familia: string; etapa: string; situacao_protocolo: string;
   carta: { oficio: string | null; paginas: string[] } | null;
   previa: { para: string[]; copia: string[]; assunto: string; corpo: string; anexos: { nome: string; origem?: string; tamanho: number }[];
     links?: Link[] };
-  bloqueio: string | null; pendencias: (string | { mensagem: string })[]; justificativa_obrigatoria: boolean;
+  bloqueio: string | null; pendencias: (string | { mensagem: string })[]; confirmar_pendencias: boolean;
   extras: Extra[];
 };
 type Extra = { id: number; nome: string; tamanho: number };
 type Link = { id: number; nome: string; url: string };
+const texto = (p: string | { mensagem: string }) => (typeof p === "string" ? p : p.mensagem);
 
 // issue #100 (gate Sol S3, PR #141): a lista de anexos sem depender da ordem, como a conferencia do servidor; repetidos
 // contam. A mesma lista em outra ordem nao refaz a previa.
@@ -184,8 +185,8 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   const [erroAcao, setErroAcao] = useState("");
   const [reserva, setReserva] = useState<Reserva | null>(null);   // envio preso (409): oferece a liberacao
   const [ocupado, setOcupado] = useState(false);
-  const [justificativa, setJustificativa] = useState("");
-  const [tentou, setTentou] = useState(false);   // clicou em Enviar: so' ai' o campo mostra o que falta
+  // issue #213: o e-mail esperando a confirmacao do que falta (`mudou`: o servidor recusou a lista confirmada antes)
+  const [confirmar, setConfirmar] = useState<{ m: Mensagem; pendencias: string[]; mudou: boolean } | null>(null);
   const [outros, setOutros] = useState<Envio[] | null>(null);
   const [juntar, setJuntar] = useState<string[]>([]);
   const [conferencia, setConferencia] = useState<Conferencia>(null);
@@ -208,7 +209,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   useEffect(() => { void carregar(); }, [carregar, versao]);   // versao: documento da medicao mudou em outra etapa
 
   async function agir(f: () => Promise<void>) {
-    setOcupado(true); setErroAcao(""); setReserva(null); setTentou(false);
+    setOcupado(true); setErroAcao(""); setReserva(null);
     try { await f(); } catch (e) { setErroAcao(mensagem(e)); setReserva(envioReservado(e) ? e.corpo : null); } finally { setOcupado(false); }
   }
 
@@ -229,20 +230,13 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   const comCarta = det.carta !== null;
   const assinado = det.situacao_protocolo === "assinado";
   const montado = det.situacao_protocolo === "montado" || assinado;
-  const justOk = !det.justificativa_obrigatoria || justificativa.trim().length >= MIN_JUSTIFICATIVA;
+  const faltas = det.pendencias.map(texto);
   const motivo = det.bloqueio ? det.bloqueio
     : comCarta && !assinado ? "Libera depois de anexar o assinado."
-    : !justOk ? "Falta documento: o envio pede a justificativa acima." : "";
-  // so' o que trava o envio de fato (bloqueio do servidor, carta sem o assinado) apaga o botao; a justificativa
-  // que falta aparece no clique, junto do campo (issue #11)
+    : faltas.length > 0 ? "Falta documento: ao enviar, o sistema pede a sua confirmação." : "";
+  // so' o que trava o envio de fato (bloqueio do servidor, carta sem o assinado) apaga o botao; o que falta pede a
+  // confirmacao no clique (issue #213)
   const travado = !!det.bloqueio || (comCarta && !assinado);
-  const erroJustificativa = tentou && !justOk
-    ? `Escreva a justificativa, com pelo menos ${MIN_JUSTIFICATIVA} caracteres.` : undefined;
-  function validarAntes(): boolean {
-    setTentou(true);
-    if (!justOk) document.getElementById("nota-just")?.focus();
-    return justOk;
-  }
   const paginas = det.carta?.paginas ?? [];
   // so' o desenho dos passos (com carta): montar -> assinar -> enviar
   const passoOficio: Passo = montado ? "feito" : "atual";
@@ -254,18 +248,27 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
   const anexosVistos = det.previa.anexos.map(a => ({ nome: a.nome, tamanho: a.tamanho }));
   const itemMudou = () => { void carregar(); embutido.aoAnexarItem?.(); };
 
-  async function enviar(m: Mensagem) {
-    setRefeita(false);
+  // issue #213: com algo faltando, o clique so' abre a confirmacao; o e-mail sai pelo "Continuar com o envio"
+  function enviar(m: Mensagem) {
+    if (faltas.length > 0) { setConfirmar({ m, pendencias: faltas, mudou: false }); return; }
+    void postar(m, null);
+  }
+
+  async function postar(m: Mensagem, confirmadas: string[] | null) {
+    setRefeita(false); setConfirmar(null);
     await agir(async () => {
       try {
         await api(`/api/notas/envio/${protocoloId}/enviar`, { method: "POST", body: JSON.stringify({
-          para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo, justificativa: justificativa.trim() || null,
-          anexos: anexosVistos }) });
+          para: m.para, copia: m.copia, cco: m.cco, assunto: m.assunto, corpo: m.corpo,
+          ...(confirmadas ? { pendencias_confirmadas: confirmadas } : {}), anexos: anexosVistos }) });
       } catch (erro) {
         // so' a recusa por anexos mudados (em outra aba, p. ex.) recarrega: a previa com os anexos de agora toma o
         // lugar. Outro erro (409 de envio em andamento, falha do Outlook) mantem o e-mail como esta' (gate Sol S2).
         // `carregar` guarda o proprio erro, entao o que sobe e' sempre o do envio.
         if (erro instanceof ApiErro && erro.status === 422 && erro.corpo?.codigo === "ANEXOS_MUDARAM") await carregar();
+        // issue #213: o que falta mudou desde a confirmacao: a tela le de novo e pede outra, com a lista de agora
+        const novas = pendenciasDoErro(erro);
+        if (novas) { await carregar(); setConfirmar({ m, pendencias: novas, mudou: true }); return; }
         throw erro;
       }
       // B-06 (10/10/2026): a pagina da medicao troca o aviso anterior ("Valor protocolado gravado.") por este
@@ -298,19 +301,14 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
     });
   }
 
-  const justificativaBloco = det.justificativa_obrigatoria && (
+  // issue #213: o que falta, a' vista; a confirmacao vem no clique em "Enviar o e-mail" (sem justificativa escrita)
+  const faltasBloco = faltas.length > 0 && (
     <div className="campo nota-justificativa">
-      {det.pendencias.length > 0 && (
-        <ul className="lista-simples">
-          {det.pendencias.map((p, i) => <li key={i} className="notas__diverge">{typeof p === "string" ? p : p.mensagem}</li>)}
-        </ul>
-      )}
-      <label className="campo__rotulo" htmlFor="nota-just">Justificativa para enviar sem o documento</label>
-      <textarea id="nota-just" name="justificativa" autoComplete="off" rows={3} maxLength={2000} value={justificativa} disabled={!!det.bloqueio}
-        aria-invalid={erroJustificativa ? true : undefined} aria-describedby={erroJustificativa ? "nota-just-erro" : undefined}
-        placeholder="Mínimo de 10 caracteres — ex.: DP confirmou envio direto ao fiscal…" onChange={ev => setJustificativa(ev.target.value)} />
-      <ErroCampo id="nota-just-erro" erro={erroJustificativa} />
-      <span className="campo__nota">Obrigatória quando falta algum documento.</span>
+      <span className="campo__rotulo">O que falta neste envio</span>
+      <ul className="lista-simples">
+        {faltas.map((p, i) => <li key={i} className="notas__diverge">{p}</li>)}
+      </ul>
+      <span className="campo__nota">Não impede o envio: ao enviar, o sistema pede a sua confirmação.</span>
     </div>
   );
 
@@ -324,9 +322,9 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
       {/* a chave inclui os complementares: anexar ou remover refaz o texto ("... e documento complementar.") */}
       {/* issue #100: e os anexos da previa: NF ou FRC anexada, juntar ou separar fecham a previa e abrem a nova */}
       <ComporEmail key={`${protocoloId}-${det.situacao_protocolo}-${(det.extras ?? []).map(x => x.id).join(".")}-${(det.previa.links ?? []).map(x => x.id).join(".")}-${assinaturaAnexos(anexosVistos)}`} ocupado={ocupado} rotuloEnviar="Enviar o e-mail"
-        bloqueado={travado} validarAntes={validarAntes} anexos={det.previa.anexos}
+        bloqueado={travado} anexos={det.previa.anexos}
         inicial={{ para: det.previa.para, copia: det.previa.copia, cco: [], assunto: det.previa.assunto, corpo: det.previa.corpo }}
-        aoMexer={setEmailMexido} aoEnviar={m => void enviar(m)} aoDescartar={() => embutido.aoDescartar?.()} />
+        aoMexer={setEmailMexido} aoEnviar={enviar} aoDescartar={() => embutido.aoDescartar?.()} />
       {refeita && <CaixaAviso nivel="atencao" role="status">A prévia foi refeita com os anexos de agora e o texto voltou ao padrão; confira antes de enviar.</CaixaAviso>}
       <p className="campo__nota">Texto montado com os anexos prontos; você pode editar. O e-mail sai da sua conta Microsoft.</p>
     </>
@@ -388,7 +386,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
               )}
               <ItensEnvio itens={e.itens} aoMudar={itemMudou} />
               {complementares}
-              {justificativaBloco}
+              {faltasBloco}
             </Secao>
             <Secao n={2} titulo="Para quem vai" passo="futuro">{email}</Secao>
           </>
@@ -404,7 +402,7 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
               )}
               <ItensEnvio itens={e.itens} aoMudar={itemMudou} />
               {complementares}
-              {justificativaBloco}
+              {faltasBloco}
               {det.situacao_protocolo === "rascunho" && (
                 <div className="form-inline">
                   <button type="button" className="btn btn--primario" disabled={ocupado || !!det.bloqueio}
@@ -439,12 +437,16 @@ export default function EnviarNota({ protocoloId, embutido, podeEditar, versao =
         )}
 
         <div className="nota-rodape">
-          {motivo && <p className={`nota-rodape__motivo nota-rodape__motivo--${det.bloqueio ? "bloqueio" : !justOk ? "atencao" : "neutro"}`}>{motivo}</p>}
+          {motivo && <p className={`nota-rodape__motivo nota-rodape__motivo--${det.bloqueio ? "bloqueio" : faltas.length > 0 ? "atencao" : "neutro"}`}>{motivo}</p>}
         </div>
         {e.familia === "mtpar" && (
           <p className="nota-porfora__dica">Depois do envio a nota vai para Aguardando pagamento sem o nº do protocolo do órgão; o número e o comprovante se registram aqui, na etapa 4, depois do envio.</p>
         )}
       </div>
+      {confirmar && (
+        <ConfirmarPendencias pendencias={confirmar.pendencias} mudou={confirmar.mudou} ocupado={ocupado}
+          aoContinuar={() => void postar(confirmar.m, confirmar.pendencias)} aoCancelar={() => setConfirmar(null)} />
+      )}
     </>
   );
 }

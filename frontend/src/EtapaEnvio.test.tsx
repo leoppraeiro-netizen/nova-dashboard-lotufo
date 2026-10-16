@@ -235,6 +235,45 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     expect(p.aoMudar).not.toHaveBeenCalled();
   });
 
+  // issue #213 (decisão do Leo nas #152/#157): o registro por fora segue a mesma regra de documento faltando
+  describe("documento faltando pede a confirmação", () => {
+    const FALTA = ["Certidões Lotufo (5): fgts sem certidão"];
+    const recusa = (pendencias: string[]) => new ApiErro(422, "ATENÇÃO", { codigo: "CONFIRMAR_PENDENCIAS", mensagem: "ATENÇÃO",
+      pendencias });
+
+    it("o servidor diz o que falta, a janela mostra e Cancelar não registra nada", async () => {
+      const p = await abrir([envio()]);
+      apiForm.mockRejectedValueOnce(recusa(FALTA));
+      fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+      fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+      const janela = await screen.findByRole("dialog", { name: "Confirmar o envio" });
+      expect(within(janela).getByText("ATENÇÃO:")).toBeTruthy();
+      expect(within(janela).getByText(new RegExp(FALTA[0].replace(/[()]/g, "\\$&")))).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+      fireEvent.click(within(janela).getByRole("button", { name: "Cancelar" }));
+      expect(screen.queryByRole("dialog", { name: "Confirmar o envio" })).toBeNull();
+      expect(apiForm).toHaveBeenCalledTimes(1);
+      expect(p.aoMudar).not.toHaveBeenCalled();
+    });
+
+    it("Continuar com o registro manda a lista confirmada; se mudou, pede de novo com a lista nova", async () => {
+      const p = await abrir([envio()]);
+      const NOVA = [...FALTA, "Regularidade mensal: O DP ainda não enviou o arquivo de 09/2026"];
+      apiForm.mockRejectedValueOnce(recusa(FALTA)).mockRejectedValueOnce(recusa(NOVA)).mockResolvedValueOnce({ ok: true });
+      fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+      fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+      fireEvent.click(within(await screen.findByRole("dialog", { name: "Confirmar o envio" }))
+        .getByRole("button", { name: "Continuar com o registro" }));
+      expect(await screen.findByText(/O que falta mudou desde a sua confirmação/)).toBeTruthy();
+      expect((apiForm.mock.calls[1][1] as FormData).getAll("pendencias_confirmadas")).toEqual(FALTA);
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Confirmar o envio" }))
+        .getByRole("button", { name: "Continuar com o registro" }));
+      await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+      expect((apiForm.mock.calls[2][1] as FormData).getAll("pendencias_confirmadas")).toEqual(NOVA);
+      expect((apiForm.mock.calls[0][1] as FormData).getAll("pendencias_confirmadas")).toEqual([]);
+    });
+  });
+
   it("envio bloqueado não oferece o registro", async () => {
     api.mockResolvedValue({ itens: [] });
     montar([envio({ situacao: "bloqueado", aviso: "Federal vencida" })]);
