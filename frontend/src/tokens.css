@@ -1962,3 +1962,35 @@ a.indicador__rotulo { color: var(--acento); }
 .lt__resto.negativo { color: var(--acao); }
 .lt__nota { margin: 4px 0 0; font-size: 12px; color: var(--texto-2); text-align: right; }
 .lt__nota--esq { text-align: left; }
+
+/* Minha conta (#165, opcao A): uma coluna centralizada de cartoes */
+.coluna-conta { width: 100%; max-width: 720px; margin: 0 auto; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+.coluna-conta .cartao__cabeca { border-bottom: 0; padding-bottom: 4px; flex-wrap: wrap; }
+.coluna-conta .cartao__corpo { padding-top: 8px; padding-bottom: 20px; }
+.coluna-conta .cartao__corpo > p { margin: 0 0 10px; }
+.coluna-conta .cartao__corpo > p:last-child { margin-bottom: 0; }
+.coluna-conta .aviso { margin: 0 0 12px; }
+.coluna-conta .erro { margin: 10px 0 0; }
+.coluna-conta .detalhes { margin-top: 12px; }
+.form-senha { display: grid; gap: 14px; }
+.form-senha .campo__erro:empty { display: none; }
+.form-senha p { margin: 0; }
+.coluna-conta .botao-largo + .campo__nota { margin-top: 10px; }
+.senha { position: relative; }
+.senha input { width: 100%; height: 40px; padding-right: 44px; font-size: 14px; box-sizing: border-box; }
+.senha input[aria-invalid="true"] { border-color: var(--acao); }
+.olho { position: absolute; right: 4px; top: 4px; width: 32px; height: 32px; padding: 0; justify-content: center; border: 0; background: none; color: var(--texto-2); }
+.olho:hover:not(:disabled) { background: var(--hover); color: var(--texto); border: 0; }
+.botao-largo { width: 100%; height: 40px; justify-content: center; font-size: 14px; }
+.par-botoes { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); margin-top: 16px; }
+.par-botoes > .btn { height: 40px; justify-content: center; font-size: 14px; }
+.feito-caixa { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border: 1px solid var(--ok-linha); border-radius: var(--raio-ctrl); background: var(--ok-fundo); color: var(--ok); font-size: 13px; }
+.coluna-conta .cartao__corpo > .feito-caixa { margin-top: 12px; }
+.codigo { display: grid; gap: 6px; padding: 14px 16px; border: 1px solid var(--acento-linha); border-radius: var(--raio-ctrl); background: var(--acento-fundo); margin-bottom: 12px; }
+.codigo__valor { font-family: var(--fonte-num); font-size: 24px; letter-spacing: .12em; color: var(--acento-mais); }
+.coluna-conta .assinatura-alvo { display: grid; place-items: center; gap: 8px; min-height: 120px; padding: 16px; background: var(--superficie-2); border-radius: var(--raio-ctrl); cursor: default; }
+.coluna-conta .assinatura-alvo p { margin: 0; }
+.coluna-conta .assinatura-alvo.arrastando { border-color: var(--acento); background: var(--acento-fundo); color: var(--acento-mais); }
+.coluna-conta .assinatura-alvo img { max-width: 100%; max-height: 160px; border: 1px solid var(--linha); border-radius: var(--raio-micro); background: var(--superficie); }
+.assinatura-alvo__dica { font-size: 12.5px; color: var(--texto-2); }
+.caminho { word-break: break-all; }
