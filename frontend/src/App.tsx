@@ -95,8 +95,8 @@ export default function App() {
           {rota.tela === "avisos" && <AvisosPagina busca={busca} perfil={usuario.perfil} />}
           {rota.tela === "a-receber" && (
             <div className="pagina">
-              <p className="pagina__descricao">Quanto os órgãos devem, e há quanto tempo · na cota da Lotufo</p>
-              <AReceberPagina busca={busca} />
+              <p className="pagina__descricao">Medições protocoladas esperando pagamento e o que entrou no mês · na cota da Lotufo</p>
+              <AReceberPagina />
             </div>
           )}
           {rota.tela === "carteira" && (

@@ -209,16 +209,6 @@ function Resumo({ p, ir }: { p: Painel; ir: Ir }) {
           <Kpi valorTexto={valor(d.protocolado.valor_centavos)} rotulo={`protocolado esperando pagamento (${d.protocolado.quantidade})`} />
           <Kpi valorTexto={brl(d.recebido_mes.valor_centavos)} rotulo={`recebido no mês (${d.recebido_mes.quantidade})`} />
         </ul>
-        {/* o protocolado por orgao (faixas, obras) e os reajustes esperando apostilamento moram em A receber */}
-        <div className="cartao__corpo">
-          <p>
-            Em A receber:{" "}
-            <Link para={{ tela: "a-receber" }} ir={ir}>por órgão e há quanto tempo</Link>{" · "}
-            <Link para={{ tela: "a-receber" }} secao="reajustes" ir={ir}>
-              reajustes esperando apostilamento ({d.reajustes_apostilamento.quantidade})
-            </Link>
-          </p>
-        </div>
       </Secao>
 
       <Secao id="dir-mes" titulo="O mês" dica={`Competência ${fmtCompetencia(m.mes)}`}>
