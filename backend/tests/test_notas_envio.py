@@ -1316,6 +1316,8 @@ def test_pacote_montado_com_a_assinada_velha_exige_montar_de_novo(conn, usuario,
     nova = test_frc._assinar(conn, usuario, mid, _texto, "FRC v2 assinada.pdf")["documento_id"]
     assert frc.assinada(conn, mid)["documento"]["id"] == nova
     assert protocolo.bloqueio(conn, protocolo._linha(conn, pid), HOJE) == protocolo.PACOTE_FRC_VELHA
+    env = notas_envio.detalhe_envio(conn, pid)["envio"]
+    assert env["situacao"] == "bloqueado" and "Pacote com a FRC assinada anterior" in env["aviso"]
     pv = protocolo.previa_envio(conn, [pid], hoje=HOJE)
     with pytest.raises(protocolo.Bloqueio, match="O pacote foi montado antes da FRC assinada que vale agora"):
         protocolo.enviar(conn, usuario, [pid], ["orgao@exemplo.com.br"], [], pv["assunto"], pv["corpo"],

@@ -294,6 +294,10 @@ def _envio(conn, c: dict, familia: str, o: dict, ms: list[dict], protocolo_id: i
         "pendente" if "falta" in estados else "a_pedido" if o["chave"] == "pref-cuiaba" else "pronto"
     if esperas:
         curtos = [esperas[0]["texto"].capitalize(), *curtos]
+    # rodada 4 da PR #179: o pacote montado com a FRC assinada anterior bloqueia o envio; a lista mostra
+    elif protocolo_id and protocolo.PACOTE_FRC_VELHA in protocolo.frc_recusadas(conn, protocolo._linha(conn, protocolo_id)):
+        situacao = "bloqueado"
+        curtos.append("Pacote com a FRC assinada anterior: monte de novo")
     ids = sorted(m["id"] for m in ms)
     emitida = max((m["desde"] for m in ms if m.get("desde")), default=None)
     return {"chave": f"c{c['id']}:" + "-".join(f"m{i}" for i in ids), "contrato_id": c["id"],

@@ -707,10 +707,6 @@ def _contexto(conn, p: dict) -> tuple[str, dict, Etapa, dict]:
     return familia, regras, _etapa(familia, p["etapa"]), c
 
 
-def _anexos(conn, p: dict, hoje: datetime.date) -> list[tuple[str, bytes]]:
-    return [(n, b) for n, b, _ in _anexos_rotulados(conn, p, hoje)]
-
-
 def _anexos_rotulados(conn, p: dict, hoje: datetime.date) -> list[tuple[str, bytes, str]]:
     """(nome, bytes, origem): 'pacote', 'planilha', 'pecas', 'nota', 'frc', 'certidoes', 'cno', 'regularidade'."""
     _, regras, e, c = _contexto(conn, p)
@@ -865,6 +861,13 @@ def _oficio_da_medicao(conn, medicao_id: int) -> str | None:
     return r[0] if r else None
 
 
+def _conferir_anexos(conferidos: list[dict], atuais: list[dict]) -> None:
+    """Issue #10: o e-mail leva os anexos que a pessoa conferiu (nome e tamanho); se mudaram, recusa."""
+    if sorted((a["nome"], a["tamanho"]) for a in conferidos) != sorted((a["nome"], a["tamanho"]) for a in atuais):
+        raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
+                            "o que vai no e-mail")
+
+
 def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia: list[str], assunto: str,
            corpo: str, justificativa: str | None = None, hoje: datetime.date | None = None,
            cco: list[str] | None = None, anexos_previa: list[dict] | None = None) -> int:
@@ -890,9 +893,8 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
         raise Bloqueio(pv["bloqueio"])
     # Issue #10: o e-mail leva os anexos que a pessoa conferiu na previa; documento anexado ou trocado depois dela
     # (na medicao ou no protocolo) recusa o envio em vez de sair sem ser visto.
-    if anexos_previa is not None and sorted((a["nome"], a["tamanho"]) for a in anexos_previa) !=             sorted((a["nome"], a["tamanho"]) for a in pv["anexos"]):
-        raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para conferir "
-                            "o que vai no e-mail")
+    if anexos_previa is not None:
+        _conferir_anexos(anexos_previa, pv["anexos"])
     justificativa = (justificativa or "").strip() or None
     if pv["pendencias"] and len(justificativa or "") < MIN_JUSTIFICATIVA:
         raise ValueError(f"{len(pv['pendencias'])} pendência(s) na prévia: informe a justificativa "
@@ -912,15 +914,15 @@ def enviar(conn, usuario: dict, protocolo_ids: list[int], para: list[str], copia
             envio_reserva.reservar(conn, "protocolos", x["id"], usuario["id"], x["envio_id"])
     try:
         # Revisor adversarial na rodada 3 da PR #179: a FRC assinada pode ter mudado entre a previa e a reserva (FRC
-        # gerada de novo, outra assinada anexada). Conferida de novo aqui, com os anexos que vao de fato no e-mail;
-        # a recusa cai no `except` abaixo, que destrava a reserva antes de qualquer e-mail.
-        agora = [r for x in ps for r in frc_recusadas(conn, _linha(conn, x["id"]))]
+        # gerada de novo, outra assinada anexada). Os anexos sao lidos primeiro e a FRC conferida DEPOIS da leitura:
+        # o que mudar antes dela aparece na conferencia. A recusa cai no `except` abaixo, que destrava a reserva antes
+        # de qualquer e-mail.
+        agora_ps = [_linha(conn, x["id"]) for x in ps]
+        rotulados = [a for x in agora_ps for a in _anexos_rotulados(conn, x, hoje)]
+        agora = [r for x in agora_ps for r in frc_recusadas(conn, x)]
         if agora:
             raise Bloqueio(" · ".join(dict.fromkeys(agora)))
-        rotulados = [a for x in ps for a in _anexos_rotulados(conn, _linha(conn, x["id"]), hoje)]
-        if sorted((n, len(b)) for n, b, _ in rotulados) != sorted((a["nome"], a["tamanho"]) for a in pv["anexos"]):
-            raise AnexosMudaram("Os anexos mudaram depois da prévia: descarte esta prévia e abra outra para "
-                                "conferir o que vai no e-mail")
+        _conferir_anexos([{"nome": n, "tamanho": len(b)} for n, b, _ in rotulados], pv["anexos"])
         anexos = [(n, b) for n, b, _ in rotulados]
         envio_id = correio.enviar_e_registrar(conn, usuario, "protocolo", para,
                                               [x.strip() for x in copia if x.strip()], assunto, _html(corpo),
