@@ -39,15 +39,16 @@ orquestradora passou; numa sessão manual, é a pasta atual do worktree (`pwd`).
 
 ```bash
 cd "<worktree>" || exit 1
-git diff --quiet origin/master...HEAD && { echo "diff vazio: nada para revisar"; exit 1; }
+git diff --quiet origin/master...HEAD; rc=$?; [ "$rc" -eq 1 ] || { echo "diff vazio ou erro no git diff (rc=$rc)"; exit 1; }
 ENTRADA="<scratchpad>/gate-sol-<N>-entrada.md"
 cat > "$ENTRADA" <<'PEDIDO'
 Revise este diff (FastAPI + SQLite no backend, React + TypeScript no frontend; dashboard de medições de obra pública). Objetivo da issue #<N>: <objetivo da issue em uma frase>. Procure bugs reais, nesta ordem: dinheiro (centavos, arredondamento, valor protocolado congelado, soma em dobro), estado da medição (transição inválida, estado mudado antes do ato externo dar certo), concorrência e envio duplicado de e-mail, auth e permissão por perfil, migração de banco destrutiva ou não idempotente, texto em inglês ou código interno na tela. Responda em português. Liste os achados por gravidade (Crítico, Aviso, Sugestão), cada um com arquivo:linha, o cenário concreto de falha e a correção. Sem achados, responda OK.
 
 DIFF:
 PEDIDO
-git diff origin/master...HEAD >> "$ENTRADA"
-codex exec -m gpt-5.6-sol -o "<scratchpad>/gate-sol-<N>.md" - < "$ENTRADA"
+git diff origin/master...HEAD >> "$ENTRADA" || { echo "git diff falhou"; exit 1; }
+rm -f "<scratchpad>/gate-sol-<N>.md"
+codex exec -m gpt-5.6-sol -o "<scratchpad>/gate-sol-<N>.md" - < "$ENTRADA" || { echo "codex falhou"; exit 1; }
 ```
 
 - `<N>` é o número da issue; `<scratchpad>` é a pasta temporária da sessão. O `-o` guarda só a resposta final;
