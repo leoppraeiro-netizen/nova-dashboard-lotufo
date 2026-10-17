@@ -13,8 +13,8 @@ import { hojeLocal } from "./tempo";
 //
 // O registro grava pelo mesmo POST de antes (/api/notas/envio-externo, que congela o valor protocolado, descarta o
 // rascunho do envio e guarda o .eml). O nº do processo no orgao segue por /api/notas/{id}/numero-orgao, que e'
-// onde o servidor guarda esse numero nos protocolos feitos por fora. O nº do oficio nao tem campo proprio no
-// registro por fora: vai na observacao, que fica na auditoria e na medicao.
+// onde o servidor guarda esse numero nos protocolos feitos por fora. O nº do oficio vai no campo proprio
+// (`numero_oficio`, issue #231), que o servidor normaliza e grava no protocolo da medicao; a observacao vai como digitada.
 // Issue #230: o registro segue a regra do envio (#213). Falta documento nao bloqueia: o servidor responde 422
 // CONFIRMAR_PENDENCIAS com a lista, o aviso "ATENÇÃO" (ConfirmarFaltas) pede a confirmacao e o registro daquele envio
 // vai de novo com a lista confirmada (`confirmadas`), que o servidor confere outra vez sob o lock.
@@ -53,7 +53,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
     const escolhidos = envios.filter(e => marcados.includes(e.chave));
     if (escolhidos.length === 0) { setErro("Marque o que saiu neste envio."); return; }
     // a observacao vira a justificativa da ressalva na auditoria: nao ha' texto padrao
-    const observacao = [oficio.trim() ? `Ofício ${oficio.trim()}` : "", obs.trim()].filter(Boolean).join(" · ");
+    const observacao = obs.trim();
     setOcupado(true); setErro("");
     const feitos: string[] = [];
     const semNumero: string[] = [];
@@ -67,6 +67,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
         for (const i of juntas) fd.append("irma_ids", String(i.medicao_id));
         fd.append("enviado_em", data);
         fd.append("observacao", observacao);
+        if (oficio.trim()) fd.append("numero_oficio", oficio.trim());
         if (eml) fd.append("eml", eml);
         for (const x of conf[e.chave] ?? []) fd.append("confirmadas", x);
         await apiForm("/api/notas/envio-externo", fd);
@@ -118,7 +119,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
           </div>
           <div className="campo">
             <label className="campo__rotulo" htmlFor="porfora-oficio">Nº do ofício (opcional)</label>
-            <input id="porfora-oficio" name="numero_oficio" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 1234/2026…"
+            <input id="porfora-oficio" name="numero_oficio" type="text" autoComplete="off" spellCheck={false} maxLength={40} placeholder="Ex.: 1234/2026…"
               value={oficio} onChange={e => setOficio(e.target.value)} />
           </div>
           <div className="campo">

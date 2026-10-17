@@ -103,6 +103,8 @@ def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(...
                   irma_ids: list[int] = Form(default=[]),       # issue #172: a irma marcada no formulario
                   # issue #230: o que falta, como a pessoa viu e confirmou no aviso "ATENÇÃO" (um campo por item)
                   confirmadas: list[str] = Form(default=[]),
+                  # issue #231: o oficio digitado, com o mesmo teto do `IniciarIn.numero_oficio`
+                  numero_oficio: str | None = Form(default=None, max_length=40),
                   usuario: dict = Depends(exigir("editar_cadastros")), conn: sqlite3.Connection = Depends(conexao)):
     try:            # os mesmos limites do `Confirmadas` das rotas JSON (api_protocolos)
         TypeAdapter(Confirmadas).validate_python(confirmadas)
@@ -116,7 +118,7 @@ def envio_externo(medicao_ids: list[int] = Form(...), enviado_em: str = Form(...
         arquivo = (eml.filename, dados)
     try:
         notas_envio.envio_externo(conn, usuario["id"], medicao_ids, enviado_em, observacao, arquivo, irma_ids,
-                                  confirmadas or None)
+                                  confirmadas or None, numero_oficio)
     except protocolo.ConfirmarPendencias as e:
         raise HTTPException(422, detail=e.detalhe()) from None
     except ValueError as e:

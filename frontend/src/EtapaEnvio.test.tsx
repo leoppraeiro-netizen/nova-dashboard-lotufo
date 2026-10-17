@@ -156,15 +156,28 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     expect(apiForm).not.toHaveBeenCalled();
   });
 
-  it("o ofício vai na observação e o processo no nº do órgão da medição", async () => {
+  it("o ofício vai no campo próprio (issue #231), a observação sai sem ele e o processo vai no nº do órgão da medição", async () => {
     const p = await abrir([envio()]);
     fireEvent.change(screen.getByLabelText("Nº do ofício (opcional)"), { target: { value: "360/2026" } });
     fireEvent.change(screen.getByLabelText("Nº do processo no órgão (opcional)"), { target: { value: "0001234-56.2026" } });
     fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
     await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
-    expect(String((apiForm.mock.calls[0][1] as FormData).get("observacao"))).toBe("Ofício 360/2026 · Pelo Outlook");
+    const fd = apiForm.mock.calls[0][1] as FormData;
+    expect([fd.get("numero_oficio"), fd.get("observacao")]).toEqual(["360/2026", "Pelo Outlook"]);
     expect(api).toHaveBeenCalledWith("/api/notas/631/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "0001234-56.2026" }) });
+  });
+
+  it("sem ofício, o registro não manda o campo e a observação vai como digitada", async () => {
+    const p = await abrir([envio()]);
+    // o mesmo teto do servidor (o do ofício no envio pelo sistema)
+    expect((screen.getByLabelText("Nº do ofício (opcional)") as HTMLInputElement).maxLength).toBe(40);
+    fireEvent.change(screen.getByLabelText("Nº do ofício (opcional)"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+    const fd = apiForm.mock.calls[0][1] as FormData;
+    expect([fd.has("numero_oficio"), fd.get("observacao")]).toEqual([false, "Pelo Outlook"]);
   });
 
   it("se o nº do processo não entrar, o envio já gravado não se perde: avisa e manda registrá-lo na etapa 4", async () => {
