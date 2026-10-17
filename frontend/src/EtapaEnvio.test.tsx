@@ -168,6 +168,18 @@ describe("Etapa 4: registrar envio feito fora do sistema", () => {
     expect(api).toHaveBeenCalledWith("/api/notas/631/numero-orgao", { method: "POST", body: JSON.stringify({ numero: "0001234-56.2026" }) });
   });
 
+  it("com mais de um envio marcado, o ofício fica fechado e não vai (cada envio tem o seu, como o processo)", async () => {
+    const p = await abrir(dois());
+    fireEvent.change(screen.getByLabelText("Nº do ofício (opcional)"), { target: { value: "360" } });
+    fireEvent.click(screen.getByLabelText(/Reajuste da 7ª medição/));
+    const campo = screen.getByLabelText("Nº do ofício (opcional)") as HTMLInputElement;
+    expect([campo.disabled, campo.value]).toEqual([true, ""]);
+    fireEvent.change(screen.getByLabelText(COMO), { target: { value: "Pelo Outlook" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar" }));
+    await waitFor(() => expect(p.aoMudar).toHaveBeenCalled());
+    expect(apiForm.mock.calls.map(c => (c[1] as FormData).has("numero_oficio"))).toEqual([false, false]);
+  });
+
   it("sem ofício, o registro não manda o campo e a observação vai como digitada", async () => {
     const p = await abrir([envio()]);
     // o mesmo teto do servidor (o do ofício no envio pelo sistema)

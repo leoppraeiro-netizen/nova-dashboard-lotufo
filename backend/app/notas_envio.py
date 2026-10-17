@@ -578,15 +578,15 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
 
 def _oficio_externo(conn, contrato_id: int, digitado: str | None, data: datetime.date) -> str | None:
     """Issue #231: o oficio digitado no registro por fora, normalizado como no envio pelo sistema (`iniciar`):
-    `oficios.canonico` com a sigla da entidade do contrato; o ano, sem ano digitado, e' o do envio (o oficio saiu
-    naquela data). Sem sigla, fica como digitado, sem os espacos das pontas."""
+    `oficios.canonico` com a sigla da entidade do contrato (LT sem entidade; entidade sem sigla, CARTA-NNN-AAAA).
+    O ano, sem ano digitado, e' o do envio: o oficio saiu naquela data."""
     texto = (digitado or "").strip()
     if not texto:
         return None
     c = protocolo._contrato(conn, contrato_id)
-    r = conn.execute("SELECT sigla_oficio FROM entidades WHERE id=?", (c["entidade_id"],)).fetchone() \
-        if c.get("entidade_id") else None
-    return oficios.canonico(texto, r["sigla_oficio"], data.year) if r and r["sigla_oficio"] else texto
+    sigla = conn.execute("SELECT sigla_oficio FROM entidades WHERE id=?",
+                         (c["entidade_id"],)).fetchone()["sigla_oficio"] if c.get("entidade_id") else "LT"
+    return oficios.canonico(texto, sigla, data.year)
 
 
 def _remover_eml_sem_registro(conn, rel: str) -> None:

@@ -67,7 +67,8 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
         for (const i of juntas) fd.append("irma_ids", String(i.medicao_id));
         fd.append("enviado_em", data);
         fd.append("observacao", observacao);
-        if (oficio.trim()) fd.append("numero_oficio", oficio.trim());
+        // como o processo: cada envio tem o seu oficio, entao so' vai com um envio marcado
+        if (oficio.trim() && escolhidos.length === 1) fd.append("numero_oficio", oficio.trim());
         if (eml) fd.append("eml", eml);
         for (const x of conf[e.chave] ?? []) fd.append("confirmadas", x);
         await apiForm("/api/notas/envio-externo", fd);
@@ -120,13 +121,13 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
           <div className="campo">
             <label className="campo__rotulo" htmlFor="porfora-oficio">Nº do ofício (opcional)</label>
             <input id="porfora-oficio" name="numero_oficio" type="text" autoComplete="off" spellCheck={false} maxLength={40} placeholder="Ex.: 1234/2026…"
-              value={oficio} onChange={e => setOficio(e.target.value)} />
+              value={oficio} disabled={marcados.length !== 1} onChange={e => setOficio(e.target.value)} />
           </div>
           <div className="campo">
             <label className="campo__rotulo" htmlFor="porfora-processo">Nº do processo no órgão (opcional)</label>
             <input id="porfora-processo" name="numero_processo" type="text" autoComplete="off" spellCheck={false} maxLength={100} placeholder="Ex.: 0001234-56.2026…"
               value={processo} disabled={marcados.length !== 1} onChange={e => setProcesso(e.target.value)} />
-            {marcados.length > 1 && <span className="campo__nota">Cada envio tem o seu: marque um só para informar.</span>}
+            {marcados.length > 1 && <span className="campo__nota">Cada envio tem o seu ofício e o seu processo: marque um só para informá-los.</span>}
           </div>
         </div>
         <div className="campo">
@@ -144,7 +145,7 @@ export default function RegistrarFora({ envios, medicaoId, aoFechar, aoFeito, ao
             <div key={e.chave} className="pilha">
               <label className="campo--linha">
                 <input type="checkbox" checked={marcados.includes(e.chave)}
-                  onChange={ev => { const novo = ev.target.checked ? [...marcados, e.chave] : marcados.filter(c => c !== e.chave); setMarcados(novo); if (novo.length > 1) setProcesso(""); }} />
+                  onChange={ev => { const novo = ev.target.checked ? [...marcados, e.chave] : marcados.filter(c => c !== e.chave); setMarcados(novo); if (novo.length > 1) { setProcesso(""); setOficio(""); } }} />
                 {e.descricao} · {notasDe(e)}
               </label>
               {(e.irmas ?? []).map(i => (
