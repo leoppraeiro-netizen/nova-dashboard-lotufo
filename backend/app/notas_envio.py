@@ -539,9 +539,10 @@ def faltas_externo(conn, ms: list[dict], hoje: datetime.date | None = None) -> l
 
 def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str, observacao: str,
                   eml: tuple[str, bytes] | None = None, irma_ids: list[int] | None = None,
-                  confirmadas: list[str] | None = None) -> None:
+                  confirmadas: list[str] | None = None, numero_oficio: str | None = None) -> None:
     """`irma_ids` (issue #172): a irma marcada no formulario, alem das medicoes do envio (`medicao_ids`).
     `confirmadas` (issue #230): o que falta, confirmado no aviso; sem ela ou diferente -> protocolo.ConfirmarPendencias.
+    `numero_oficio` (issue #231): o oficio digitado vai para o protocolo da medicao; vazio, o do ultimo envio dela.
     Conferida aqui e de novo sob o lock; a observacao continua obrigatoria."""
     irmas = set(irma_ids or [])
     ids = sorted(set(medicao_ids or []) | irmas)
@@ -559,6 +560,7 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     if not obs:
         raise ValueError("Informe a observação (como e para quem a nota foi enviada)")
     ms = _conferir_externo(conn, ids, irmas)
+    oficio = _oficio_externo(conn, ms[0]["contrato_id"], numero_oficio, data)
     if eml:
         if len(eml[1]) > TETO_EML:
             raise ValueError("Arquivo .eml acima de 25 MB")
@@ -567,11 +569,24 @@ def envio_externo(conn, usuario_id: int, medicao_ids: list[int], enviado_em: str
     protocolo._conferir_confirmacao(faltas_externo(conn, ms), confirmadas, REGISTRO_EXTERNO)
     gravado: dict = {}
     try:
-        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado, confirmadas)
+        _registrar_externo(conn, usuario_id, ids, irmas, data, obs, eml, gravado, confirmadas, oficio)
     except BaseException:
         if gravado.get("novo"):
             _remover_eml_sem_registro(conn, gravado["rel"])
         raise
+
+
+def _oficio_externo(conn, contrato_id: int, digitado: str | None, data: datetime.date) -> str | None:
+    """Issue #231: o oficio digitado no registro por fora, normalizado como no envio pelo sistema (`iniciar`):
+    `oficios.canonico` com a sigla da entidade do contrato (LT sem entidade; entidade sem sigla, CARTA-NNN-AAAA).
+    O ano, sem ano digitado, e' o do envio: o oficio saiu naquela data."""
+    texto = (digitado or "").strip()
+    if not texto:
+        return None
+    c = protocolo._contrato(conn, contrato_id)
+    sigla = conn.execute("SELECT sigla_oficio FROM entidades WHERE id=?",
+                         (c["entidade_id"],)).fetchone()["sigla_oficio"] if c.get("entidade_id") else "LT"
+    return oficios.canonico(texto, sigla, data.year)
 
 
 def _remover_eml_sem_registro(conn, rel: str) -> None:
@@ -595,7 +610,8 @@ def _remover_eml_sem_registro(conn, rel: str) -> None:
 
 
 def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], data: datetime.date, obs: str,
-                       eml: tuple[str, bytes] | None, gravado: dict, confirmadas: list[str] | None = None) -> None:
+                       eml: tuple[str, bytes] | None, gravado: dict, confirmadas: list[str] | None = None,
+                       oficio: str | None = None) -> None:
     rel = sha = None
     with db.mutacao(conn):
         try:
@@ -614,7 +630,7 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
                 gravado.update(rel=rel, novo=not ja_existia)
             for m in ms:
                 medicoes.registrar_protocolo(conn, usuario_id, m["id"], data.isoformat(),
-                                             protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
+                                             oficio or protocolo._oficio_da_medicao(conn, m["id"]), None, "manual",
                                              apesar_das_pendencias=True, justificativa=ressalva)
                 if faltam:      # quem confirmou e quando: o usuario e o carimbo da propria linha da auditoria
                     auditoria.registrar(conn, usuario_id, "protocolo.envio_confirmado", "medicao", m["id"], None,
@@ -630,6 +646,7 @@ def _registrar_externo(conn, usuario_id: int, ids: list[int], irmas: set[int], d
                         protocolo.descartar(conn, usuario_id, p["id"], "Envio registrado como feito por fora")
             auditoria.registrar(conn, usuario_id, "notas.envio_externo", "medicao", ids[0], None,
                                 {"medicoes": ids, "enviado_em": data.isoformat(), "observacao": obs, "eml": rel,
+                                 **({"numero_oficio": oficio} if oficio else {}),       # issue #231
                                  # revisor adversarial da PR #237: o registro do protocolo da medicao so' grava a
                                  # justificativa com certidao pendente; a ressalva "<observacao>; <lista>" fica aqui
                                  **({"confirmadas": faltam, "ressalva": f"{obs}; {protocolo.CONFIRMADO_COM_FALTA}"

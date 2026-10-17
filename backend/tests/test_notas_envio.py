@@ -357,6 +357,84 @@ def test_envio_feito_por_fora_e_numero_do_siga(api):
     assert r.status_code == 422                                         # ja' protocolada
 
 
+def _oficio_fora(c, mid):
+    return [r[0] for r in c.execute("SELECT numero_oficio FROM medicao_protocolos WHERE medicao_id=?", (mid,))]
+
+
+def test_registro_por_fora_grava_o_oficio_digitado_no_protocolo_da_medicao(api):
+    """Issue #231: o nº do ofício do registro por fora vai para o protocolo da medição (normalizado como no envio
+    pelo sistema, com a sigla da entidade e o ano do envio), e não mais só no texto da observação."""
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": " 360 "})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_exec"]) == ["CT-360-LT-2026"]
+    aud = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert aud["numero_oficio"] == "CT-360-LT-2026" and aud["observacao"] == "Pelo Outlook"
+
+
+def test_registro_por_fora_sem_oficio_segue_o_de_hoje(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": "  "})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_exec"]) == [None]
+    aud = json.loads(c.execute("SELECT depois FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0])
+    assert "numero_oficio" not in aud
+
+
+def test_registro_por_fora_usa_o_ano_do_envio_e_o_ano_digitado(api):
+    cl, c, ids = api
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2025-12-30",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": "12"})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_exec"]) == ["CT-012-LT-2025"]
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_reaj"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": "CT/361/LT/2025"})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_reaj"]) == ["CT-361-LT-2025"]
+
+
+def test_registro_por_fora_usa_a_sigla_como_o_envio_pelo_sistema(api):
+    """Como em `iniciar`: contrato sem entidade usa LT; entidade sem sigla (carta propria) vira CARTA-NNN-AAAA."""
+    cl, c, ids = api
+    c.execute("UPDATE contratos SET entidade_id=NULL WHERE id=?", (ids["mtpar"],)); c.commit()
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": " Ofício 360/2026 "})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_exec"]) == ["CT-360-LT-2026"]
+    c.execute("UPDATE entidades SET sigla_oficio=NULL"); c.commit()
+    r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["sinfra_exec"])], "enviado_em": "2026-09-15",
+                                                 "observacao": "Pelo Outlook", "numero_oficio": "48"})
+    assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["sinfra_exec"]) == ["CARTA-048-2026"]
+
+
+def test_registro_por_fora_sem_oficio_usa_o_do_ultimo_envio_e_o_digitado_vence(api):
+    cl, c, ids = api
+    for mid, oficio in ((ids["mtpar_exec"], ""), (ids["mtpar_reaj"], "361")):
+        pid = notas_envio.iniciar(c, 1, ids["mtpar"], [mid], "300")
+        c.execute("UPDATE protocolos SET situacao='enviado' WHERE id=?", (pid,)); c.commit()
+        r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(mid)], "enviado_em": "2026-09-15",
+                                                     "observacao": "Pelo Outlook", "numero_oficio": oficio})
+        assert r.status_code == 200, r.text
+    assert _oficio_fora(c, ids["mtpar_exec"]) == ["CT-300-LT-2026"]
+    assert _oficio_fora(c, ids["mtpar_reaj"]) == ["CT-361-LT-2026"]
+
+
+def test_registro_por_fora_recusa_oficio_sem_numero_ou_longo_sem_gravar_nada(api):
+    cl, c, ids = api
+    c.execute("UPDATE contratos SET entidade_id=NULL WHERE id=?", (ids["mtpar"],)); c.commit()   # sem sigla tambem
+    for oficio, trecho in (("por e-mail", "Informe o número do ofício"), ("1" * 41, None)):
+        r = cl.post("/api/notas/envio-externo", data={"medicao_ids": [str(ids["mtpar_exec"])], "enviado_em": "2026-09-15",
+                                                     "observacao": "Pelo Outlook", "numero_oficio": oficio})
+        assert r.status_code == 422, r.text
+        if trecho:
+            assert trecho in r.json()["detail"]
+    assert _oficio_fora(c, ids["mtpar_exec"]) == []
+    assert c.execute("SELECT COUNT(*) FROM audit_log WHERE acao='notas.envio_externo'").fetchone()[0] == 0
+
+
 EML = (b"From: Engenharia <engenharia@exemplo.com.br>\r\nTo: sinfra@orgao-a.exemplo.com.br\r\n"
        b"Date: Tue, 15 Sep 2026 10:00:00 -0400\r\nSubject: 23 medicao e reajuste\r\n\r\ncorpo")
 
